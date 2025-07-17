@@ -4,8 +4,28 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Loader2, X, Send } from "lucide-react";
 
+// Types
+interface ChatSettings {
+  chat_name: string;
+  chat_color: string;
+  chat_icon_url?: string;
+  chat_name_color: string;
+  chat_bubble_icon_color: string;
+  input_placeholder: string;
+  font_size: string;
+}
+
+interface ChatWidgetProps {
+  session: unknown;
+  chatSettings: ChatSettings;
+  siteId: string;
+  introMessage: string;
+  apiUrl?: string;
+  isEmbedded?: boolean;
+}
+
 // Custom Chat Icon Component (preserving the original design)
-const ChatIcon = ({ color = '#fff', ...props }) => (
+const ChatIcon = ({ color = '#fff', ...props }: { color?: string; [key: string]: unknown }) => (
   <svg
     width="28"
     height="28"
@@ -19,7 +39,7 @@ const ChatIcon = ({ color = '#fff', ...props }) => (
   </svg>
 );
 
-function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introMessage: initialIntroMessage, apiUrl = '', isEmbedded = false }) {
+function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introMessage: initialIntroMessage, apiUrl = '', isEmbedded = false }: ChatWidgetProps) {
   console.log('ChatWidget received apiUrl:', apiUrl); // Debug log
   
   // Initialize messages with intro message if available
