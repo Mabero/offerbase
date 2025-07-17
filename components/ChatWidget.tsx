@@ -242,7 +242,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
     });
 
     try {
-      const headers = {
+      const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'x-site-id': siteId
       };
