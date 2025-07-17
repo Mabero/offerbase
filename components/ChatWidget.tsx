@@ -60,7 +60,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(isEmbedded); // Auto-open if embedded
-  const messagesEndRef = useRef(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [internalIntroMessage, setInternalIntroMessage] = useState(initialIntroMessage || '');
   const [chatSettings, setChatSettings] = useState(initialChatSettings);
   const [introMessage, setIntroMessage] = useState(initialIntroMessage);
