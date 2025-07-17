@@ -7,7 +7,8 @@
       "Bash(curl:*)",
       "Bash(npx:*)",
       "Bash(find:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git add:*)"
     ],
     "deny": []
   }

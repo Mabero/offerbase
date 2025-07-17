@@ -20,8 +20,9 @@ export async function addTask(name: string) {
     revalidatePath('/tasks')
     
     return { success: true, data: task }
-  } catch (error: any) {
-    console.error('Error adding task:', error.message)
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    console.error('Error adding task:', errorMessage)
     throw new Error('Failed to add task')
   }
 }

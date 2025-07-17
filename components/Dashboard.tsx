@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useUser } from '@clerk/nextjs';
+import Image from 'next/image';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -102,10 +103,9 @@ interface ChatStats {
   satisfactionRate: number;
 }
 
-function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps) {
+function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: DashboardProps) {
   // Get user from Clerk
   const { user, isLoaded } = useUser();
-  const userId = user?.id || 'default-user';
   
   // State management - preserving exact same state structure
   const [selectedTab, setSelectedTab] = useState(0);
@@ -117,7 +117,6 @@ function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps)
     title: '',
     description: '',
   });
-  const [editingLink, setEditingLink] = useState<AffiliateLink | null>(null);
   const [chatSettings, setChatSettings] = useState<ChatSettings>({
     chat_name: 'Affi',
     chat_color: '#000000',
@@ -129,13 +128,10 @@ function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps)
   });
   const [sites, setSites] = useState<Site[]>([]);
   const [selectedSite, setSelectedSite] = useState<Site | null>(null);
-  const [newSiteName, setNewSiteName] = useState('');
   const [introMessage, setIntroMessage] = useState('Hello! How can I help you today?');
   const [isSaving, setIsSaving] = useState(false);
-  const [editingSite, setEditingSite] = useState<Site | null>(null);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [instructions, setInstructions] = useState(BASE_INSTRUCTIONS);
-  const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [chatStats, setChatStats] = useState<ChatStats>({
     totalChats: 0,
@@ -144,18 +140,10 @@ function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps)
     satisfactionRate: 0
   });
   const [isSupabaseConfiguredState, setIsSupabaseConfiguredState] = useState<boolean | null>(null);
-  const [itemToDelete, setItemToDelete] = useState<AffiliateLink | TrainingMaterial | Site | null>(null);
-  const [deleteType, setDeleteType] = useState<'link' | 'training' | 'site' | null>(null);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [isSiteDialogOpen, setIsSiteDialogOpen] = useState(false);
-  const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
-  const [isSessionDialogOpen, setIsSessionDialogOpen] = useState(false);
   const [useDirectWidget, setUseDirectWidget] = useState(false);
 
   // Refs for cleanup
   const isMountedRef = useRef(true);
-  const timersRef = useRef<NodeJS.Timeout[]>([]);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   const { toast } = useToast();
 
@@ -194,7 +182,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps)
         title: "Success",
         description: "Offer link added successfully"
       });
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to add offer link",
@@ -205,15 +193,12 @@ function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps)
     }
   };
 
-  const handleEditLink = (link: AffiliateLink) => {
-    setEditingLink(link);
-    setIsEditDialogOpen(true);
+  const handleEditLink = (_link: AffiliateLink) => {
+    // TODO: Implement edit functionality
   };
 
-  const handleDeleteLink = (link: AffiliateLink) => {
-    setItemToDelete(link);
-    setDeleteType('link');
-    setIsDeleteDialogOpen(true);
+  const handleDeleteLink = (_link: AffiliateLink) => {
+    // TODO: Implement delete functionality
   };
 
   const handleAddTrainingMaterial = async (data: { url: string }) => {
@@ -246,7 +231,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps)
         title: "Success",
         description: "Training material added successfully"
       });
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to add training material",
@@ -257,10 +242,8 @@ function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps)
     }
   };
 
-  const handleDeleteTrainingMaterial = (material: TrainingMaterial) => {
-    setItemToDelete(material);
-    setDeleteType('training');
-    setIsDeleteDialogOpen(true);
+  const handleDeleteTrainingMaterial = (_material: TrainingMaterial) => {
+    // TODO: Implement delete functionality
   };
 
   const handleSaveChatSettings = async () => {
@@ -273,7 +256,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps)
         title: "Success",
         description: "Chat settings saved successfully"
       });
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to save chat settings",
@@ -294,7 +277,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps)
         title: "Success",
         description: "Instructions saved successfully"
       });
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to save instructions",
@@ -321,7 +304,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps)
         title: "Success",
         description: "Chat logs refreshed"
       });
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to refresh chat logs",
@@ -332,9 +315,8 @@ function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps)
     }
   };
 
-  const handleViewSession = (session: ChatSession) => {
-    setSelectedSession(session);
-    setIsSessionDialogOpen(true);
+  const handleViewSession = (_session: ChatSession) => {
+    // TODO: Implement session view functionality
   };
 
   // Check if Supabase is configured
@@ -348,13 +330,6 @@ function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps)
   React.useEffect(() => {
     setIsSupabaseConfiguredState(isSupabaseConfigured());
   }, [isSupabaseConfigured]);
-
-  // Safe state setter
-  const safeSetState = useCallback((setter: React.Dispatch<React.SetStateAction<unknown>>, value: unknown) => {
-    if (isMountedRef.current) {
-      setter(value);
-    }
-  }, []);
 
   // Initialize demo data
   useEffect(() => {
@@ -470,7 +445,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps)
         <div className="w-60 bg-white border-r border-gray-200 flex flex-col overflow-hidden h-screen fixed left-0 top-0 z-50">
           {/* Header */}
           <div className="flex items-center justify-center px-4 py-5 border-b border-gray-200 bg-white">
-            <img src="/offerbase-logo.svg" alt="Offerbase Logo" className="h-6" />
+            <Image src="/offerbase-logo.svg" alt="Offerbase Logo" className="h-6" width={120} height={24} />
           </div>
 
           {/* Navigation */}
