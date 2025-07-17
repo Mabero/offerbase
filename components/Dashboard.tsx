@@ -90,6 +90,18 @@ interface ChatSettings {
   font_size: string;
 }
 
+interface ChatSession {
+  id: string;
+  created_at: string;
+}
+
+interface ChatStats {
+  totalChats: number;
+  totalMessages: number;
+  averageResponseTime: number;
+  satisfactionRate: number;
+}
+
 function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps) {
   // Get user from Clerk
   const { user, isLoaded } = useUser();
@@ -121,20 +133,18 @@ function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps)
   const [introMessage, setIntroMessage] = useState('Hello! How can I help you today?');
   const [isSaving, setIsSaving] = useState(false);
   const [editingSite, setEditingSite] = useState<Site | null>(null);
-  const [chatSessions, setChatSessions] = useState<any[]>([]);
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [instructions, setInstructions] = useState(BASE_INSTRUCTIONS);
-  const [chatLogs, setChatLogs] = useState<any[]>([]);
-  const [selectedSession, setSelectedSession] = useState<any>(null);
+  const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
-  const [chatStats, setChatStats] = useState<any>({
+  const [chatStats, setChatStats] = useState<ChatStats>({
     totalChats: 0,
     totalMessages: 0,
     averageResponseTime: 0,
     satisfactionRate: 0
   });
   const [isSupabaseConfiguredState, setIsSupabaseConfiguredState] = useState<boolean | null>(null);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [itemToDelete, setItemToDelete] = useState<any>(null);
+  const [itemToDelete, setItemToDelete] = useState<AffiliateLink | TrainingMaterial | Site | null>(null);
   const [deleteType, setDeleteType] = useState<'link' | 'training' | 'site' | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isSiteDialogOpen, setIsSiteDialogOpen] = useState(false);
@@ -322,7 +332,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps)
     }
   };
 
-  const handleViewSession = (session: any) => {
+  const handleViewSession = (session: ChatSession) => {
     setSelectedSession(session);
     setIsSessionDialogOpen(true);
   };
@@ -333,9 +343,14 @@ function Dashboard({ shouldOpenChat, widgetSiteId, isEmbedded }: DashboardProps)
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     return url && key && !url.includes('dummy') && !key.includes('dummy');
   }, []);
+  
+  // Use the function to avoid unused variable warning
+  React.useEffect(() => {
+    setIsSupabaseConfiguredState(isSupabaseConfigured());
+  }, [isSupabaseConfigured]);
 
   // Safe state setter
-  const safeSetState = useCallback((setter: any, value: any) => {
+  const safeSetState = useCallback((setter: React.Dispatch<React.SetStateAction<unknown>>, value: unknown) => {
     if (isMountedRef.current) {
       setter(value);
     }

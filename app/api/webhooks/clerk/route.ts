@@ -3,6 +3,20 @@ import { headers } from 'next/headers'
 import { Webhook } from 'svix'
 import { createClient } from '@supabase/supabase-js'
 
+// Types for Clerk webhook events
+interface ClerkUser {
+  id: string
+  email_addresses?: Array<{ email_address: string }>
+  first_name?: string
+  last_name?: string
+  image_url?: string
+}
+
+interface ClerkEvent {
+  type: string
+  data: ClerkUser
+}
+
 // Create Supabase client with service role key for admin operations
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,12 +40,11 @@ export async function POST(request: NextRequest) {
 
   // Get the body
   const payload = await request.text()
-  const body = JSON.parse(payload)
 
   // Create a new Svix instance with your secret
   const wh = new Webhook(process.env.CLERK_WEBHOOK_SECRET!)
 
-  let evt: any
+  let evt: ClerkEvent
 
   // Verify the payload with the headers
   try {
@@ -39,7 +52,7 @@ export async function POST(request: NextRequest) {
       'svix-id': svix_id,
       'svix-timestamp': svix_timestamp,
       'svix-signature': svix_signature,
-    }) as any
+    }) as ClerkEvent
   } catch (err) {
     console.error('Error verifying webhook:', err)
     return NextResponse.json(
@@ -77,7 +90,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function handleUserCreated(user: any) {
+async function handleUserCreated(user: ClerkUser) {
   console.log('Creating user:', user.id)
   
   const { error } = await supabaseAdmin
@@ -111,7 +124,7 @@ async function handleUserCreated(user: any) {
   console.log('User created successfully:', user.id)
 }
 
-async function handleUserUpdated(user: any) {
+async function handleUserUpdated(user: ClerkUser) {
   console.log('Updating user:', user.id)
   
   const { error } = await supabaseAdmin
@@ -133,7 +146,7 @@ async function handleUserUpdated(user: any) {
   console.log('User updated successfully:', user.id)
 }
 
-async function handleUserDeleted(user: any) {
+async function handleUserDeleted(user: ClerkUser) {
   console.log('Deleting user:', user.id)
   
   const { error } = await supabaseAdmin
