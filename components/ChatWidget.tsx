@@ -15,6 +15,31 @@ interface ChatSettings {
   font_size: string;
 }
 
+interface Session {
+  user?: {
+    id: string;
+  };
+}
+
+interface MessageContent {
+  type: 'message' | 'links';
+  message: string;
+  links?: Link[];
+}
+
+interface Message {
+  type: 'user' | 'bot';
+  content: string | MessageContent;
+}
+
+interface Link {
+  url: string;
+  name: string;
+  description: string;
+  image_url?: string;
+  button_text?: string;
+}
+
 // Extend Window interface for custom properties
 declare global {
   interface Window {
@@ -23,7 +48,7 @@ declare global {
 }
 
 interface ChatWidgetProps {
-  session: unknown;
+  session: Session | null;
   chatSettings: ChatSettings;
   siteId: string;
   introMessage: string;
@@ -50,7 +75,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
   console.log('ChatWidget received apiUrl:', apiUrl); // Debug log
   
   // Initialize messages with intro message if available
-  const getInitialMessages = () => {
+  const getInitialMessages = (): Message[] => {
     if (initialIntroMessage && initialIntroMessage.trim()) {
       return [{
         type: 'bot',
@@ -63,7 +88,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
     return [];
   };
   
-  const [messages, setMessages] = useState(getInitialMessages);
+  const [messages, setMessages] = useState<Message[]>(getInitialMessages);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(isEmbedded); // Auto-open if embedded
@@ -173,7 +198,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
 
   // Listen for settings updates
   useEffect(() => {
-    const handleSettingsUpdate = (event) => {
+    const handleSettingsUpdate = (event: CustomEvent<ChatSettings & { introMessage: string }>) => {
       const newSettings = event.detail;
       setChatSettings(newSettings);
       if (newSettings.introMessage !== introMessage) {
@@ -189,8 +214,8 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
       }
     };
 
-    window.addEventListener('chat-settings-updated', handleSettingsUpdate);
-    return () => window.removeEventListener('chat-settings-updated', handleSettingsUpdate);
+    window.addEventListener('chat-settings-updated', handleSettingsUpdate as EventListener);
+    return () => window.removeEventListener('chat-settings-updated', handleSettingsUpdate as EventListener);
   }, [introMessage]);
 
   // Analytics: track message sent
@@ -282,7 +307,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
   };
 
   // Analytics: track link clicks in bot messages
-  const handleLinkClick = (link) => {
+  const handleLinkClick = (link: Link) => {
     fetch(`${apiUrl}/api/analytics`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -297,7 +322,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
     });
   };
 
-  const renderMessage = (message) => {
+  const renderMessage = (message: Message) => {
     if (message.type === 'user') {
       return (
         <div className="flex justify-end mb-3 items-end">
@@ -313,7 +338,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
       );
     }
 
-    const botContent = message.content;
+    const botContent = message.content as MessageContent;
     if (botContent.type === 'links') {
       return (
         <div className="flex justify-start mb-3 items-start">
@@ -334,7 +359,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
             </div>
             
             <div className="space-y-3">
-              {botContent.links.map((link, index) => (
+              {botContent.links?.map((link, index) => (
                 <div
                   key={index}
                   className="bg-white/90 backdrop-blur-md border border-white/40 rounded-2xl p-4 shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 min-w-[220px] max-w-[340px]"
