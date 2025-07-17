@@ -65,7 +65,7 @@ export interface Task {
 
 // Sites
 export async function getUserSites(userId: string): Promise<Site[]> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data, error } = await supabase
     .from('sites')
     .select('*')
@@ -77,7 +77,7 @@ export async function getUserSites(userId: string): Promise<Site[]> {
 }
 
 export async function createSite(name: string, userId: string): Promise<Site> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data, error } = await supabase
     .from('sites')
     .insert({ name, user_id: userId })
@@ -89,7 +89,7 @@ export async function createSite(name: string, userId: string): Promise<Site> {
 }
 
 export async function updateSite(siteId: string, name: string): Promise<Site> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data, error } = await supabase
     .from('sites')
     .update({ name })
@@ -102,7 +102,7 @@ export async function updateSite(siteId: string, name: string): Promise<Site> {
 }
 
 export async function deleteSite(siteId: string): Promise<void> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { error } = await supabase
     .from('sites')
     .delete()
@@ -113,7 +113,7 @@ export async function deleteSite(siteId: string): Promise<void> {
 
 // Affiliate Links
 export async function getSiteAffiliateLinks(siteId: string): Promise<AffiliateLink[]> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data, error } = await supabase
     .from('affiliate_links')
     .select('*')
@@ -130,7 +130,7 @@ export async function createAffiliateLink(
   title: string,
   description?: string
 ): Promise<AffiliateLink> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data, error } = await supabase
     .from('affiliate_links')
     .insert({ site_id: siteId, url, title, description })
@@ -145,7 +145,7 @@ export async function updateAffiliateLink(
   linkId: string,
   updates: Partial<Pick<AffiliateLink, 'url' | 'title' | 'description'>>
 ): Promise<AffiliateLink> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data, error } = await supabase
     .from('affiliate_links')
     .update(updates)
@@ -158,7 +158,7 @@ export async function updateAffiliateLink(
 }
 
 export async function deleteAffiliateLink(linkId: string): Promise<void> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { error } = await supabase
     .from('affiliate_links')
     .delete()
@@ -169,7 +169,7 @@ export async function deleteAffiliateLink(linkId: string): Promise<void> {
 
 // Training Materials
 export async function getSiteTrainingMaterials(siteId: string): Promise<TrainingMaterial[]> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data, error } = await supabase
     .from('training_materials')
     .select('*')
@@ -185,7 +185,7 @@ export async function createTrainingMaterial(
   url: string,
   title: string
 ): Promise<TrainingMaterial> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data, error } = await supabase
     .from('training_materials')
     .insert({ site_id: siteId, url, title })
@@ -197,7 +197,7 @@ export async function createTrainingMaterial(
 }
 
 export async function deleteTrainingMaterial(materialId: string): Promise<void> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { error } = await supabase
     .from('training_materials')
     .delete()
@@ -208,7 +208,7 @@ export async function deleteTrainingMaterial(materialId: string): Promise<void> 
 
 // Chat Settings
 export async function getSiteChatSettings(siteId: string): Promise<ChatSettings | null> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data, error } = await supabase
     .from('chat_settings')
     .select('*')
@@ -229,7 +229,7 @@ export async function createOrUpdateChatSettings(
   siteId: string,
   settings: Partial<Omit<ChatSettings, 'id' | 'site_id' | 'created_at' | 'updated_at'>>
 ): Promise<ChatSettings> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   
   // Try to update first
   const { data: existingData, error: selectError } = await supabase
@@ -268,7 +268,7 @@ export async function createOrUpdateChatSettings(
 
 // Tasks
 export async function getUserTasks(userId: string): Promise<Task[]> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data, error } = await supabase
     .from('tasks')
     .select('*')
@@ -284,7 +284,7 @@ export async function createTask(
   userId: string,
   siteId?: string
 ): Promise<Task> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data, error } = await supabase
     .from('tasks')
     .insert({ name, user_id: userId, site_id: siteId })
@@ -299,7 +299,7 @@ export async function updateTask(
   taskId: string,
   updates: Partial<Pick<Task, 'name' | 'completed'>>
 ): Promise<Task> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { data, error } = await supabase
     .from('tasks')
     .update(updates)
@@ -312,7 +312,7 @@ export async function updateTask(
 }
 
 export async function deleteTask(taskId: string): Promise<void> {
-  const supabase = createServerSupabaseClient()
+  const supabase = await createServerSupabaseClient()
   const { error } = await supabase
     .from('tasks')
     .delete()
