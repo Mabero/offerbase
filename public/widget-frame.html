@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Widget Frame</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+                'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+                sans-serif;
+            background: transparent;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+        
+        #chat-widget-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+        
+        .loading-spinner {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+        
+        .error-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="chat-widget-container">
+        <div class="loading-spinner"></div>
+    </div>
+    
+    <script>
+        // Get URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const siteId = urlParams.get('siteId');
+        const apiUrl = urlParams.get('apiUrl');
+        const embedded = urlParams.get('embedded') === 'true';
+        
+        // Configuration
+        const config = {
+            siteId: siteId || 'demo-site',
+            apiUrl: decodeURIComponent(apiUrl || 'https://choosly.onrender.com'),
+            embedded: embedded
+        };
+        
+        console.log('Widget frame config:', config);
+        
+        // Load React and other dependencies
+        const loadScript = (src) => {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+        };
+        
+        const loadCSS = (href) => {
+            return new Promise((resolve, reject) => {
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = href;
+                link.onload = resolve;
+                link.onerror = reject;
+                document.head.appendChild(link);
+            });
+        };
+        
+        // Initialize widget
+        async function initializeWidget() {
+            try {
+                // Load Tailwind CSS
+                await loadCSS('https://cdn.tailwindcss.com');
+                
+                // Load React dependencies
+                await loadScript('https://unpkg.com/react@18/umd/react.production.min.js');
+                await loadScript('https://unpkg.com/react-dom@18/umd/react-dom.production.min.js');
+                
+                // Create React element for ChatWidget
+                const ChatWidgetComponent = React.createElement('div', {
+                    id: 'chat-widget-react-root',
+                    style: { width: '100%', height: '100%' }
+                });
+                
+                // For now, show a placeholder until we have the actual widget
+                const placeholder = React.createElement('div', {
+                    style: {
+                        width: '100%',
+                        height: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: '#f9fafb',
+                        color: '#6b7280',
+                        fontSize: '14px',
+                        fontFamily: 'Inter, system-ui, sans-serif'
+                    }
+                }, 'Chat Widget Loading...');
+                
+                // Remove loading spinner
+                document.querySelector('.loading-spinner').remove();
+                
+                // Render placeholder
+                ReactDOM.render(placeholder, document.getElementById('chat-widget-container'));
+                
+                // TODO: Load actual ChatWidget component once we have proper module system
+                console.log('Widget frame initialized with config:', config);
+                
+            } catch (error) {
+                console.error('Failed to initialize widget:', error);
+                document.getElementById('chat-widget-container').innerHTML = 
+                    '<div class="error-message">Failed to load chat widget. Please try again.</div>';
+            }
+        }
+        
+        // Start initialization
+        initializeWidget();
+        
+        // Listen for messages from parent window
+        window.addEventListener('message', (event) => {
+            if (event.data.type === 'CHAT_SETTINGS_UPDATE') {
+                console.log('Received settings update:', event.data.settings);
+                // TODO: Update widget settings
+            }
+        });
+        
+        // Notify parent that widget is ready
+        window.addEventListener('load', () => {
+            if (window.parent !== window) {
+                window.parent.postMessage({
+                    type: 'WIDGET_READY',
+                    siteId: config.siteId
+                }, '*');
+            }
+        });
+    </script>
+</body>
+</html>
