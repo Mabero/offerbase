@@ -141,6 +141,8 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   });
   const [isSupabaseConfiguredState, setIsSupabaseConfiguredState] = useState<boolean | null>(null);
   const [useDirectWidget, setUseDirectWidget] = useState(false);
+  const [isSiteDialogOpen, setIsSiteDialogOpen] = useState(false);
+  const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
 
   // Refs for cleanup
   const isMountedRef = useRef(true);
@@ -320,10 +322,10 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   };
 
   // Check if Supabase is configured
-  const isSupabaseConfigured = useCallback(() => {
+  const isSupabaseConfigured = useCallback((): boolean => {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    return url && key && !url.includes('dummy') && !key.includes('dummy');
+    return Boolean(url && key && !url.includes('dummy') && !key.includes('dummy'));
   }, []);
   
   // Use the function to avoid unused variable warning
