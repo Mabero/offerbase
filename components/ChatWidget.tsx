@@ -27,10 +27,17 @@ interface MessageContent {
   links?: Link[];
 }
 
-interface Message {
-  type: 'user' | 'bot';
-  content: string | MessageContent;
+interface UserMessage {
+  type: 'user';
+  content: string;
 }
+
+interface BotMessage {
+  type: 'bot';
+  content: MessageContent;
+}
+
+type Message = UserMessage | BotMessage;
 
 interface Link {
   url: string;
@@ -83,7 +90,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
           type: 'message',
           message: initialIntroMessage
         }
-      }];
+      } as BotMessage];
     }
     return [];
   };
@@ -122,7 +129,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
           type: 'message',
           message: initialIntroMessage
         }
-      }]);
+      } as BotMessage]);
     }
   }, [initialIntroMessage]);
 
@@ -159,7 +166,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
           type: 'message',
           message: window.lastChatIntroMessage
         }
-      }]);
+      } as BotMessage]);
     }
     
     const handler = () => {
@@ -171,7 +178,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
             type: 'message',
             message: window.lastChatIntroMessage
           }
-        }]);
+        } as BotMessage]);
       }
     };
     window.addEventListener('chat-intro-message', handler);
@@ -210,7 +217,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
             type: 'message',
             message: newSettings.introMessage
           }
-        }]);
+        } as BotMessage]);
       }
     };
 
@@ -224,7 +231,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
 
     const userMessage = inputMessage;
     setInputMessage('');
-    setMessages(prev => [...prev, { type: 'user', content: userMessage }]);
+    setMessages(prev => [...prev, { type: 'user', content: userMessage } as UserMessage]);
     setIsLoading(true);
 
     // Fire analytics event (non-blocking)
@@ -256,19 +263,19 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
       const conversationHistory = messages
         .filter(msg => {
           // Skip intro messages that are just the default greeting
-          if (msg.type === 'bot' && msg.content?.type === 'message') {
+          if (msg.type === 'bot' && msg.content.type === 'message') {
             const content = msg.content.message;
             // Add safety check to prevent undefined.includes() error
             if (content && typeof content === 'string') {
-            const isIntroMessage = content.includes('Hi! I am') || content.includes('How can I help');
-            return !isIntroMessage;
+              const isIntroMessage = content.includes('Hi! I am') || content.includes('How can I help');
+              return !isIntroMessage;
             }
           }
           return true;
         })
         .map(msg => ({
           role: msg.type === 'user' ? 'user' : 'assistant',
-          content: msg.type === 'user' ? msg.content : msg.content?.message || ''
+          content: msg.type === 'user' ? msg.content : msg.content.message || ''
         }))
         .filter(msg => msg.content.trim().length > 0); // Remove empty messages
 
@@ -291,7 +298,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
       }
 
       const data = await response.json();
-      setMessages(prev => [...prev, { type: 'bot', content: data }]);
+      setMessages(prev => [...prev, { type: 'bot', content: data } as BotMessage]);
     } catch (error) {
       console.error('Error:', error);
       setMessages(prev => [...prev, {
@@ -300,7 +307,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
           type: 'message',
           message: 'Sorry, I encountered an error. Please try again.'
         }
-      }]);
+      } as BotMessage]);
     } finally {
       setIsLoading(false);
     }
@@ -338,7 +345,8 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
       );
     }
 
-    const botContent = message.content as MessageContent;
+    // Bot message - content is always MessageContent
+    const botContent = message.content;
     if (botContent.type === 'links') {
       return (
         <div className="flex justify-start mb-3 items-start">
