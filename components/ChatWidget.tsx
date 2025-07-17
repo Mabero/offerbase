@@ -15,6 +15,13 @@ interface ChatSettings {
   font_size: string;
 }
 
+// Extend Window interface for custom properties
+declare global {
+  interface Window {
+    lastChatIntroMessage?: string;
+  }
+}
+
 interface ChatWidgetProps {
   session: unknown;
   chatSettings: ChatSettings;
