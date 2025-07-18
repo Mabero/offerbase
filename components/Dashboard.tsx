@@ -37,6 +37,7 @@ import {
 import { supabase } from '../lib/supabaseClient';
 import { BASE_INSTRUCTIONS } from '../lib/instructions';
 import ChatWidget from './ChatWidget';
+import { SiteSelectionDialog } from './site-selection-dialog';
 
 const drawerWidth = 240;
 
@@ -60,8 +61,9 @@ interface DashboardProps {
 interface Site {
   id: string;
   name: string;
-  user_id: string;
+  user_id?: string;
   created_at: string;
+  updated_at: string;
 }
 
 interface AffiliateLink {
@@ -143,6 +145,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   const [useDirectWidget, setUseDirectWidget] = useState(false);
   const [isSiteDialogOpen, setIsSiteDialogOpen] = useState(false);
   const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
+  const [isLoadingSites, setIsLoadingSites] = useState(false);
 
   // Refs for cleanup
   const isMountedRef = useRef(true);
@@ -151,6 +154,83 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
 
   // API URL
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://choosly.onrender.com';
+
+  // Site management functions
+  const loadSitesFromAPI = async () => {
+    if (isSupabaseConfiguredState === false) return; // Skip if using demo mode
+    
+    setIsLoadingSites(true);
+    try {
+      const response = await fetch('/api/sites');
+      const data = await response.json();
+      
+      if (response.ok) {
+        setSites(data.sites);
+        // If no site is selected but we have sites, select the first one
+        if (!selectedSite && data.sites.length > 0) {
+          setSelectedSite(data.sites[0]);
+        }
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to load sites",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load sites",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoadingSites(false);
+    }
+  };
+
+  const handleSiteChange = () => {
+    // Reload site data and refresh any site-specific data
+    loadSitesFromAPI();
+    // Reload data for the currently selected site
+    if (selectedSite) {
+      loadAffiliateLinks(selectedSite.id);
+      loadTrainingMaterials(selectedSite.id);
+    }
+  };
+
+  const loadAffiliateLinks = async (siteId: string) => {
+    if (isSupabaseConfiguredState === false) return; // Skip if using demo mode
+    
+    try {
+      const response = await fetch(`/api/affiliate-links?siteId=${siteId}`);
+      const data = await response.json();
+      
+      if (response.ok) {
+        setAffiliateLinks(data.links);
+      } else {
+        console.error('Failed to load affiliate links:', data.error);
+      }
+    } catch (error) {
+      console.error('Error loading affiliate links:', error);
+    }
+  };
+
+  const loadTrainingMaterials = async (siteId: string) => {
+    if (isSupabaseConfiguredState === false) return; // Skip if using demo mode
+    
+    try {
+      const response = await fetch(`/api/training-materials?siteId=${siteId}`);
+      const data = await response.json();
+      
+      if (response.ok) {
+        setTrainingMaterials(data.materials);
+      } else {
+        console.error('Failed to load training materials:', data.error);
+      }
+    } catch (error) {
+      console.error('Error loading training materials:', error);
+    }
+  };
 
   // Handler functions
   const handleAddLink = async () => {
@@ -162,32 +242,66 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       });
       return;
     }
+
+    if (!selectedSite) {
+      toast({
+        title: "Error",
+        description: "Please select a site first",
+        variant: "destructive"
+      });
+      return;
+    }
     
     setIsSaving(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (isSupabaseConfiguredState === false) {
+        // Demo mode - simulate API call
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        const link: AffiliateLink = {
+          id: Date.now().toString(),
+          url: newLink.url,
+          title: newLink.title,
+          description: newLink.description,
+          site_id: selectedSite.id,
+          created_at: new Date().toISOString()
+        };
+        
+        setAffiliateLinks(prev => [...prev, link]);
+      } else {
+        // Real API call
+        const response = await fetch('/api/affiliate-links', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            siteId: selectedSite.id,
+            url: newLink.url,
+            title: newLink.title,
+            description: newLink.description
+          }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          setAffiliateLinks(prev => [...prev, data.link]);
+        } else {
+          throw new Error(data.error || 'Failed to add offer link');
+        }
+      }
       
-      const link: AffiliateLink = {
-        id: Date.now().toString(),
-        url: newLink.url,
-        title: newLink.title,
-        description: newLink.description,
-        site_id: selectedSite?.id || 'default',
-        created_at: new Date().toISOString()
-      };
-      
-      setAffiliateLinks(prev => [...prev, link]);
       setNewLink({ url: '', title: '', description: '' });
       
       toast({
         title: "Success",
         description: "Offer link added successfully"
       });
-    } catch {
+    } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to add offer link",
+        description: error instanceof Error ? error.message : "Failed to add offer link",
         variant: "destructive"
       });
     } finally {
@@ -199,8 +313,39 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     // TODO: Implement edit functionality
   };
 
-  const handleDeleteLink = (_link: AffiliateLink) => {
-    // TODO: Implement delete functionality
+  const handleDeleteLink = async (link: AffiliateLink) => {
+    if (isSupabaseConfiguredState === false) {
+      // Demo mode - just remove from state
+      setAffiliateLinks(prev => prev.filter(l => l.id !== link.id));
+      toast({
+        title: "Success",
+        description: "Offer link deleted successfully"
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/affiliate-links/${link.id}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        setAffiliateLinks(prev => prev.filter(l => l.id !== link.id));
+        toast({
+          title: "Success",
+          description: "Offer link deleted successfully"
+        });
+      } else {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to delete offer link');
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete offer link",
+        variant: "destructive"
+      });
+    }
   };
 
   const handleAddTrainingMaterial = async (data: { url: string }) => {
@@ -212,31 +357,63 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       });
       return;
     }
+
+    if (!selectedSite) {
+      toast({
+        title: "Error",
+        description: "Please select a site first",
+        variant: "destructive"
+      });
+      return;
+    }
     
     setIsSaving(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      if (isSupabaseConfiguredState === false) {
+        // Demo mode - simulate API call
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        const material: TrainingMaterial = {
+          id: Date.now().toString(),
+          url: data.url,
+          title: new URL(data.url).hostname,
+          site_id: selectedSite.id,
+          created_at: new Date().toISOString()
+        };
+        
+        setTrainingMaterials(prev => [...prev, material]);
+      } else {
+        // Real API call
+        const response = await fetch('/api/training-materials', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            siteId: selectedSite.id,
+            url: data.url
+          }),
+        });
+
+        const responseData = await response.json();
+
+        if (response.ok) {
+          setTrainingMaterials(prev => [...prev, responseData.material]);
+        } else {
+          throw new Error(responseData.error || 'Failed to add training material');
+        }
+      }
       
-      const material: TrainingMaterial = {
-        id: Date.now().toString(),
-        url: data.url,
-        title: new URL(data.url).hostname,
-        site_id: selectedSite?.id || 'default',
-        created_at: new Date().toISOString()
-      };
-      
-      setTrainingMaterials(prev => [...prev, material]);
       setNewTrainingUrl('');
       
       toast({
         title: "Success",
         description: "Training material added successfully"
       });
-    } catch {
+    } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to add training material",
+        description: error instanceof Error ? error.message : "Failed to add training material",
         variant: "destructive"
       });
     } finally {
@@ -244,8 +421,39 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     }
   };
 
-  const handleDeleteTrainingMaterial = (_material: TrainingMaterial) => {
-    // TODO: Implement delete functionality
+  const handleDeleteTrainingMaterial = async (material: TrainingMaterial) => {
+    if (isSupabaseConfiguredState === false) {
+      // Demo mode - just remove from state
+      setTrainingMaterials(prev => prev.filter(m => m.id !== material.id));
+      toast({
+        title: "Success",
+        description: "Training material deleted successfully"
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/training-materials/${material.id}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        setTrainingMaterials(prev => prev.filter(m => m.id !== material.id));
+        toast({
+          title: "Success",
+          description: "Training material deleted successfully"
+        });
+      } else {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to delete training material');
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete training material",
+        variant: "destructive"
+      });
+    }
   };
 
   const handleSaveChatSettings = async () => {
@@ -342,7 +550,8 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
           id: 'demo-site',
           name: 'Demo Site',
           user_id: user.id,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         };
         setSites([demoSite]);
         setSelectedSite(demoSite);
@@ -376,9 +585,8 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
           satisfactionRate: 95
         });
       } else if (isSupabaseConfiguredState === true) {
-        // TODO: Load real data from Supabase
-        // For now, just set empty data
-        setSites([]);
+        // Load real data from Supabase
+        loadSitesFromAPI();
         setAffiliateLinks([]);
         setTrainingMaterials([]);
         setChatStats({
@@ -390,6 +598,14 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       }
     }
   }, [isLoaded, user, isSupabaseConfiguredState]);
+
+  // Load data when selected site changes
+  useEffect(() => {
+    if (selectedSite && isSupabaseConfiguredState === true) {
+      loadAffiliateLinks(selectedSite.id);
+      loadTrainingMaterials(selectedSite.id);
+    }
+  }, [selectedSite, isSupabaseConfiguredState]);
 
   // Loading state
   if (!isLoaded) {
@@ -469,14 +685,13 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
             </div>
             
             {/* Site Selector */}
-            <Button
-              variant="ghost"
-              onClick={() => setIsSiteDialogOpen(true)}
-              className="w-full justify-start text-sm font-medium text-gray-700 hover:bg-gray-100 mb-3"
-            >
-              <ChevronDown className="h-4 w-4 mr-2" />
-              {selectedSite ? selectedSite.name : 'Select Site'}
-            </Button>
+            <div className="mb-3">
+              <SiteSelectionDialog
+                selectedSite={selectedSite}
+                onSiteSelect={setSelectedSite}
+                onSiteChange={handleSiteChange}
+              />
+            </div>
             
             <div className="text-xs font-medium text-gray-500 uppercase tracking-wider ml-1 mb-2">
               Menu
@@ -515,7 +730,24 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         <div className="flex-1 ml-60 p-2">
           <Card className="w-full bg-white border border-gray-200">
             <CardContent className="p-6">
-              {/* Tab Content */}
+              {/* Show message when no site is selected */}
+              {!selectedSite && isSupabaseConfiguredState === true ? (
+                <div className="text-center py-12">
+                  <div className="text-gray-500 text-lg mb-4">
+                    No site selected
+                  </div>
+                  <p className="text-gray-400 mb-6">
+                    Please select a site from the dropdown above or create a new one to get started.
+                  </p>
+                  <SiteSelectionDialog
+                    selectedSite={selectedSite}
+                    onSiteSelect={setSelectedSite}
+                    onSiteChange={handleSiteChange}
+                  />
+                </div>
+              ) : (
+                <>
+                  {/* Tab Content */}
               {/* Offer Links Tab */}
               {selectedTab === 0 && (
                 <div className="space-y-6">
@@ -944,6 +1176,8 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                     </div>
                   </div>
                 </div>
+              )}
+                </>
               )}
             </CardContent>
           </Card>
