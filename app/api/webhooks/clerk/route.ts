@@ -17,11 +17,17 @@ interface ClerkEvent {
   data: ClerkUser
 }
 
-// Create Supabase client with service role key for admin operations
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+// Helper function to create Supabase admin client
+function getSupabaseAdmin() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error('Supabase configuration is missing')
+  }
+  
+  return createClient(supabaseUrl, supabaseServiceKey)
+}
 
 export async function POST(request: NextRequest) {
   // Get the headers
@@ -93,6 +99,8 @@ export async function POST(request: NextRequest) {
 async function handleUserCreated(user: ClerkUser) {
   console.log('Creating user:', user.id)
   
+  const supabaseAdmin = getSupabaseAdmin()
+  
   const { error } = await supabaseAdmin
     .from('users')
     .insert({
@@ -127,6 +135,8 @@ async function handleUserCreated(user: ClerkUser) {
 async function handleUserUpdated(user: ClerkUser) {
   console.log('Updating user:', user.id)
   
+  const supabaseAdmin = getSupabaseAdmin()
+  
   const { error } = await supabaseAdmin
     .from('users')
     .update({
@@ -148,6 +158,8 @@ async function handleUserUpdated(user: ClerkUser) {
 
 async function handleUserDeleted(user: ClerkUser) {
   console.log('Deleting user:', user.id)
+  
+  const supabaseAdmin = getSupabaseAdmin()
   
   const { error } = await supabaseAdmin
     .from('users')
