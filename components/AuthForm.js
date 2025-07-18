@@ -115,7 +115,7 @@ export default function AuthForm() {
         boxShadow="0 20px 60px rgba(0, 0, 0, 0.1)"
       >
         <VStack spacing={6} align="center">
-          <Image src="/offerbase-logo.svg" alt="Offerbase Logo" h="27px" />
+          <Image src="../public/offerbase-logo.svg" alt="Offerbase Logo" h="27px" />
 
           <VStack spacing={2} textAlign="center">
             <Text fontSize="2xl" fontWeight="700" color="gray.900">

@@ -56,7 +56,9 @@ export function SiteSelectionDialog({
   const fetchSites = async () => {
     setLoading(true)
     try {
-      const response = await fetch('/api/sites')
+      const response = await fetch('/api/sites', {
+        credentials: 'include',
+      })
       const data = await response.json()
       
       if (response.ok) {
@@ -91,6 +93,7 @@ export function SiteSelectionDialog({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ name: newSiteName.trim() }),
+        credentials: 'include',
       })
 
       const data = await response.json()

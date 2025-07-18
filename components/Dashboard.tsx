@@ -37,7 +37,7 @@ import {
 import { supabase } from '../lib/supabaseClient';
 import { BASE_INSTRUCTIONS } from '../lib/instructions';
 import ChatWidget from './ChatWidget';
-import { SiteSelectionDialog } from './site-selection-dialog';
+import { SiteSelector } from './site-selector';
 
 const drawerWidth = 240;
 
@@ -161,7 +161,9 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     
     setIsLoadingSites(true);
     try {
-      const response = await fetch('/api/sites');
+      const response = await fetch('/api/sites', {
+        credentials: 'include',
+      });
       const data = await response.json();
       
       if (response.ok) {
@@ -202,7 +204,9 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     if (isSupabaseConfiguredState === false) return; // Skip if using demo mode
     
     try {
-      const response = await fetch(`/api/affiliate-links?siteId=${siteId}`);
+      const response = await fetch(`/api/affiliate-links?siteId=${siteId}`, {
+        credentials: 'include',
+      });
       const data = await response.json();
       
       if (response.ok) {
@@ -219,7 +223,9 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     if (isSupabaseConfiguredState === false) return; // Skip if using demo mode
     
     try {
-      const response = await fetch(`/api/training-materials?siteId=${siteId}`);
+      const response = await fetch(`/api/training-materials?siteId=${siteId}`, {
+        credentials: 'include',
+      });
       const data = await response.json();
       
       if (response.ok) {
@@ -281,6 +287,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
             title: newLink.title,
             description: newLink.description
           }),
+          credentials: 'include',
         });
 
         const data = await response.json();
@@ -327,6 +334,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     try {
       const response = await fetch(`/api/affiliate-links/${link.id}`, {
         method: 'DELETE',
+        credentials: 'include',
       });
 
       if (response.ok) {
@@ -393,6 +401,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
             siteId: selectedSite.id,
             url: data.url
           }),
+          credentials: 'include',
         });
 
         const responseData = await response.json();
@@ -435,6 +444,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     try {
       const response = await fetch(`/api/training-materials/${material.id}`, {
         method: 'DELETE',
+        credentials: 'include',
       });
 
       if (response.ok) {
@@ -685,11 +695,12 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
             </div>
             
             {/* Site Selector */}
-            <div className="mb-3">
-              <SiteSelectionDialog
+            <div className="mb-3 px-1">
+              <SiteSelector
                 selectedSite={selectedSite}
                 onSiteSelect={setSelectedSite}
                 onSiteChange={handleSiteChange}
+                className="w-full"
               />
             </div>
             
@@ -739,10 +750,11 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                   <p className="text-gray-400 mb-6">
                     Please select a site from the dropdown above or create a new one to get started.
                   </p>
-                  <SiteSelectionDialog
+                  <SiteSelector
                     selectedSite={selectedSite}
                     onSiteSelect={setSelectedSite}
                     onSiteChange={handleSiteChange}
+                    className="inline-flex"
                   />
                 </div>
               ) : (
