@@ -30,14 +30,23 @@ function getSupabaseAdmin() {
 }
 
 export async function POST(request: NextRequest) {
+  console.log('🔔 Webhook received at:', new Date().toISOString())
+  
   // Get the headers
   const headerPayload = await headers()
   const svix_id = headerPayload.get('svix-id')
   const svix_timestamp = headerPayload.get('svix-timestamp')
   const svix_signature = headerPayload.get('svix-signature')
 
+  console.log('📋 Headers:', {
+    'svix-id': svix_id ? 'present' : 'missing',
+    'svix-timestamp': svix_timestamp ? 'present' : 'missing', 
+    'svix-signature': svix_signature ? 'present' : 'missing'
+  })
+
   // If there are no headers, error out
   if (!svix_id || !svix_timestamp || !svix_signature) {
+    console.error('❌ Missing required svix headers')
     return NextResponse.json(
       { error: 'Missing svix headers' },
       { status: 400 }
@@ -46,9 +55,19 @@ export async function POST(request: NextRequest) {
 
   // Get the body
   const payload = await request.text()
+  console.log('📦 Payload length:', payload.length)
+
+  // Check webhook secret
+  if (!process.env.CLERK_WEBHOOK_SECRET) {
+    console.error('❌ CLERK_WEBHOOK_SECRET is not configured')
+    return NextResponse.json(
+      { error: 'Webhook secret not configured' },
+      { status: 500 }
+    )
+  }
 
   // Create a new Svix instance with your secret
-  const wh = new Webhook(process.env.CLERK_WEBHOOK_SECRET!)
+  const wh = new Webhook(process.env.CLERK_WEBHOOK_SECRET)
 
   let evt: ClerkEvent
 
@@ -59,8 +78,9 @@ export async function POST(request: NextRequest) {
       'svix-timestamp': svix_timestamp,
       'svix-signature': svix_signature,
     }) as ClerkEvent
+    console.log('✅ Webhook signature verified')
   } catch (err) {
-    console.error('Error verifying webhook:', err)
+    console.error('❌ Error verifying webhook signature:', err)
     return NextResponse.json(
       { error: 'Invalid signature' },
       { status: 400 }
@@ -70,6 +90,10 @@ export async function POST(request: NextRequest) {
   // Handle the webhook
   const eventType = evt.type
   const user = evt.data
+
+  console.log('📌 Event type:', eventType)
+  console.log('👤 User ID:', user.id)
+  console.log('📧 User email:', user.email_addresses?.[0]?.email_address)
 
   try {
     switch (eventType) {
@@ -83,12 +107,18 @@ export async function POST(request: NextRequest) {
         await handleUserDeleted(user)
         break
       default:
-        console.log(`Unhandled event type: ${eventType}`)
+        console.log(`⚠️ Unhandled event type: ${eventType}`)
     }
 
+    console.log('✅ Webhook processed successfully')
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error processing webhook:', error)
+    console.error('❌ Error processing webhook:', error)
+    // Log more details about the error
+    if (error instanceof Error) {
+      console.error('Error message:', error.message)
+      console.error('Error stack:', error.stack)
+    }
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -97,39 +127,68 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleUserCreated(user: ClerkUser) {
-  console.log('Creating user:', user.id)
+  console.log('🆕 Creating user:', user.id)
   
-  const supabaseAdmin = getSupabaseAdmin()
-  
-  const { error } = await supabaseAdmin
-    .from('users')
-    .insert({
+  try {
+    // Check environment variables
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Supabase configuration missing')
+    }
+    
+    const supabaseAdmin = getSupabaseAdmin()
+    console.log('🔗 Supabase client created')
+    
+    const userData = {
       id: user.id,
       email: user.email_addresses?.[0]?.email_address || '',
       first_name: user.first_name || '',
       last_name: user.last_name || '',
       avatar_url: user.image_url || '',
-    })
+    }
+    
+    console.log('📝 Inserting user data:', userData)
+    
+    const { error } = await supabaseAdmin
+      .from('users')
+      .insert(userData)
 
-  if (error) {
-    console.error('Error creating user in Supabase:', error)
+    if (error) {
+      console.error('❌ Supabase insert error:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      })
+      throw error
+    }
+    
+    console.log('✅ User inserted into Supabase')
+
+    // Create a default site for the new user
+    console.log('🏗️ Creating default site for user')
+    const { error: siteError } = await supabaseAdmin
+      .from('sites')
+      .insert({
+        name: 'My First Site',
+        user_id: user.id,
+      })
+
+    if (siteError) {
+      console.error('⚠️ Error creating default site:', {
+        message: siteError.message,
+        code: siteError.code,
+        details: siteError.details
+      })
+      // Don't throw here - user creation is more important than site creation
+    } else {
+      console.log('✅ Default site created')
+    }
+
+    console.log('🎉 User created successfully:', user.id)
+  } catch (error) {
+    console.error('❌ Failed to create user:', error)
     throw error
   }
-
-  // Create a default site for the new user
-  const { error: siteError } = await supabaseAdmin
-    .from('sites')
-    .insert({
-      name: 'My First Site',
-      user_id: user.id,
-    })
-
-  if (siteError) {
-    console.error('Error creating default site:', siteError)
-    // Don't throw here - user creation is more important than site creation
-  }
-
-  console.log('User created successfully:', user.id)
 }
 
 async function handleUserUpdated(user: ClerkUser) {
