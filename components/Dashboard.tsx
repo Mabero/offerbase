@@ -333,51 +333,63 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     setIsSupabaseConfiguredState(isSupabaseConfigured());
   }, [isSupabaseConfigured]);
 
-  // Initialize demo data
+  // Initialize data - use demo data only if Supabase is not configured
   useEffect(() => {
     if (isLoaded && user) {
-      // Set demo site
-      const demoSite: Site = {
-        id: 'demo-site',
-        name: 'Demo Site',
-        user_id: user.id,
-        created_at: new Date().toISOString()
-      };
-      setSites([demoSite]);
-      setSelectedSite(demoSite);
-      
-      // Set demo data
-      setAffiliateLinks([
-        {
-          id: '1',
-          url: 'https://example.com/product1',
-          title: 'Sample Product 1',
-          description: 'This is a sample affiliate link for testing',
-          site_id: 'demo-site',
+      if (isSupabaseConfiguredState === false) {
+        // Only use demo data if Supabase is not configured
+        const demoSite: Site = {
+          id: 'demo-site',
+          name: 'Demo Site',
+          user_id: user.id,
           created_at: new Date().toISOString()
-        }
-      ]);
-      
-      setTrainingMaterials([
-        {
-          id: '1',
-          url: 'https://example.com/docs',
-          title: 'Documentation',
-          site_id: 'demo-site',
-          created_at: new Date().toISOString()
-        }
-      ]);
-      
-      setChatStats({
-        totalChats: 42,
-        totalMessages: 256,
-        averageResponseTime: 1.2,
-        satisfactionRate: 95
-      });
-      
-      setIsSupabaseConfiguredState(false); // Show demo mode
+        };
+        setSites([demoSite]);
+        setSelectedSite(demoSite);
+        
+        // Set demo data
+        setAffiliateLinks([
+          {
+            id: '1',
+            url: 'https://example.com/product1',
+            title: 'Sample Product 1',
+            description: 'This is a sample affiliate link for testing',
+            site_id: 'demo-site',
+            created_at: new Date().toISOString()
+          }
+        ]);
+        
+        setTrainingMaterials([
+          {
+            id: '1',
+            url: 'https://example.com/docs',
+            title: 'Documentation',
+            site_id: 'demo-site',
+            created_at: new Date().toISOString()
+          }
+        ]);
+        
+        setChatStats({
+          totalChats: 42,
+          totalMessages: 256,
+          averageResponseTime: 1.2,
+          satisfactionRate: 95
+        });
+      } else if (isSupabaseConfiguredState === true) {
+        // TODO: Load real data from Supabase
+        // For now, just set empty data
+        setSites([]);
+        setAffiliateLinks([]);
+        setTrainingMaterials([]);
+        setChatStats({
+          totalChats: 0,
+          totalMessages: 0,
+          averageResponseTime: 0,
+          satisfactionRate: 0
+        });
+      }
     }
-  }, [isLoaded, user]);
+  }, [isLoaded, user, isSupabaseConfiguredState]);
 
   // Loading state
   if (!isLoaded) {
