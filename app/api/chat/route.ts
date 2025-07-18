@@ -2,11 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import OpenAI from 'openai';
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 export async function POST(request: NextRequest) {
   try {
     const { userId } = await auth();
@@ -68,6 +63,11 @@ async function generateChatResponse(message: string, conversationHistory: { role
       console.warn('OpenAI API key not configured, using fallback response');
       return getFallbackResponse(message);
     }
+
+    // Initialize OpenAI client inside the function to avoid build-time errors
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
 
     // Build the conversation messages for OpenAI
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
