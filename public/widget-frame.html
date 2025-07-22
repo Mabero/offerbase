@@ -100,7 +100,101 @@
         
         console.log('Widget frame config:', config);
         
-        // Load React and other dependencies
+        // Initialize widget using the ChatWidgetCore component
+        async function initializeWidget() {
+            try {
+                // Load React dependencies
+                await loadScript('https://unpkg.com/react@18/umd/react.production.min.js');
+                await loadScript('https://unpkg.com/react-dom@18/umd/react-dom.production.min.js');
+                
+                // Load the ChatWidgetCore component from the main application
+                const widgetModule = await import(config.apiUrl + '/components/ChatWidgetCore');
+                const ChatWidgetCore = widgetModule.default || widgetModule.ChatWidgetCore;
+                
+                // Remove loading spinner
+                document.querySelector('.loading-spinner').remove();
+                
+                // Create React root and render the core component
+                const container = document.getElementById('chat-widget-container');
+                const root = ReactDOM.createRoot(container);
+                
+                // Analytics handlers
+                const handleLinkClick = (link) => {
+                    try {
+                        fetch(`${config.apiUrl}/api/analytics`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                event_type: 'link_click',
+                                site_id: config.siteId,
+                                user_id: null,
+                                details: { link_url: link.url, link_name: link.name }
+                            })
+                        }).catch(() => {});
+                    } catch (error) {
+                        // Silently handle analytics errors
+                    }
+                };
+
+                const handleMessageSent = (message) => {
+                    try {
+                        fetch(`${config.apiUrl}/api/analytics`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                event_type: 'message_sent',
+                                site_id: config.siteId,
+                                user_id: null,
+                                details: { message_length: message.length }
+                            })
+                        }).catch(() => {});
+                    } catch (error) {
+                        // Silently handle analytics errors
+                    }
+                };
+
+                const handleWidgetOpen = () => {
+                    try {
+                        fetch(`${config.apiUrl}/api/analytics`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                event_type: 'widget_open',
+                                site_id: config.siteId,
+                                user_id: null,
+                                details: {}
+                            })
+                        }).catch(() => {});
+                    } catch (error) {
+                        // Silently handle analytics errors
+                    }
+                };
+                
+                // Render the ChatWidgetCore directly
+                root.render(React.createElement(ChatWidgetCore, {
+                    chatSettings: config.settings,
+                    siteId: config.siteId,
+                    introMessage: config.settings.intro_message || 'Hello! How can I help you today?',
+                    apiUrl: config.apiUrl,
+                    isEmbedded: true,
+                    onLinkClick: handleLinkClick,
+                    onMessageSent: handleMessageSent,
+                    onWidgetOpen: handleWidgetOpen
+                }));
+                
+                console.log('Widget frame initialized with shared core component');
+                
+            } catch (error) {
+                console.error('Failed to initialize widget:', error);
+                
+                // Fallback to inline widget if module loading fails
+                document.querySelector('.loading-spinner').remove();
+                document.getElementById('chat-widget-container').innerHTML = 
+                    '<div class="error-message">Failed to load chat widget. Please refresh the page.</div>';
+            }
+        }
+        
+        // Helper function to load scripts
         const loadScript = (src) => {
             return new Promise((resolve, reject) => {
                 const script = document.createElement('script');
@@ -110,381 +204,6 @@
                 document.head.appendChild(script);
             });
         };
-        
-        const loadCSS = (href) => {
-            return new Promise((resolve, reject) => {
-                const link = document.createElement('link');
-                link.rel = 'stylesheet';
-                link.href = href;
-                link.onload = resolve;
-                link.onerror = reject;
-                document.head.appendChild(link);
-            });
-        };
-        
-        // Initialize widget
-        async function initializeWidget() {
-            try {
-                // Load React dependencies only - no external CSS needed
-                await loadScript('https://unpkg.com/react@18/umd/react.production.min.js');
-                await loadScript('https://unpkg.com/react-dom@18/umd/react-dom.production.min.js');
-                
-                // Create a functional ChatWidget component with settings
-                const ChatWidgetComponent = () => {
-                    const [messages, setMessages] = React.useState([]);
-                    const [inputValue, setInputValue] = React.useState('');
-                    const [isLoading, setIsLoading] = React.useState(false);
-                    
-                    const sendMessage = async () => {
-                        if (!inputValue.trim()) return;
-                        
-                        const userMessage = { role: 'user', content: inputValue };
-                        setMessages(prev => [...prev, userMessage]);
-                        setInputValue('');
-                        setIsLoading(true);
-                        
-                        try {
-                            const response = await fetch(`${config.apiUrl}/api/chat`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    message: inputValue,
-                                    siteId: config.siteId,
-                                    conversationHistory: messages
-                                })
-                            });
-                            
-                            const data = await response.json();
-                            if (data.response || data.message) {
-                                setMessages(prev => [...prev, { 
-                                    role: 'assistant', 
-                                    content: data.response || data.message 
-                                }]);
-                            }
-                        } catch (error) {
-                            console.error('Failed to send message:', error);
-                        } finally {
-                            setIsLoading(false);
-                        }
-                    };
-                    
-                    // Create Avatar component equivalent
-                    const Avatar = ({ src, name, className = '', style = {} }) => {
-                        const avatarStyle = {
-                            width: '32px',
-                            height: '32px',
-                            borderRadius: '50%',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            backgroundColor: '#f3f4f6',
-                            color: '#6b7280',
-                            fontSize: '14px',
-                            fontWeight: '600',
-                            overflow: 'hidden',
-                            ...style
-                        };
-                        
-                        if (src) {
-                            return React.createElement('div', { 
-                                style: avatarStyle 
-                            },
-                                React.createElement('img', {
-                                    src,
-                                    alt: name,
-                                    style: { width: '100%', height: '100%', objectFit: 'cover' },
-                                    onError: (e) => {
-                                        e.target.style.display = 'none';
-                                        e.target.nextSibling.style.display = 'flex';
-                                    }
-                                }),
-                                React.createElement('div', {
-                                    style: { ...avatarStyle, display: 'none', position: 'absolute' }
-                                }, name ? name.charAt(0).toUpperCase() : 'AI')
-                            );
-                        }
-                        
-                        return React.createElement('div', { 
-                            style: avatarStyle 
-                        }, name ? name.charAt(0).toUpperCase() : 'AI');
-                    };
-                    
-                    // Send icon SVG component
-                    const SendIcon = ({ size = 16, color = 'currentColor' }) => {
-                        return React.createElement('svg', {
-                            width: size,
-                            height: size,
-                            viewBox: '0 0 24 24',
-                            fill: 'none',
-                            stroke: color,
-                            strokeWidth: 2,
-                            strokeLinecap: 'round',
-                            strokeLinejoin: 'round'
-                        },
-                            React.createElement('path', { d: 'm22 2-7 20-4-9-9-4 20-7z' })
-                        );
-                    };
-                    
-                    React.useEffect(() => {
-                        // Add intro message if no messages
-                        if (messages.length === 0) {
-                            setMessages([{
-                                role: 'assistant',
-                                content: config.settings.intro_message
-                            }]);
-                        }
-                    }, []);
-                    
-                    // Define reusable style objects for consistency
-                    const styles = {
-                        container: {
-                            width: '100%',
-                            height: '100%',
-                            backgroundColor: 'white',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            overflow: 'hidden',
-                            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif'
-                        },
-                        header: {
-                            padding: '16px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                            backgroundColor: config.settings.chat_color || '#000000',
-                            color: config.settings.chat_name_color || '#ffffff'
-                        },
-                        messagesContainer: {
-                            flex: '1',
-                            overflowY: 'auto',
-                            padding: '16px',
-                            backgroundColor: '#f9fafb'
-                        },
-                        messageBubbleBot: {
-                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                            backdropFilter: 'blur(4px)',
-                            border: '1px solid rgba(255, 255, 255, 0.3)',
-                            borderRadius: '16px',
-                            padding: '12px 16px',
-                            maxWidth: '80%',
-                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-                            marginBottom: '12px'
-                        },
-                        messageBubbleUser: {
-                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                            backdropFilter: 'blur(4px)',
-                            border: '1px solid rgba(255, 255, 255, 0.3)',
-                            borderRadius: '16px',
-                            padding: '12px 16px',
-                            maxWidth: '80%',
-                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-                            marginBottom: '12px'
-                        },
-                        messageText: {
-                            color: '#1f2937',
-                            lineHeight: '1.5',
-                            fontSize: config.settings.font_size || '14px',
-                            margin: '0'
-                        },
-                        inputContainer: {
-                            padding: '16px',
-                            borderTop: '1px solid #e5e7eb',
-                            backgroundColor: '#f9fafb'
-                        },
-                        inputWrapper: {
-                            position: 'relative',
-                            display: 'flex',
-                            alignItems: 'center'
-                        },
-                        input: {
-                            width: '100%',
-                            padding: '12px 48px 12px 16px',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '24px',
-                            outline: 'none',
-                            fontSize: config.settings.font_size || '14px',
-                            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif',
-                            backgroundColor: 'white'
-                        },
-                        sendButton: {
-                            position: 'absolute',
-                            right: '8px',
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                            width: '32px',
-                            height: '32px',
-                            borderRadius: '50%',
-                            border: 'none',
-                            backgroundColor: config.settings.chat_color || '#000000',
-                            color: 'white',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s ease'
-                        },
-                        messageRow: {
-                            display: 'flex',
-                            marginBottom: '12px',
-                            alignItems: 'flex-start'
-                        },
-                        messageRowUser: {
-                            display: 'flex',
-                            marginBottom: '12px',
-                            alignItems: 'flex-end',
-                            justifyContent: 'flex-end'
-                        },
-                        avatarSpacing: {
-                            marginRight: '12px'
-                        }
-                    };
-
-                    // Exact ChatWidget structure matching the Dashboard preview
-                    return React.createElement('div', { 
-                        style: styles.container
-                    },
-                        // Chat Header - exact match with Dashboard ChatWidget
-                        React.createElement('div', {
-                            style: styles.header
-                        },
-                            React.createElement(Avatar, {
-                                src: config.settings.chat_icon_url,
-                                name: config.settings.chat_name,
-                                style: styles.avatarSpacing
-                            }),
-                            React.createElement('p', {
-                                style: {
-                                    ...styles.messageText,
-                                    fontWeight: '600',
-                                    color: config.settings.chat_name_color || '#ffffff',
-                                    margin: '0'
-                                }
-                            }, config.settings.chat_name || 'Affi')
-                        ),
-                        
-                        // Messages Area - exact match with Dashboard ChatWidget
-                        React.createElement('div', {
-                            style: styles.messagesContainer
-                        },
-                            // Show intro message if no messages
-                            messages.length === 0 && !isLoading && React.createElement('div', {
-                                style: styles.messageRow
-                            },
-                                React.createElement(Avatar, {
-                                    src: config.settings.chat_icon_url,
-                                    name: config.settings.chat_name,
-                                    style: styles.avatarSpacing
-                                }),
-                                React.createElement('div', {
-                                    style: styles.messageBubbleBot
-                                },
-                                    React.createElement('p', {
-                                        style: styles.messageText
-                                    }, config.settings.intro_message || 'Hello! How can I help you today?')
-                                )
-                            ),
-                            
-                            // Render messages with exact ChatWidget styling
-                            messages.map((msg, idx) => {
-                                if (msg.role === 'user') {
-                                    return React.createElement('div', {
-                                        key: idx,
-                                        style: styles.messageRowUser
-                                    },
-                                        React.createElement('div', {
-                                            style: styles.messageBubbleUser
-                                        },
-                                            React.createElement('p', {
-                                                style: styles.messageText
-                                            }, msg.content)
-                                        )
-                                    );
-                                } else {
-                                    return React.createElement('div', {
-                                        key: idx,
-                                        style: styles.messageRow
-                                    },
-                                        React.createElement(Avatar, {
-                                            src: config.settings.chat_icon_url,
-                                            name: config.settings.chat_name,
-                                            style: styles.avatarSpacing
-                                        }),
-                                        React.createElement('div', {
-                                            style: styles.messageBubbleBot
-                                        },
-                                            React.createElement('p', {
-                                                style: styles.messageText
-                                            }, msg.content)
-                                        )
-                                    );
-                                }
-                            }),
-                            
-                            // Loading indicator
-                            isLoading && React.createElement('div', {
-                                style: styles.messageRow
-                            },
-                                React.createElement(Avatar, {
-                                    src: config.settings.chat_icon_url,
-                                    name: config.settings.chat_name,
-                                    style: styles.avatarSpacing
-                                }),
-                                React.createElement('div', {
-                                    style: styles.messageBubbleBot
-                                },
-                                    React.createElement('p', {
-                                        style: styles.messageText
-                                    }, 'Typing...')
-                                )
-                            )
-                        ),
-                        
-                        // Input Area - exact match with Dashboard ChatWidget
-                        React.createElement('div', {
-                            style: styles.inputContainer
-                        },
-                            React.createElement('div', {
-                                style: styles.inputWrapper
-                            },
-                                React.createElement('input', {
-                                    type: 'text',
-                                    value: inputValue,
-                                    onChange: (e) => setInputValue(e.target.value),
-                                    onKeyPress: (e) => e.key === 'Enter' && !isLoading && inputValue.trim() && sendMessage(),
-                                    placeholder: config.settings.input_placeholder || 'Type your message...',
-                                    style: styles.input,
-                                    disabled: isLoading
-                                }),
-                                React.createElement('button', {
-                                    onClick: sendMessage,
-                                    disabled: isLoading || !inputValue.trim(),
-                                    style: {
-                                        ...styles.sendButton,
-                                        opacity: (isLoading || !inputValue.trim()) ? 0.5 : 1,
-                                        cursor: (isLoading || !inputValue.trim()) ? 'not-allowed' : 'pointer'
-                                    }
-                                },
-                                    React.createElement(SendIcon, { size: 16, color: 'white' })
-                                )
-                            )
-                        )
-                    );
-                };
-                
-                // Remove loading spinner
-                document.querySelector('.loading-spinner').remove();
-                
-                // Render ChatWidget
-                ReactDOM.render(React.createElement(ChatWidgetComponent), document.getElementById('chat-widget-container'));
-                
-                console.log('Widget frame initialized with config:', config);
-                
-            } catch (error) {
-                console.error('Failed to initialize widget:', error);
-                document.getElementById('chat-widget-container').innerHTML = 
-                    '<div class="error-message">Failed to load chat widget. Please try again.</div>';
-            }
-        }
         
         // Start initialization
         initializeWidget();

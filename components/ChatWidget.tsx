@@ -1,48 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Loader2, X, Send } from "lucide-react";
-
-// Types
-interface ChatSettings {
-  chat_name: string;
-  chat_color: string;
-  chat_icon_url?: string;
-  chat_name_color: string;
-  chat_bubble_icon_color: string;
-  input_placeholder: string;
-  font_size: string;
-}
-
-interface Session {
-  user?: {
-    id: string;
-  };
-}
-
-interface MessageContent {
-  type: 'message' | 'links';
-  message: string;
-  links?: Link[];
-}
-
-interface UserMessage {
-  type: 'user';
-  content: string;
-}
-
-interface BotMessage {
-  type: 'bot';
-  content: MessageContent;
-}
-
-type Message = UserMessage | BotMessage;
-
-interface Link {
-  url: string;
-  name: string;
-  description: string;
-  image_url?: string;
-  button_text?: string;
-}
+import React, { useState, useEffect, useCallback } from 'react';
+import { X } from "lucide-react";
+import ChatWidgetCore, { 
+  type ChatSettings, 
+  type Session, 
+  type Link 
+} from './ChatWidgetCore';
 
 // Extend Window interface for custom properties
 declare global {
@@ -60,75 +22,6 @@ interface ChatWidgetProps {
   isEmbedded?: boolean;
 }
 
-// LinkCard component to handle individual link rendering with hooks
-const LinkCard = ({ link, chatSettings, styles, onLinkClick }: {
-  link: Link;
-  chatSettings: ChatSettings;
-  styles: Record<string, React.CSSProperties>;
-  onLinkClick: (link: Link) => void;
-}) => {
-  const [isHovered, setIsHovered] = useState(false);
-  const [isButtonHovered, setIsButtonHovered] = useState(false);
-  
-  return (
-    <div
-      style={{
-        ...styles.linkCard,
-        ...(isHovered ? styles.linkCardHover : {})
-      }}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
-      {link.image_url && (
-        <div style={styles.linkImage}>
-          <img
-            src={link.image_url}
-            alt={link.name}
-            style={styles.linkImageInner}
-          />
-        </div>
-      )}
-      
-      <h4 
-        style={{
-          ...styles.linkTitle,
-          fontSize: chatSettings?.font_size || '14px'
-        }}
-      >
-        {link.name}
-      </h4>
-      
-      <p 
-        style={{
-          ...styles.linkDescription,
-          fontSize: chatSettings?.font_size || '14px'
-        }}
-      >
-        {link.description}
-      </p>
-      
-      <a
-        href={link.url}
-        target="_blank"
-        rel="noopener"
-        onClick={() => onLinkClick(link)}
-        style={{
-          ...styles.linkButton,
-          ...(isButtonHovered ? styles.linkButtonHover : {}),
-          backgroundColor: chatSettings?.chat_color || '#000',
-          fontSize: chatSettings?.font_size || '14px',
-          textDecoration: 'none',
-          color: 'white'
-        }}
-        onMouseEnter={() => setIsButtonHovered(true)}
-        onMouseLeave={() => setIsButtonHovered(false)}
-      >
-        {link.button_text && link.button_text.trim() ? link.button_text : 'Learn more'}
-      </a>
-    </div>
-  );
-};
-
 // Custom Chat Icon Component (preserving the original design)
 const ChatIcon = ({ color = '#fff', ...props }: { color?: string; [key: string]: unknown }) => (
   <svg
@@ -144,244 +37,20 @@ const ChatIcon = ({ color = '#fff', ...props }: { color?: string; [key: string]:
   </svg>
 );
 
-function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introMessage: initialIntroMessage, apiUrl = '', isEmbedded = false }: ChatWidgetProps) {
+function ChatWidget({ 
+  session, 
+  chatSettings: initialChatSettings, 
+  siteId, 
+  introMessage: initialIntroMessage, 
+  apiUrl = '', 
+  isEmbedded = false 
+}: ChatWidgetProps) {
   console.log('ChatWidget received apiUrl:', apiUrl); // Debug log
   
-  // Initialize messages with intro message if available
-  const getInitialMessages = (): Message[] => {
-    if (initialIntroMessage && initialIntroMessage.trim()) {
-      return [{
-        type: 'bot',
-        content: {
-          type: 'message',
-          message: initialIntroMessage
-        }
-      } as BotMessage];
-    }
-    return [];
-  };
-
-  // Define reusable style objects matching the embed widget exactly
-  const styles = {
-    container: {
-      width: '100%',
-      height: '100%',
-      backgroundColor: 'white',
-      display: 'flex',
-      flexDirection: 'column' as const,
-      overflow: 'hidden',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif'
-    },
-    header: {
-      padding: '16px',
-      display: 'flex',
-      alignItems: 'center',
-      borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-    },
-    messagesContainer: {
-      flex: '1',
-      overflowY: 'auto' as const,
-      padding: '16px',
-      backgroundColor: '#f9fafb'
-    },
-    messageBubbleBot: {
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-      backdropFilter: 'blur(4px)',
-      border: '1px solid rgba(255, 255, 255, 0.3)',
-      borderRadius: '16px',
-      padding: '12px 16px',
-      maxWidth: '80%',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-      marginBottom: '12px'
-    },
-    messageBubbleUser: {
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-      backdropFilter: 'blur(4px)',
-      border: '1px solid rgba(255, 255, 255, 0.3)',
-      borderRadius: '16px',
-      padding: '12px 16px',
-      maxWidth: '80%',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-      marginBottom: '12px'
-    },
-    messageText: {
-      color: '#1f2937',
-      lineHeight: '1.5',
-      margin: '0'
-    },
-    inputContainer: {
-      padding: '16px',
-      borderTop: '1px solid #e5e7eb',
-      backgroundColor: '#f9fafb'
-    },
-    inputWrapper: {
-      position: 'relative' as const,
-      display: 'flex',
-      alignItems: 'center'
-    },
-    input: {
-      width: '100%',
-      padding: '12px 48px 12px 16px',
-      border: '1px solid #d1d5db',
-      borderRadius: '24px',
-      outline: 'none',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif',
-      backgroundColor: 'white'
-    },
-    sendButton: {
-      position: 'absolute' as const,
-      right: '8px',
-      top: '50%',
-      transform: 'translateY(-50%)',
-      width: '32px',
-      height: '32px',
-      borderRadius: '50%',
-      border: 'none',
-      color: 'white',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      cursor: 'pointer',
-      transition: 'all 0.2s ease'
-    },
-    messageRow: {
-      display: 'flex',
-      marginBottom: '12px',
-      alignItems: 'flex-start'
-    },
-    messageRowUser: {
-      display: 'flex',
-      marginBottom: '12px',
-      alignItems: 'flex-end',
-      justifyContent: 'flex-end'
-    },
-    avatarSpacing: {
-      marginRight: '12px'
-    },
-    avatar: {
-      width: '32px',
-      height: '32px',
-      borderRadius: '50%',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: '#f3f4f6',
-      color: '#6b7280',
-      fontSize: '14px',
-      fontWeight: '600',
-      overflow: 'hidden'
-    },
-    chatButton: {
-      position: 'fixed' as const,
-      zIndex: 1400,
-      borderRadius: '50%',
-      width: '52px',
-      height: '52px',
-      padding: '0',
-      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-      border: 'none',
-      cursor: 'pointer',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      transition: 'all 0.2s ease'
-    },
-    chatContainer: {
-      position: 'fixed' as const,
-      zIndex: 1300,
-      display: 'flex',
-      flexDirection: 'column' as const,
-      overflow: 'hidden',
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-      backdropFilter: 'blur(8px)',
-      border: '1px solid rgba(255, 255, 255, 0.3)',
-      boxShadow: '0 10px 40px rgba(0, 0, 0, 0.15)',
-      borderRadius: '20px'
-    },
-    linkCard: {
-      backgroundColor: 'rgba(255, 255, 255, 0.9)',
-      backdropFilter: 'blur(12px)',
-      border: '1px solid rgba(255, 255, 255, 0.4)',
-      borderRadius: '16px',
-      padding: '16px',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-      transition: 'all 0.2s ease',
-      minWidth: '220px',
-      maxWidth: '340px',
-      marginBottom: '12px'
-    },
-    linkCardHover: {
-      transform: 'translateY(-2px)',
-      boxShadow: '0 10px 25px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-    },
-    linkImage: {
-      width: '80px',
-      height: '80px',
-      borderRadius: '12px',
-      overflow: 'hidden',
-      backgroundColor: 'white',
-      padding: '2px',
-      marginBottom: '12px',
-      boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)'
-    },
-    linkImageInner: {
-      width: '100%',
-      height: '100%',
-      objectFit: 'contain' as const,
-      borderRadius: '8px'
-    },
-    linkTitle: {
-      fontWeight: '700',
-      color: '#1f2937',
-      lineHeight: '1.25',
-      marginBottom: '8px',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif',
-      margin: '0 0 8px 0'
-    },
-    linkDescription: {
-      color: '#6b7280',
-      lineHeight: '1.5',
-      marginBottom: '16px',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif',
-      margin: '0 0 16px 0'
-    },
-    linkButton: {
-      borderRadius: '8px',
-      fontWeight: '600',
-      padding: '8px 16px',
-      transition: 'all 0.2s ease',
-      boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-      border: 'none',
-      color: 'white',
-      textDecoration: 'none',
-      display: 'inline-block',
-      cursor: 'pointer'
-    },
-    linkButtonHover: {
-      transform: 'translateY(-1px)',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-    },
-    linksContainer: {
-      display: 'flex',
-      flexDirection: 'column' as const,
-      gap: '12px'
-    },
-    loadingSpinner: {
-      display: 'flex',
-      justifyContent: 'center',
-      margin: '16px 0'
-    }
-  };
-  
-  const [messages, setMessages] = useState<Message[]>(getInitialMessages);
-  const [inputMessage, setInputMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(isEmbedded); // Auto-open if embedded
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [internalIntroMessage, setInternalIntroMessage] = useState(initialIntroMessage || '');
   const [chatSettings, setChatSettings] = useState(initialChatSettings);
   const [introMessage, setIntroMessage] = useState(initialIntroMessage);
-  const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`);
 
   // Responsive values - adjust for embedded mode
   const chatWidth = isEmbedded ? '100%' : '440px';
@@ -399,34 +68,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
   useEffect(() => {
     setIntroMessage(initialIntroMessage);
     setInternalIntroMessage(initialIntroMessage || '');
-    // Update messages if intro message changed and we have a custom intro message
-    if (initialIntroMessage && initialIntroMessage.trim()) {
-      setMessages([{
-        type: 'bot',
-        content: {
-          type: 'message',
-          message: initialIntroMessage
-        }
-      } as BotMessage]);
-    }
   }, [initialIntroMessage]);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  // Scroll to bottom when chat is opened
-  useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => {
-        scrollToBottom();
-      }, 0);
-    }
-  }, [isOpen]);
 
   useEffect(() => {
     const handleOpenChat = () => setIsOpen(true);
@@ -436,35 +78,21 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
 
   useEffect(() => {
     // Handle window.lastChatIntroMessage for widget mode only if no custom intro message
-    if (!introMessage && window.lastChatIntroMessage && messages.length === 0) {
+    if (!introMessage && window.lastChatIntroMessage) {
       setInternalIntroMessage(window.lastChatIntroMessage);
-      setMessages([{
-        type: 'bot',
-        content: {
-          type: 'message',
-          message: window.lastChatIntroMessage
-        }
-      } as BotMessage]);
     }
     
     const handler = () => {
       if (!introMessage && window.lastChatIntroMessage) {
         setInternalIntroMessage(window.lastChatIntroMessage);
-        setMessages([{
-          type: 'bot',
-          content: {
-            type: 'message',
-            message: window.lastChatIntroMessage
-          }
-        } as BotMessage]);
       }
     };
     window.addEventListener('chat-intro-message', handler);
     return () => window.removeEventListener('chat-intro-message', handler);
-  }, [introMessage, messages.length]);
+  }, [introMessage]);
 
   // Analytics: track widget open
-  useEffect(() => {
+  const handleWidgetOpen = useCallback(() => {
     if (isOpen) {
       fetch(`${apiUrl}/api/analytics`, {
         method: 'POST',
@@ -481,151 +109,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
     }
   }, [isOpen, apiUrl, session?.user?.id, siteId]);
 
-  // Listen for settings updates
-  useEffect(() => {
-    const handleSettingsUpdate = (event: CustomEvent<ChatSettings & { introMessage: string }>) => {
-      const newSettings = event.detail;
-      setChatSettings(newSettings);
-      if (newSettings.introMessage !== introMessage) {
-        setIntroMessage(newSettings.introMessage);
-        setInternalIntroMessage(newSettings.introMessage);
-        setMessages([{
-          type: 'bot',
-          content: {
-            type: 'message',
-            message: newSettings.introMessage
-          }
-        } as BotMessage]);
-      }
-    };
-
-    window.addEventListener('chat-settings-updated', handleSettingsUpdate as EventListener);
-    return () => window.removeEventListener('chat-settings-updated', handleSettingsUpdate as EventListener);
-  }, [introMessage]);
-
-  // Avatar component using inline styles
-  const Avatar = ({ src, name, style = {} }: { src?: string; name?: string; style?: React.CSSProperties }) => {
-    const avatarStyle = {
-      ...styles.avatar,
-      ...style
-    };
-
-    if (src) {
-      return (
-        <div style={avatarStyle}>
-          <img
-            src={src}
-            alt={name || 'AI'}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' as const, borderRadius: '50%' }}
-            onError={(e) => {
-              // Hide image and show fallback text
-              (e.target as HTMLImageElement).style.display = 'none';
-              const parent = (e.target as HTMLImageElement).parentNode as HTMLElement;
-              if (parent) {
-                parent.textContent = name ? name.charAt(0).toUpperCase() : 'AI';
-              }
-            }}
-          />
-        </div>
-      );
-    }
-
-    return (
-      <div style={avatarStyle}>
-        {name ? name.charAt(0).toUpperCase() : 'AI'}
-      </div>
-    );
-  };
-
-  // Analytics: track message sent
-  const handleSendMessage = async () => {
-    if (!inputMessage.trim()) return;
-
-    const userMessage = inputMessage;
-    setInputMessage('');
-    setMessages(prev => [...prev, { type: 'user', content: userMessage } as UserMessage]);
-    setIsLoading(true);
-
-    // Fire analytics event (non-blocking)
-    fetch(`${apiUrl}/api/analytics`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        event_type: 'message_sent',
-        user_id: session?.user?.id || null,
-        site_id: siteId,
-        details: { message_length: userMessage.length }
-      })
-    }).catch(() => {
-      // Silently handle analytics errors to avoid console noise
-    });
-
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'x-site-id': siteId
-      };
-      
-      // Only add user ID if session exists
-      if (session?.user?.id) {
-        headers['x-user-id'] = session.user.id;
-      }
-
-      // Build conversation history from current messages (excluding intro message)
-      const conversationHistory = messages
-        .filter(msg => {
-          // Skip intro messages that are just the default greeting
-          if (msg.type === 'bot' && msg.content.type === 'message') {
-            const content = msg.content.message;
-            // Add safety check to prevent undefined.includes() error
-            if (content && typeof content === 'string') {
-              const isIntroMessage = content.includes('Hi! I am') || content.includes('How can I help');
-              return !isIntroMessage;
-            }
-          }
-          return true;
-        })
-        .map(msg => ({
-          role: msg.type === 'user' ? 'user' : 'assistant',
-          content: msg.type === 'user' ? msg.content : msg.content.message || ''
-        }))
-        .filter(msg => msg.content.trim().length > 0); // Remove empty messages
-
-      console.log('Making request to:', `${apiUrl}/api/chat`); // Debug log
-      console.log('Conversation history:', conversationHistory); // Debug log
-      
-      const response = await fetch(`${apiUrl}/api/chat`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ 
-          message: userMessage,
-          siteId: siteId,
-          conversationHistory: conversationHistory,
-          sessionId: sessionId
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
-      }
-
-      const data = await response.json();
-      setMessages(prev => [...prev, { type: 'bot', content: data } as BotMessage]);
-    } catch (error) {
-      console.error('Error:', error);
-      setMessages(prev => [...prev, {
-        type: 'bot',
-        content: {
-          type: 'message',
-          message: 'Sorry, I encountered an error. Please try again.'
-        }
-      } as BotMessage]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Analytics: track link clicks in bot messages
+  // Analytics: track link clicks
   const handleLinkClick = (link: Link) => {
     fetch(`${apiUrl}/api/analytics`, {
       method: 'POST',
@@ -641,390 +125,121 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
     });
   };
 
-  const renderMessage = (message: Message) => {
-    if (message.type === 'user') {
-      return (
-        <div style={styles.messageRowUser}>
-          <div
-            style={{
-              ...styles.messageBubbleUser,
-              fontSize: chatSettings?.font_size || '14px'
-            }}
-          >
-            <p style={styles.messageText}>
-              {message.content}
-            </p>
-          </div>
-        </div>
-      );
-    }
+  // Analytics: track message sent
+  const handleMessageSent = (message: string) => {
+    fetch(`${apiUrl}/api/analytics`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event_type: 'message_sent',
+        user_id: session?.user?.id || null,
+        site_id: siteId,
+        details: { message_length: message.length }
+      })
+    }).catch(() => {
+      // Silently handle analytics errors to avoid console noise
+    });
+  };
 
-    // Bot message - content is always MessageContent
-    const botContent = message.content;
-    if (botContent.type === 'links') {
-      return (
-        <div style={styles.messageRow}>
-          <Avatar
-            src={chatSettings?.chat_icon_url}
-            name={chatSettings?.chat_name || 'AI'}
-            style={styles.avatarSpacing}
-          />
-          <div style={{ maxWidth: '80%' }}>
-            <div
-              style={{
-                ...styles.messageBubbleBot,
-                fontSize: chatSettings?.font_size || '14px',
-                marginBottom: '12px'
-              }}
-            >
-              <p style={{...styles.messageText, marginBottom: '12px'}}>
-                {botContent.message}
-              </p>
-            </div>
-            
-            <div style={styles.linksContainer}>
-              {botContent.links?.map((link, index) => (
-                <LinkCard 
-                  key={index} 
-                  link={link} 
-                  chatSettings={chatSettings} 
-                  styles={styles} 
-                  onLinkClick={handleLinkClick}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-      );
-    }
+  // Listen for settings updates
+  useEffect(() => {
+    const handleSettingsUpdate = (event: CustomEvent<ChatSettings & { introMessage: string }>) => {
+      const newSettings = event.detail;
+      setChatSettings(newSettings);
+      if (newSettings.introMessage !== introMessage) {
+        setIntroMessage(newSettings.introMessage);
+        setInternalIntroMessage(newSettings.introMessage);
+      }
+    };
 
-    // Regular message response
-    const messageContent = botContent?.message || (typeof botContent === 'string' ? botContent : 'Sorry, I could not understand the response.');
-    
-    // Additional safety check for production
-    if (typeof messageContent !== 'string') {
-      console.error('React Error #31 Prevention: Non-string message detected:', messageContent, botContent);
-      const fallbackMessage = 'Sorry, I encountered an error processing the response.';
+    window.addEventListener('chat-settings-updated', handleSettingsUpdate as EventListener);
+    return () => window.removeEventListener('chat-settings-updated', handleSettingsUpdate as EventListener);
+  }, [introMessage]);
 
-      return (
-        <div style={styles.messageRow}>
-          <Avatar
-            src={chatSettings?.chat_icon_url}
-            name={chatSettings?.chat_name || 'AI'}
-            style={styles.avatarSpacing}
-          />
-          <div
-            style={{
-              ...styles.messageBubbleBot,
-              fontSize: chatSettings?.font_size || '14px'
-            }}
-          >
-            <p style={styles.messageText}>
-              {fallbackMessage}
-            </p>
-          </div>
-        </div>
-      );
+  // Call analytics when opened
+  useEffect(() => {
+    if (isOpen) {
+      handleWidgetOpen();
     }
-    
-    return (
-      <div style={styles.messageRow}>
-        <Avatar
-          src={chatSettings?.chat_icon_url}
-          name={chatSettings?.chat_name || 'AI'}
-          style={styles.avatarSpacing}
-        />
-        <div
-          style={{
-            ...styles.messageBubbleBot,
-            fontSize: chatSettings?.font_size || '14px'
-          }}
-        >
-          <p style={styles.messageText}>
-            {messageContent}
-          </p>
-        </div>
-      </div>
-    );
+  }, [isOpen, handleWidgetOpen]);
+
+  const chatButtonStyles: React.CSSProperties = {
+    position: 'fixed',
+    zIndex: 1400,
+    borderRadius: '50%',
+    width: '52px',
+    height: '52px',
+    padding: '0',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+    border: 'none',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.2s ease',
+    bottom: buttonBottom,
+    right: buttonRight,
+    backgroundColor: chatSettings?.chat_color || '#000',
+    color: chatSettings?.chat_bubble_icon_color || '#fff',
+  };
+
+  const chatContainerStyles: React.CSSProperties = {
+    position: 'fixed',
+    zIndex: 1300,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backdropFilter: 'blur(8px)',
+    border: '1px solid rgba(255, 255, 255, 0.3)',
+    boxShadow: '0 10px 40px rgba(0, 0, 0, 0.15)',
+    borderRadius: '20px',
+    bottom: chatBottom,
+    right: chatRight,
+    width: chatWidth,
+    height: chatHeight,
+  };
+
+  const embeddedStyles: React.CSSProperties = {
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'white',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden'
   };
 
   return (
     <>
       {/* Chat Button - only show if not embedded and not in iframe */}
       {!isEmbedded && window === window.top && (
-        <div
-          style={{
-            position: 'fixed',
-            zIndex: 1400,
-            bottom: buttonBottom,
-            right: buttonRight,
-            transition: 'all 0.2s ease'
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.transform = 'scale(1.05)';
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.transform = 'scale(1)';
-          }}
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          style={chatButtonStyles}
+          aria-label={isOpen ? 'Close chat' : 'Open chat'}
         >
-          <button
-            onClick={() => setIsOpen(!isOpen)}
-            style={{
-              ...styles.chatButton,
-              backgroundColor: chatSettings?.chat_color || '#000',
-              color: chatSettings?.chat_bubble_icon_color || '#fff',
-            }}
-            aria-label={isOpen ? 'Close chat' : 'Open chat'}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.boxShadow = '0 10px 25px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
-            }}
-          >
-            {isOpen ? (
-              <X size={24} />
-            ) : (
-              <ChatIcon color={chatSettings?.chat_bubble_icon_color || '#fff'} />
-            )}
-          </button>
-        </div>
+          {isOpen ? (
+            <X size={24} />
+          ) : (
+            <ChatIcon color={chatSettings?.chat_bubble_icon_color || '#fff'} />
+          )}
+        </button>
       )}
 
       {/* Chat Container */}
       {isOpen && (
-        isEmbedded ? (
-          // Embedded mode - no Portal, fill container
-          <div style={styles.container}>
-            {/* Chat Header */}
-            <div
-              style={{
-                ...styles.header,
-                backgroundColor: chatSettings?.chat_color || '#000',
-                color: chatSettings?.chat_name_color || '#fff',
-              }}
-            >
-              <Avatar
-                src={chatSettings?.chat_icon_url}
-                name={chatSettings?.chat_name || 'AI'}
-                style={styles.avatarSpacing}
-              />
-              <p 
-                style={{
-                  ...styles.messageText,
-                  fontWeight: '600',
-                  fontSize: chatSettings?.font_size || '14px',
-                  color: chatSettings?.chat_name_color || '#fff',
-                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif'
-                }}
-              >
-                {chatSettings?.chat_name || 'Affi'}
-              </p>
-            </div>
-
-            {/* Messages Area */}
-            <div style={styles.messagesContainer}>
-              {messages.length === 0 && !isLoading && (
-                <div style={styles.messageRow}>
-                  <Avatar
-                    src={chatSettings?.chat_icon_url}
-                    name={chatSettings?.chat_name || 'AI'}
-                    style={styles.avatarSpacing}
-                  />
-                  <div
-                    style={{
-                      ...styles.messageBubbleBot,
-                      fontSize: chatSettings?.font_size || '14px'
-                    }}
-                  >
-                    <p style={styles.messageText}>
-                      {introMessage || internalIntroMessage || `Hi! I am ${chatSettings?.chat_name || 'Affi'}, your assistant. How can I help you today?`}
-                    </p>
-                  </div>
-                </div>
-              )}
-              
-              {messages.map((message, index) => (
-                <div key={index}>
-                  {renderMessage(message)}
-                </div>
-              ))}
-              
-              {isLoading && (
-                <div style={styles.loadingSpinner}>
-                  <Loader2 
-                    size={24}
-                    style={{ 
-                      color: chatSettings?.chat_color || '#6B7280',
-                      animation: 'spin 1s linear infinite'
-                    }}
-                  />
-                </div>
-              )}
-              
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Input Area */}
-            <div style={styles.inputContainer}>
-              <div style={styles.inputWrapper}>
-                <input
-                  type="text"
-                  value={inputMessage}
-                  onChange={(e) => setInputMessage(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                  placeholder={chatSettings?.input_placeholder || 'Type your message...'}
-                  style={{
-                    ...styles.input,
-                    fontSize: chatSettings?.font_size || '14px',
-                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)'
-                  }}
-                />
-                <button
-                  onClick={handleSendMessage}
-                  disabled={isLoading || !inputMessage.trim()}
-                  style={{
-                    ...styles.sendButton,
-                    backgroundColor: chatSettings?.chat_color || '#000',
-                    opacity: (isLoading || !inputMessage.trim()) ? 0.5 : 1,
-                    cursor: (isLoading || !inputMessage.trim()) ? 'not-allowed' : 'pointer'
-                  }}
-                  aria-label="Send message"
-                  onMouseEnter={(e) => {
-                    if (!isLoading && inputMessage.trim()) {
-                      (e.currentTarget as HTMLElement).style.transform = 'translateY(-50%) scale(1.05)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLElement).style.transform = 'translateY(-50%) scale(1)';
-                  }}
-                >
-                  <Send size={16} />
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          // Regular mode - Fixed positioning
-          <div
-            style={{
-              ...styles.chatContainer,
-              bottom: chatBottom,
-              right: chatRight,
-              width: chatWidth,
-              height: chatHeight,
-            }}
-          >
-            {/* Chat Header */}
-            <div
-              style={{
-                ...styles.header,
-                backgroundColor: chatSettings?.chat_color || '#000',
-                color: chatSettings?.chat_name_color || '#fff',
-                borderRadius: '20px 20px 0 0'
-              }}
-            >
-              <Avatar
-                src={chatSettings?.chat_icon_url}
-                name={chatSettings?.chat_name || 'AI'}
-                style={styles.avatarSpacing}
-              />
-              <p 
-                style={{
-                  ...styles.messageText,
-                  fontWeight: '600',
-                  fontSize: chatSettings?.font_size || '14px',
-                  color: chatSettings?.chat_name_color || '#fff',
-                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif'
-                }}
-              >
-                {chatSettings?.chat_name || 'Affi'}
-              </p>
-            </div>
-
-            {/* Messages Area */}
-            <div style={styles.messagesContainer}>
-              {messages.length === 0 && !isLoading && (
-                <div style={styles.messageRow}>
-                  <Avatar
-                    src={chatSettings?.chat_icon_url}
-                    name={chatSettings?.chat_name || 'AI'}
-                    style={styles.avatarSpacing}
-                  />
-                  <div
-                    style={{
-                      ...styles.messageBubbleBot,
-                      fontSize: chatSettings?.font_size || '14px'
-                    }}
-                  >
-                    <p style={styles.messageText}>
-                      {introMessage || internalIntroMessage || `Hi! I am ${chatSettings?.chat_name || 'Affi'}, your assistant. How can I help you today?`}
-                    </p>
-                  </div>
-                </div>
-              )}
-              
-              {messages.map((message, index) => (
-                <div key={index}>
-                  {renderMessage(message)}
-                </div>
-              ))}
-              
-              {isLoading && (
-                <div style={styles.loadingSpinner}>
-                  <Loader2 
-                    size={24}
-                    style={{ 
-                      color: chatSettings?.chat_color || '#6B7280',
-                      animation: 'spin 1s linear infinite'
-                    }}
-                  />
-                </div>
-              )}
-              
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Input Area */}
-            <div style={styles.inputContainer}>
-              <div style={styles.inputWrapper}>
-                <input
-                  type="text"
-                  value={inputMessage}
-                  onChange={(e) => setInputMessage(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                  placeholder={chatSettings?.input_placeholder || 'Type your message...'}
-                  style={{
-                    ...styles.input,
-                    fontSize: chatSettings?.font_size || '14px',
-                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)'
-                  }}
-                />
-                <button
-                  onClick={handleSendMessage}
-                  disabled={isLoading || !inputMessage.trim()}
-                  style={{
-                    ...styles.sendButton,
-                    backgroundColor: chatSettings?.chat_color || '#000',
-                    opacity: (isLoading || !inputMessage.trim()) ? 0.5 : 1,
-                    cursor: (isLoading || !inputMessage.trim()) ? 'not-allowed' : 'pointer'
-                  }}
-                  aria-label="Send message"
-                  onMouseEnter={(e) => {
-                    if (!isLoading && inputMessage.trim()) {
-                      (e.currentTarget as HTMLElement).style.transform = 'translateY(-50%) scale(1.05)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLElement).style.transform = 'translateY(-50%) scale(1)';
-                  }}
-                >
-                  <Send size={16} />
-                </button>
-              </div>
-            </div>
-          </div>
-        )
+        <div style={isEmbedded ? embeddedStyles : chatContainerStyles}>
+          <ChatWidgetCore
+            session={session}
+            chatSettings={chatSettings}
+            siteId={siteId}
+            introMessage={introMessage || internalIntroMessage}
+            apiUrl={apiUrl}
+            isEmbedded={isEmbedded}
+            onLinkClick={handleLinkClick}
+            onMessageSent={handleMessageSent}
+          />
+        </div>
       )}
     </>
   );
