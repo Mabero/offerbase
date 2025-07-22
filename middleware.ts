@@ -5,6 +5,7 @@ const isPublicRoute = createRouteMatcher([
   '/', // Homepage should be public
   '/auth/login(.*)',
   '/auth/signup(.*)',
+  '/widget(.*)', // Widget page must be public for iframe embedding
   '/api/webhooks/clerk(.*)', // Webhook endpoint must be public
   '/api/analytics(.*)', // Analytics for widget
   '/api/chat(.*)', // Chat API for widget
