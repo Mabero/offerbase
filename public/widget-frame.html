@@ -132,12 +132,6 @@
                 await loadScript('https://unpkg.com/react@18/umd/react.production.min.js');
                 await loadScript('https://unpkg.com/react-dom@18/umd/react-dom.production.min.js');
                 
-                // Create React element for ChatWidget
-                const ChatWidgetComponent = React.createElement('div', {
-                    id: 'chat-widget-react-root',
-                    style: { width: '100%', height: '100%' }
-                });
-                
                 // Create a functional ChatWidget component with settings
                 const ChatWidgetComponent = () => {
                     const [messages, setMessages] = React.useState([]);
@@ -164,8 +158,11 @@
                             });
                             
                             const data = await response.json();
-                            if (data.response) {
-                                setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
+                            if (data.response || data.message) {
+                                setMessages(prev => [...prev, { 
+                                    role: 'assistant', 
+                                    content: data.response || data.message 
+                                }]);
                             }
                         } catch (error) {
                             console.error('Failed to send message:', error);
@@ -174,53 +171,63 @@
                         }
                     };
                     
-                    // Apply settings to styles
-                    const styles = {
-                        container: {
-                            height: '100%',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            backgroundColor: '#ffffff'
-                        },
-                        header: {
-                            backgroundColor: config.settings.chat_color,
-                            color: config.settings.chat_name_color,
-                            padding: '16px',
-                            fontSize: '18px',
-                            fontWeight: '600',
+                    // Create Avatar component equivalent
+                    const Avatar = ({ src, name, className = '', style = {} }) => {
+                        const avatarStyle = {
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '50%',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '12px'
-                        },
-                        messages: {
-                            flex: 1,
-                            overflowY: 'auto',
-                            padding: '16px',
-                            fontSize: config.settings.font_size
-                        },
-                        inputContainer: {
-                            padding: '16px',
-                            borderTop: '1px solid #e5e7eb',
-                            display: 'flex',
-                            gap: '8px'
-                        },
-                        input: {
-                            flex: 1,
-                            padding: '8px 12px',
-                            border: '1px solid #e5e7eb',
-                            borderRadius: '8px',
-                            fontSize: config.settings.font_size,
-                            outline: 'none'
-                        },
-                        button: {
-                            backgroundColor: config.settings.chat_color,
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '8px',
-                            padding: '8px 16px',
-                            cursor: 'pointer',
-                            fontSize: config.settings.font_size
+                            justifyContent: 'center',
+                            backgroundColor: '#f3f4f6',
+                            color: '#6b7280',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            overflow: 'hidden',
+                            ...style
+                        };
+                        
+                        if (src) {
+                            return React.createElement('div', { 
+                                className,
+                                style: avatarStyle 
+                            },
+                                React.createElement('img', {
+                                    src,
+                                    alt: name,
+                                    style: { width: '100%', height: '100%', objectFit: 'cover' },
+                                    onError: (e) => {
+                                        e.target.style.display = 'none';
+                                        e.target.nextSibling.style.display = 'flex';
+                                    }
+                                }),
+                                React.createElement('div', {
+                                    style: { ...avatarStyle, display: 'none', position: 'absolute' }
+                                }, name ? name.charAt(0).toUpperCase() : 'AI')
+                            );
                         }
+                        
+                        return React.createElement('div', { 
+                            className,
+                            style: avatarStyle 
+                        }, name ? name.charAt(0).toUpperCase() : 'AI');
+                    };
+                    
+                    // Send icon SVG component
+                    const SendIcon = ({ size = 16, color = 'currentColor' }) => {
+                        return React.createElement('svg', {
+                            width: size,
+                            height: size,
+                            viewBox: '0 0 24 24',
+                            fill: 'none',
+                            stroke: color,
+                            strokeWidth: 2,
+                            strokeLinecap: 'round',
+                            strokeLinejoin: 'round'
+                        },
+                            React.createElement('path', { d: 'm22 2-7 20-4-9-9-4 20-7z' })
+                        );
                     };
                     
                     React.useEffect(() => {
@@ -233,46 +240,173 @@
                         }
                     }, []);
                     
-                    return React.createElement('div', { style: styles.container },
-                        React.createElement('div', { style: styles.header },
-                            config.settings.chat_icon_url && React.createElement('img', {
+                    // Exact ChatWidget structure matching the Dashboard preview
+                    return React.createElement('div', { 
+                        className: 'w-full h-full bg-white flex flex-col overflow-hidden',
+                        style: { fontFamily: 'Inter, system-ui, sans-serif' }
+                    },
+                        // Chat Header - exact match with Dashboard ChatWidget
+                        React.createElement('div', {
+                            className: 'p-4 flex items-center border-b border-white/10',
+                            style: {
+                                backgroundColor: config.settings.chat_color || '#000',
+                                color: config.settings.chat_name_color || '#fff'
+                            }
+                        },
+                            React.createElement(Avatar, {
                                 src: config.settings.chat_icon_url,
-                                style: { width: '32px', height: '32px', borderRadius: '50%' }
+                                name: config.settings.chat_name,
+                                className: 'mr-3'
                             }),
-                            config.settings.chat_name
+                            React.createElement('p', {
+                                className: 'font-semibold leading-relaxed font-inter',
+                                style: { fontSize: config.settings.font_size || '14px' }
+                            }, config.settings.chat_name || 'Affi')
                         ),
-                        React.createElement('div', { style: styles.messages },
-                            messages.map((msg, idx) => 
+                        
+                        // Messages Area - exact match with Dashboard ChatWidget
+                        React.createElement('div', {
+                            className: 'flex-1 overflow-y-auto p-4',
+                            style: { scrollbarWidth: 'thin' }
+                        },
+                            // Show intro message if no messages
+                            messages.length === 0 && !isLoading && React.createElement('div', {
+                                className: 'flex justify-start mb-3 items-start'
+                            },
+                                React.createElement(Avatar, {
+                                    src: config.settings.chat_icon_url,
+                                    name: config.settings.chat_name,
+                                    className: 'mr-3'
+                                }),
                                 React.createElement('div', {
-                                    key: idx,
-                                    style: {
-                                        marginBottom: '12px',
-                                        padding: '8px 12px',
-                                        backgroundColor: msg.role === 'user' ? '#f3f4f6' : '#e5e7eb',
-                                        borderRadius: '8px',
-                                        alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                                        maxWidth: '70%'
+                                    className: 'bg-white/95 backdrop-blur-sm border border-white/30 rounded-2xl px-4 py-3 max-w-[80%] relative shadow-lg',
+                                    style: { 
+                                        fontSize: config.settings.font_size || '14px',
+                                        backdropFilter: 'blur(4px)',
+                                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                        border: '1px solid rgba(255, 255, 255, 0.3)',
+                                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
                                     }
-                                }, msg.content)
+                                },
+                                    React.createElement('p', {
+                                        className: 'text-gray-800 leading-relaxed font-inter'
+                                    }, config.settings.intro_message || 'Hello! How can I help you today?')
+                                )
                             ),
-                            isLoading && React.createElement('div', {
-                                style: { padding: '8px', color: '#6b7280' }
-                            }, 'Typing...')
-                        ),
-                        React.createElement('div', { style: styles.inputContainer },
-                            React.createElement('input', {
-                                type: 'text',
-                                value: inputValue,
-                                onChange: (e) => setInputValue(e.target.value),
-                                onKeyPress: (e) => e.key === 'Enter' && sendMessage(),
-                                placeholder: config.settings.input_placeholder,
-                                style: styles.input
+                            
+                            // Render messages with exact ChatWidget styling
+                            messages.map((msg, idx) => {
+                                if (msg.role === 'user') {
+                                    return React.createElement('div', {
+                                        key: idx,
+                                        className: 'flex justify-end mb-3 items-end'
+                                    },
+                                        React.createElement('div', {
+                                            className: 'bg-white/95 backdrop-blur-sm border border-white/30 rounded-2xl px-4 py-3 max-w-[80%] relative shadow-lg',
+                                            style: { 
+                                                fontSize: config.settings.font_size || '14px',
+                                                backdropFilter: 'blur(4px)',
+                                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                                border: '1px solid rgba(255, 255, 255, 0.3)',
+                                                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                                            }
+                                        },
+                                            React.createElement('p', {
+                                                className: 'text-gray-800 leading-relaxed font-inter'
+                                            }, msg.content)
+                                        )
+                                    );
+                                } else {
+                                    return React.createElement('div', {
+                                        key: idx,
+                                        className: 'flex justify-start mb-3 items-start'
+                                    },
+                                        React.createElement(Avatar, {
+                                            src: config.settings.chat_icon_url,
+                                            name: config.settings.chat_name,
+                                            className: 'mr-3'
+                                        }),
+                                        React.createElement('div', {
+                                            className: 'bg-white/95 backdrop-blur-sm border border-white/30 rounded-2xl px-4 py-3 max-w-[80%] relative shadow-lg',
+                                            style: { 
+                                                fontSize: config.settings.font_size || '14px',
+                                                backdropFilter: 'blur(4px)',
+                                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                                border: '1px solid rgba(255, 255, 255, 0.3)',
+                                                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                                            }
+                                        },
+                                            React.createElement('p', {
+                                                className: 'text-gray-800 leading-relaxed font-inter'
+                                            }, msg.content)
+                                        )
+                                    );
+                                }
                             }),
-                            React.createElement('button', {
-                                onClick: sendMessage,
-                                disabled: isLoading,
-                                style: styles.button
-                            }, 'Send')
+                            
+                            // Loading indicator
+                            isLoading && React.createElement('div', {
+                                className: 'flex justify-start mb-3 items-start'
+                            },
+                                React.createElement(Avatar, {
+                                    src: config.settings.chat_icon_url,
+                                    name: config.settings.chat_name,
+                                    className: 'mr-3'
+                                }),
+                                React.createElement('div', {
+                                    className: 'bg-white/95 backdrop-blur-sm border border-white/30 rounded-2xl px-4 py-3 max-w-[80%] relative shadow-lg',
+                                    style: { 
+                                        backdropFilter: 'blur(4px)',
+                                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                        border: '1px solid rgba(255, 255, 255, 0.3)',
+                                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                                    }
+                                },
+                                    React.createElement('p', {
+                                        className: 'text-gray-800 leading-relaxed font-inter'
+                                    }, 'Typing...')
+                                )
+                            )
+                        ),
+                        
+                        // Input Area - exact match with Dashboard ChatWidget
+                        React.createElement('div', {
+                            className: 'p-4 border-t border-gray-200 bg-gray-50'
+                        },
+                            React.createElement('div', {
+                                className: 'relative flex items-center',
+                                style: { position: 'relative' }
+                            },
+                                React.createElement('input', {
+                                    type: 'text',
+                                    value: inputValue,
+                                    onChange: (e) => setInputValue(e.target.value),
+                                    onKeyPress: (e) => e.key === 'Enter' && !isLoading && inputValue.trim() && sendMessage(),
+                                    placeholder: config.settings.input_placeholder || 'Type your message...',
+                                    className: 'w-full px-4 py-3 pr-12 border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-inter',
+                                    style: { 
+                                        fontSize: config.settings.font_size || '14px',
+                                        borderRadius: '24px',
+                                        paddingRight: '48px'
+                                    },
+                                    disabled: isLoading
+                                }),
+                                React.createElement('button', {
+                                    onClick: sendMessage,
+                                    disabled: isLoading || !inputValue.trim(),
+                                    className: 'absolute right-2 top-1/2 transform -translate-y-1/2 rounded-full w-8 h-8 p-0 transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed',
+                                    style: {
+                                        backgroundColor: config.settings.chat_color || '#000',
+                                        color: 'white',
+                                        border: 'none',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                    }
+                                },
+                                    React.createElement(SendIcon, { size: 16, color: 'white' })
+                                )
+                            )
                         )
                     );
                 };

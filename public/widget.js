@@ -295,11 +295,19 @@
                         <div style="font-weight: 600; color: #111827;">${chatSettings.chat_name || 'Affi'} 👋</div>
                         <button style="background: none; border: none; cursor: pointer; padding: 0; color: #6b7280; font-size: 16px;" onclick="this.parentElement.parentElement.remove();">×</button>
                     </div>
-                    <div style="margin-bottom: 12px;">${chatSettings.intro_message || 'Hello! How can I help you today?'}</div>
-                    <button style="background: ${chatSettings.chat_color || '#000'}; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;" onclick="document.getElementById('chat-widget-button-${siteId}').click(); this.parentElement.remove();">
-                        Start Chat
-                    </button>
+                    <div style="margin-bottom: 12px; cursor: pointer;">${chatSettings.intro_message || 'Hello! How can I help you today?'}</div>
                 `;
+                
+                // Make the entire popup clickable to open chat
+                popup.style.cursor = 'pointer';
+                popup.addEventListener('click', (e) => {
+                    // Prevent close button from triggering chat open
+                    if (e.target.tagName === 'BUTTON') return;
+                    
+                    // Open chat and remove popup
+                    document.getElementById('chat-widget-button-' + siteId).click();
+                    popup.remove();
+                });
                 
                 document.body.appendChild(popup);
                 
