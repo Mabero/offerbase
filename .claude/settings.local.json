@@ -13,7 +13,8 @@
       "Bash(npm run build:*)",
       "WebFetch(domain:docs.clerk.dev)",
       "Bash(npm run dev:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(mv:*)"
     ],
     "deny": []
   }

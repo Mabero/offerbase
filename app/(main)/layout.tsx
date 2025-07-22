@@ -9,7 +9,7 @@ import Link from "next/link";
 import { Providers } from './providers';
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/toaster";
-import "./globals.css";
+import "../globals.css";
 
 export const metadata: Metadata = {
   title: "Offerbase - Clerk Authentication",

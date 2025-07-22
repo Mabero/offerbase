@@ -2,8 +2,8 @@
 
 import React, { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import ChatWidget from '../../components/ChatWidget';
-import { ChatSettings } from '../../components/ChatWidgetCore';
+import ChatWidget from '../../../components/ChatWidget';
+import { ChatSettings } from '../../../components/ChatWidgetCore';
 
 function WidgetContent() {
   const searchParams = useSearchParams();

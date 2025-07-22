@@ -6,14 +6,19 @@ export const metadata: Metadata = {
   description: "Chat widget for external embedding",
 };
 
-export default function WidgetLayout({
+export default function WidgetRootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
     <html lang="en">
-      <body style={{ margin: 0, padding: 0 }}>
+      <body style={{ 
+        margin: 0, 
+        padding: 0, 
+        backgroundColor: 'transparent',
+        overflow: 'hidden'
+      }}>
         {children}
       </body>
     </html>
