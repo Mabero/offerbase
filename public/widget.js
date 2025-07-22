@@ -104,8 +104,8 @@
             height: 52px;
             border-radius: 50%;
             border: none;
-            background: ${chatSettings.chat_color || '#000'};
-            color: ${chatSettings.chat_bubble_icon_color || 'white'};
+            background: ${chatSettings?.chat_color || '#000000'};
+            color: ${chatSettings?.chat_bubble_icon_color || 'white'};
             cursor: pointer;
             z-index: 1001;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
@@ -149,10 +149,10 @@
     async function initializeWidget() {
         // Load settings first
         await loadChatSettings();
-        
+
         // Update config with loaded settings
         config.settings = chatSettings;
-        
+
         const { container, iframe } = createWidgetContainer();
         const button = createChatButton();
 

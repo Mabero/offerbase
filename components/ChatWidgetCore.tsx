@@ -19,9 +19,13 @@ export interface Session {
 }
 
 export interface MessageContent {
-  type: 'message' | 'links';
+  type: 'message' | 'links' | 'simple_link';
   message: string;
   links?: Link[];
+  simple_link?: {
+    text: string;
+    url: string;
+  };
 }
 
 export interface UserMessage {
@@ -129,7 +133,7 @@ const TypewriterMessage = ({
         index++;
         
         // Add slight pause after punctuation for more natural feel
-        const delay = (char === '.' || char === '!' || char === '?') ? 100 : 15;
+        const delay = (char === '.' || char === '!' || char === '?') ? 50 : 5;
         timeoutId = setTimeout(typeCharacter, delay);
       } else {
         if (!isCancelled) {
@@ -326,7 +330,6 @@ export function ChatWidgetCore({
     },
     header: {
       padding: '16px',
-      paddingTop: '28px',
       display: 'flex',
       alignItems: 'center',
       borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
@@ -350,7 +353,7 @@ export function ChatWidgetCore({
       marginBottom: '12px'
     },
     messageBubbleUser: {
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      backgroundColor: chatSettings?.chat_color || '#000000',
       backdropFilter: 'blur(4px)',
       border: '1px solid rgba(255, 255, 255, 0.3)',
       borderRadius: '16px',
@@ -361,6 +364,12 @@ export function ChatWidgetCore({
     },
     messageText: {
       color: '#1f2937',
+      lineHeight: '1.5',
+      fontSize: chatSettings?.font_size || '14px',
+      margin: '0'
+    },
+    messageTextUser: {
+      color: chatSettings?.chat_bubble_icon_color || '#1f2937',
       lineHeight: '1.5',
       fontSize: chatSettings?.font_size || '14px',
       margin: '0'
@@ -603,7 +612,7 @@ export function ChatWidgetCore({
         setTypingMessage(data.message);
         setIsTyping(true);
       } else {
-        // For links or other complex content, add directly
+        // For links, simple links, or other complex content, add directly
         setMessages(prev => [...prev, { type: 'bot', content: data } as BotMessage]);
       }
     } catch (error) {
@@ -629,7 +638,7 @@ export function ChatWidgetCore({
               fontSize: chatSettings?.font_size || '14px'
             }}
           >
-            <p style={styles.messageText}>
+            <p style={styles.messageTextUser}>
               {message.content}
             </p>
           </div>
@@ -676,6 +685,57 @@ export function ChatWidgetCore({
       );
     }
 
+    // Simple link message
+    if (botContent.type === 'simple_link') {
+      return (
+        <div style={styles.messageRow}>
+          <Avatar
+            src={chatSettings?.chat_icon_url}
+            name={chatSettings?.chat_name}
+            style={styles.avatarSpacing}
+          />
+          <div style={{ maxWidth: '80%' }}>
+            <div
+              style={{
+                ...styles.messageBubbleBot,
+                fontSize: chatSettings?.font_size || '14px'
+              }}
+            >
+              <p style={styles.messageText}>
+                {botContent.message}
+              </p>
+              
+              {botContent.simple_link && (
+                <a
+                  href={botContent.simple_link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => handleLinkClick({ 
+                    name: botContent.simple_link!.text, 
+                    url: botContent.simple_link!.url, 
+                    description: '',
+                    button_text: '',
+                    image_url: ''
+                  })}
+                  style={{
+                    display: 'inline-block',
+                    color: chatSettings?.chat_color || '#007bff',
+                    textDecoration: 'underline',
+                    fontSize: chatSettings?.font_size || '14px',
+                    cursor: 'pointer',
+                    padding: '4px 0',
+                    marginTop: '8px'
+                  }}
+                >
+                  {botContent.simple_link.text}
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // Regular message
     const messageContent = botContent?.message || 'Sorry, I could not understand the response.';
     
@@ -712,7 +772,7 @@ export function ChatWidgetCore({
         <p style={{
           ...styles.messageText,
           fontWeight: '600',
-          color: chatSettings?.chat_name_color || '#ffffff',
+          color: chatSettings?.chat_bubble_icon_color || '#ffffff',
           margin: '0'
         }}>
           {chatSettings?.chat_name || 'Affi'}

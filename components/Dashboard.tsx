@@ -31,13 +31,15 @@ import {
   Trash2,
   Eye,
   EyeOff,
-  Loader2
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 
 import { supabase } from '../lib/supabaseClient';
 import { BASE_INSTRUCTIONS } from '../lib/instructions';
 import ChatWidget from './ChatWidget';
 import { SiteSelector } from './site-selector';
+import { TrainingContentEditor } from './TrainingContentEditor';
 
 const drawerWidth = 240;
 
@@ -79,8 +81,15 @@ interface TrainingMaterial {
   id: string;
   url: string;
   title: string;
+  content?: string | null;
+  content_type?: string;
+  metadata?: Record<string, unknown>;
+  scrape_status?: 'pending' | 'processing' | 'success' | 'failed';
+  last_scraped_at?: string | null;
+  error_message?: string | null;
   site_id: string;
   created_at: string;
+  updated_at: string;
 }
 
 interface ChatSettings {
@@ -143,13 +152,20 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   });
   const [isLoadingChatSettings, setIsLoadingChatSettings] = useState(false);
   const [isSupabaseConfiguredState, setIsSupabaseConfiguredState] = useState<boolean | null>(null);
-  const [useDirectWidget, setUseDirectWidget] = useState(false);
   const [isSiteDialogOpen, setIsSiteDialogOpen] = useState(false);
-  const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
   const [isLoadingSites, setIsLoadingSites] = useState(false);
 
   // Refs for cleanup
   const isMountedRef = useRef(true);
+  
+  // Content editor state
+  const [isContentEditorOpen, setIsContentEditorOpen] = useState(false);
+  const [selectedMaterialForEdit, setSelectedMaterialForEdit] = useState<TrainingMaterial | null>(null);
+  
+  // Polling state
+  const [isPolling, setIsPolling] = useState(false);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const previousMaterialsRef = useRef<TrainingMaterial[]>([]);
 
   const { toast } = useToast();
 
@@ -217,7 +233,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     }
   };
 
-  const loadTrainingMaterials = async (siteId: string) => {
+  const loadTrainingMaterials = useCallback(async (siteId: string) => {
     if (isSupabaseConfiguredState === false) return; // Skip if using demo mode
     
     try {
@@ -227,14 +243,41 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       const data = await response.json();
       
       if (response.ok) {
-        setTrainingMaterials(data.materials);
+        // Check for status changes and show notifications
+        const previousMaterials = previousMaterialsRef.current;
+        const newMaterials = data.materials;
+        
+        // Compare with previous state to detect status changes
+        newMaterials.forEach((newMaterial: TrainingMaterial) => {
+          const previousMaterial = previousMaterials.find(pm => pm.id === newMaterial.id);
+          
+          if (previousMaterial && previousMaterial.scrape_status !== newMaterial.scrape_status) {
+            // Status changed - show notification
+            if (newMaterial.scrape_status === 'success') {
+              toast({
+                title: "✅ Scraping Complete",
+                description: `Successfully scraped content from "${newMaterial.title}"`,
+              });
+            } else if (newMaterial.scrape_status === 'failed') {
+              toast({
+                title: "❌ Scraping Failed",
+                description: `Failed to scrape content from "${newMaterial.title}"`,
+                variant: "destructive"
+              });
+            }
+          }
+        });
+        
+        // Update state and previous materials ref
+        setTrainingMaterials(newMaterials);
+        previousMaterialsRef.current = newMaterials;
       } else {
         console.error('Failed to load training materials:', data.error);
       }
     } catch (error) {
       console.error('Error loading training materials:', error);
     }
-  };
+  }, [isSupabaseConfiguredState, toast]);
 
   // Handler functions
   const handleAddLink = async () => {
@@ -384,7 +427,12 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
           url: data.url,
           title: new URL(data.url).hostname,
           site_id: selectedSite.id,
-          created_at: new Date().toISOString()
+          scrape_status: 'success',
+          content: 'Demo content for ' + new URL(data.url).hostname + '. This is sample training content that would normally be scraped from the webpage.',
+          content_type: 'webpage',
+          last_scraped_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         };
         
         setTrainingMaterials(prev => [...prev, material]);
@@ -406,6 +454,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
 
         if (response.ok) {
           setTrainingMaterials(prev => [...prev, responseData.material]);
+          console.log('Added new training material:', responseData.material);
         } else {
           throw new Error(responseData.error || 'Failed to add training material');
         }
@@ -459,6 +508,181 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to delete training material",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleEditMaterial = (material: TrainingMaterial) => {
+    setSelectedMaterialForEdit(material);
+    setIsContentEditorOpen(true);
+  };
+
+  const handleMaterialSaved = (updatedMaterial: TrainingMaterial) => {
+    setTrainingMaterials(prev => 
+      prev.map(m => m.id === updatedMaterial.id ? updatedMaterial : m)
+    );
+  };
+
+  const handleCloseEditor = () => {
+    setIsContentEditorOpen(false);
+    setSelectedMaterialForEdit(null);
+  };
+
+  // Simplified polling approach - fixed circular dependency
+  useEffect(() => {
+    if (!selectedSite) return;
+
+    // Check if we have any materials that need polling
+    const hasProcessingMaterials = trainingMaterials.some(m => 
+      m.scrape_status === 'pending' || m.scrape_status === 'processing'
+    );
+
+    console.log('Polling check:', { hasProcessingMaterials, materialsCount: trainingMaterials.length, selectedSite: selectedSite.id });
+
+    if (hasProcessingMaterials) {
+      // Start polling if not already running
+      if (!pollingIntervalRef.current) {
+        console.log('Starting polling for training materials...');
+        setIsPolling(true);
+        
+        pollingIntervalRef.current = setInterval(async () => {
+          console.log('Polling tick - checking for updates...');
+          try {
+            // Call loadTrainingMaterials directly without depending on the function reference
+            if (isSupabaseConfiguredState === false) return;
+            
+            const response = await fetch(`/api/training-materials?siteId=${selectedSite.id}`, {
+              credentials: 'include',
+            });
+            const data = await response.json();
+            
+            if (response.ok) {
+              // Check for status changes and show notifications
+              const previousMaterials = previousMaterialsRef.current;
+              const newMaterials = data.materials;
+              
+              // Compare with previous state to detect status changes
+              newMaterials.forEach((newMaterial: TrainingMaterial) => {
+                const previousMaterial = previousMaterials.find(m => m.id === newMaterial.id);
+                if (previousMaterial && previousMaterial.scrape_status !== newMaterial.scrape_status) {
+                  console.log('Status changed for material:', newMaterial.id, previousMaterial.scrape_status, '->', newMaterial.scrape_status);
+                  
+                  if (newMaterial.scrape_status === 'success') {
+                    toast({
+                      title: "Content scraped successfully",
+                      description: `"${newMaterial.title}" has been processed and is ready for training.`,
+                      variant: "default",
+                    });
+                  } else if (newMaterial.scrape_status === 'failed') {
+                    toast({
+                      title: "Scraping failed",
+                      description: `Failed to process "${newMaterial.title}". ${newMaterial.error_message || 'Please try again.'}`,
+                      variant: "destructive",
+                    });
+                  }
+                }
+              });
+              
+              // Update state
+              setTrainingMaterials(newMaterials);
+              previousMaterialsRef.current = [...newMaterials];
+            } else {
+              console.error('Failed to load training materials:', data.error);
+            }
+          } catch (error) {
+            console.error('Polling error:', error);
+          }
+        }, 5000); // Poll every 5 seconds for testing
+      }
+    } else {
+      // Stop polling if no materials are being processed
+      if (pollingIntervalRef.current) {
+        console.log('Stopping polling - no more processing materials');
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+        setIsPolling(false);
+      }
+    }
+
+    // Cleanup function
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+        setIsPolling(false);
+      }
+    };
+  }, [trainingMaterials, selectedSite, isSupabaseConfiguredState, toast]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
+
+  const handleRetryScrapeMaterial = async (material: TrainingMaterial) => {
+    if (isSupabaseConfiguredState === false) {
+      // Demo mode - just update status
+      setTrainingMaterials(prev => 
+        prev.map(m => m.id === material.id 
+          ? { ...m, scrape_status: 'success' as const, error_message: null, content: 'Demo retry successful content' }
+          : m
+        )
+      );
+      toast({
+        title: "Success",
+        description: "Material re-scraped successfully"
+      });
+      return;
+    }
+
+    try {
+      // Update status to processing
+      setTrainingMaterials(prev => 
+        prev.map(m => m.id === material.id 
+          ? { ...m, scrape_status: 'processing' as const, error_message: null }
+          : m
+        )
+      );
+
+      // Trigger re-scraping by calling the API
+      const response = await fetch('/api/training-materials', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          siteId: material.site_id,
+          url: material.url
+        }),
+      });
+
+      if (response.ok) {
+        console.log('Retry scraping triggered for material:', material.id);
+        
+        toast({
+          title: "Processing",
+          description: "Re-scraping started. This may take a moment."
+        });
+      } else {
+        throw new Error('Failed to trigger re-scraping');
+      }
+    } catch (error) {
+      // Reset status to failed on error
+      setTrainingMaterials(prev => 
+        prev.map(m => m.id === material.id 
+          ? { ...m, scrape_status: 'failed' as const }
+          : m
+        )
+      );
+
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to retry scraping",
         variant: "destructive"
       });
     }
@@ -676,7 +900,12 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
             url: 'https://example.com/docs',
             title: 'Documentation',
             site_id: 'demo-site',
-            created_at: new Date().toISOString()
+            scrape_status: 'success',
+            content: 'This is sample documentation content that has been scraped and processed. It contains information about how to use our products and services.',
+            content_type: 'documentation',
+            last_scraped_at: new Date().toISOString(),
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
           }
         ]);
         
@@ -993,32 +1222,111 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                   </div>
                   
                   <div className="pt-8">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Your Training Materials</h3>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900">Your Training Materials</h3>
+                      {isPolling && (
+                        <div className="flex items-center text-sm text-blue-600">
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Checking for updates...
+                        </div>
+                      )}
+                    </div>
                     <div className="space-y-4">
                       {trainingMaterials.map((material) => (
                         <Card key={material.id} className="bg-white border border-gray-200">
                           <CardContent className="p-4">
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between mb-3">
                               <div className="flex-1">
-                                <h4 className="font-medium text-gray-900">{material.title}</h4>
-                                <a
-                                  href={material.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-sm text-blue-600 hover:text-blue-800 mt-1 inline-flex items-center"
-                                >
-                                  <ExternalLink className="h-3 w-3 mr-1" />
-                                  View Source
-                                </a>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h4 className="font-medium text-gray-900">{material.title}</h4>
+                                  {material.scrape_status === 'pending' && (
+                                    <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
+                                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                      Pending
+                                    </Badge>
+                                  )}
+                                  {material.scrape_status === 'processing' && (
+                                    <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+                                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                      Processing
+                                    </Badge>
+                                  )}
+                                  {material.scrape_status === 'success' && (
+                                    <Badge variant="default" className="bg-green-100 text-green-800">
+                                      Success
+                                    </Badge>
+                                  )}
+                                  {material.scrape_status === 'failed' && (
+                                    <Badge variant="destructive" className="bg-red-100 text-red-800">
+                                      Failed
+                                    </Badge>
+                                  )}
+                                </div>
                               </div>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleDeleteTrainingMaterial(material)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleEditMaterial(material)}
+                                  title="Edit content"
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleDeleteTrainingMaterial(material)}
+                                  title="Delete material"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </div>
+                            
+                            {/* Content info */}
+                            {material.scrape_status === 'success' && material.content && (
+                              <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-sm font-medium text-gray-700">
+                                    Content ({material.content.length.toLocaleString()} characters)
+                                  </span>
+                                  {material.content_type && (
+                                    <Badge variant="outline" className="text-xs">
+                                      {material.content_type}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="text-sm text-gray-600 line-clamp-3">
+                                  {material.content.substring(0, 200)}
+                                  {material.content.length > 200 && '...'}
+                                </div>
+                                {material.last_scraped_at && (
+                                  <div className="text-xs text-gray-500 mt-2">
+                                    Last updated: {new Date(material.last_scraped_at).toLocaleDateString()}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            
+                            {/* Error message */}
+                            {material.scrape_status === 'failed' && material.error_message && (
+                              <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="text-sm font-medium text-red-800">Scraping Error</div>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleRetryScrapeMaterial(material)}
+                                    className="text-red-700 hover:text-red-800"
+                                    title="Retry scraping"
+                                  >
+                                    <RefreshCw className="h-3 w-3 mr-1" />
+                                    Retry
+                                  </Button>
+                                </div>
+                                <div className="text-sm text-red-700">{material.error_message}</div>
+                              </div>
+                            )}
                           </CardContent>
                         </Card>
                       ))}
@@ -1053,6 +1361,16 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         id="chat-color"
                         value={chatSettings.chat_color}
                         onChange={(e) => setChatSettings({ ...chatSettings, chat_color: e.target.value })}
+                        className="w-16 h-16 border border-gray-300 rounded-full cursor-pointer bg-white/80 hover:bg-gray-50 focus:border-gray-500"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="chat-bubble-icon-color">Chat Bubble Icon Color</Label>
+                      <input
+                        type="color"
+                        id="chat-bubble-icon-color"
+                        value={chatSettings.chat_bubble_icon_color}
+                        onChange={(e) => setChatSettings({ ...chatSettings, chat_bubble_icon_color: e.target.value })}
                         className="w-16 h-16 border border-gray-300 rounded-full cursor-pointer bg-white/80 hover:bg-gray-50 focus:border-gray-500"
                       />
                     </div>
@@ -1154,47 +1472,6 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         Copy and paste this code into your website&apos;s HTML to embed the chat widget. The widget will automatically load your latest settings.
                       </p>
                     </div>
-                    <div className="bg-blue-50 p-4 rounded-lg">
-                      <h3 className="font-medium text-blue-900 mb-2">Preview Options</h3>
-                      <div className="space-y-3">
-                        <div className="flex items-center space-x-2">
-                          <Switch
-                            id="direct-widget"
-                            checked={useDirectWidget}
-                            onCheckedChange={setUseDirectWidget}
-                          />
-                          <Label htmlFor="direct-widget" className="text-sm font-medium">
-                            Use Direct Widget Integration
-                          </Label>
-                        </div>
-                        <p className="text-sm text-gray-600">
-                          {useDirectWidget 
-                            ? "Direct integration shows the widget directly in the dashboard (better for testing and development)"
-                            : "Iframe integration uses the embedded widget frame (matches production behavior)"
-                          }
-                        </p>
-                        <div className="flex space-x-2">
-                          <Button
-                            onClick={() => setIsEmbedDialogOpen(true)}
-                            variant="outline"
-                            className="border-blue-300 text-blue-700 hover:bg-blue-100"
-                          >
-                            <Eye className="mr-2 h-4 w-4" />
-                            Preview Widget
-                          </Button>
-                          {useDirectWidget && (
-                            <Button
-                              onClick={() => setUseDirectWidget(false)}
-                              variant="outline"
-                              className="border-red-300 text-red-700 hover:bg-red-100"
-                            >
-                              <EyeOff className="mr-2 h-4 w-4" />
-                              Hide Widget
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
                   </div>
                 </div>
               )}
@@ -1290,8 +1567,8 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         </div>
       </div>
       
-      {/* Chat Widget - Direct Integration */}
-      {useDirectWidget && selectedSite && (
+      {/* Chat Widget - Always Visible */}
+      {selectedSite && (
         <ChatWidget
           session={null}
           chatSettings={chatSettings}
@@ -1301,6 +1578,14 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
           isEmbedded={false}
         />
       )}
+      
+      {/* Training Content Editor Modal */}
+      <TrainingContentEditor
+        material={selectedMaterialForEdit}
+        isOpen={isContentEditorOpen}
+        onClose={handleCloseEditor}
+        onSave={handleMaterialSaved}
+      />
     </>
   );
 }

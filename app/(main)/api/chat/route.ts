@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import OpenAI from 'openai';
+import { createSupabaseAdminClient } from '@/lib/supabase-server';
+import { buildSystemPrompt } from '@/lib/instructions';
+import { StructuredAIResponse, AIResponseParseResult } from '@/types/training';
 
 export async function POST(request: NextRequest) {
   try {
@@ -89,21 +92,59 @@ async function generateChatResponse(message: string, conversationHistory: { role
       apiKey: process.env.OPENAI_API_KEY,
     });
 
+    const supabase = createSupabaseAdminClient();
+    
+    // Fetch training materials for this site
+    const { data: trainingMaterials } = await supabase
+      .from('training_materials')
+      .select('title, content, metadata')
+      .eq('site_id', siteId)
+      .eq('scrape_status', 'success')
+      .not('content', 'is', null);
+    
+    // Fetch affiliate links for this site
+    const { data: affiliateLinks } = await supabase
+      .from('affiliate_links')
+      .select('url, title, description')
+      .eq('site_id', siteId);
+    
+    // Fetch chat settings for custom instructions
+    const { data: chatSettings } = await supabase
+      .from('chat_settings')
+      .select('instructions')
+      .eq('site_id', siteId)
+      .single();
+    
+    // Build training context
+    let trainingContext = '';
+    if (trainingMaterials && trainingMaterials.length > 0) {
+      trainingContext = '\n\nTraining Materials Context:\n';
+      trainingMaterials.forEach((material, index) => {
+        if (material.content) {
+          // Limit content length to avoid token limits
+          const truncatedContent = material.content.substring(0, 2000);
+          trainingContext += `\n${index + 1}. ${material.title}:\n${truncatedContent}${material.content.length > 2000 ? '...' : ''}\n`;
+        }
+      });
+    }
+    
+    // Build affiliate links context
+    let affiliateContext = '';
+    if (affiliateLinks && affiliateLinks.length > 0) {
+      affiliateContext = '\n\nAvailable Product Links:\n';
+      affiliateLinks.forEach((link, index) => {
+        affiliateContext += `${index + 1}. ${link.title} - ${link.description || 'No description'}\n`;
+      });
+    }
+    
+    // Build system prompt
+    const systemPrompt = buildSystemPrompt(chatSettings?.instructions || '');
+
     // Build the conversation messages for OpenAI
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: 'system',
-        content: `You are a helpful AI assistant for an e-commerce website. Your role is to help customers find products, answer questions, and provide excellent customer service. 
-        
-        Key guidelines:
-        - Be friendly, helpful, and professional
-        - Focus on helping customers find what they need
-        - If asked about specific products, provide helpful information
-        - If you don't know something specific about the site, acknowledge it and offer to help in other ways
-        - Keep responses concise but informative
-        - Encourage users to ask questions about products or services
-        
-        Site ID: ${siteId}`
+        content: systemPrompt + trainingContext + affiliateContext + `\n\nSite ID: ${siteId}`
       },
       ...conversationHistory.map(msg => ({
         role: msg.role as 'user' | 'assistant',
@@ -115,51 +156,141 @@ async function generateChatResponse(message: string, conversationHistory: { role
       }
     ];
 
-    // Call OpenAI API
+    // Call OpenAI API with response_format for structured JSON
     const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-3.5-turbo-1106',
       messages: messages,
       max_tokens: 500,
       temperature: 0.7,
       stream: false,
+      response_format: { type: "json_object" }
     });
 
-    const aiResponse = completion.choices[0]?.message?.content;
+    const rawResponse = completion.choices[0]?.message?.content;
     
-    if (!aiResponse) {
+    if (!rawResponse) {
       throw new Error('No response from OpenAI');
     }
 
-    // Check if the response suggests products (simple keyword detection)
-    const lowerResponse = aiResponse.toLowerCase();
-    if (lowerResponse.includes('product') || lowerResponse.includes('recommend') || lowerResponse.includes('item')) {
-      // For product recommendations, return both the AI response and sample products
+    // Parse the structured JSON response from AI
+    const parseResult = parseAIResponse(rawResponse);
+    
+    if (!parseResult.success) {
+      console.warn('Failed to parse structured response, using fallback:', parseResult.error);
+      return getFallbackResponseFromText(rawResponse, affiliateLinks, trainingMaterials);
+    }
+
+    const structuredResponse = parseResult.structured!;
+    console.log('Parsed structured response:', {
+      show_products: structuredResponse.show_products,
+      show_simple_link: structuredResponse.show_simple_link,
+      link_text: structuredResponse.link_text,
+      specific_products: structuredResponse.specific_products,
+      message_preview: structuredResponse.message.substring(0, 100) + '...'
+    });
+    
+    // If AI decided to show products, return with links
+    if (structuredResponse.show_products && affiliateLinks && affiliateLinks.length > 0) {
+      let linksToShow = [...affiliateLinks];
+      
+      // If AI specified specific products, try to match them
+      if (structuredResponse.specific_products && structuredResponse.specific_products.length > 0) {
+        const matchedLinks = [];
+        const unmatchedLinks = [];
+        
+        for (const link of affiliateLinks) {
+          const isMatched = structuredResponse.specific_products.some(productName => 
+            link.title.toLowerCase().includes(productName.toLowerCase()) ||
+            productName.toLowerCase().includes(link.title.toLowerCase())
+          );
+          
+          if (isMatched) {
+            matchedLinks.push(link);
+          } else {
+            unmatchedLinks.push(link);
+          }
+        }
+        
+        // Prioritize matched products, then add unmatched if needed
+        linksToShow = [...matchedLinks, ...unmatchedLinks];
+      }
+      
+      // Limit to max_products or default to 1
+      const maxProducts = structuredResponse.max_products || 1;
+      const links = linksToShow.slice(0, maxProducts).map(link => {
+        // Try to extract image from training materials - only use if available
+        let imageUrl = '';
+        if (trainingMaterials) {
+          const relatedMaterial = trainingMaterials.find(m => 
+            m.title?.toLowerCase().includes(link.title.toLowerCase()) ||
+            link.title.toLowerCase().includes(m.title?.toLowerCase() || '')
+          );
+          if (relatedMaterial?.metadata?.mainImage) {
+            imageUrl = relatedMaterial.metadata.mainImage;
+          }
+        }
+        
+        return {
+          name: link.title,
+          description: link.description || 'Click to learn more',
+          url: link.url,
+          button_text: 'View Product',
+          image_url: imageUrl
+        };
+      });
+      
       return {
         type: 'links',
-        message: aiResponse,
-        links: [
-          {
-            name: 'Featured Product 1',
-            description: 'This is a highly recommended product based on your inquiry.',
-            url: 'https://example.com/product1',
-            button_text: 'View Product',
-            image_url: 'https://via.placeholder.com/80x80?text=Product+1'
-          },
-          {
-            name: 'Featured Product 2',
-            description: 'Another great option that might interest you.',
-            url: 'https://example.com/product2',
-            button_text: 'Learn More',
-            image_url: 'https://via.placeholder.com/80x80?text=Product+2'
+        message: structuredResponse.message,
+        links: links
+      };
+    }
+
+    // If AI decided to show simple link, return with simple link
+    if (structuredResponse.show_simple_link) {
+      console.log('Processing simple link - link_text:', structuredResponse.link_text);
+      let linkUrl = structuredResponse.link_url;
+      
+      // If link_url is a placeholder or example URL, try to find actual product URL
+      if ((!linkUrl || 
+           linkUrl.includes('[product_url_from_training_materials]') || 
+           linkUrl.includes('example.com') ||
+           linkUrl.length === 0) && 
+          affiliateLinks && affiliateLinks.length > 0) {
+        
+        // Try to find the most relevant affiliate link
+        // Look for product mentioned in the conversation or use first available
+        linkUrl = affiliateLinks[0].url;
+        
+        // If AI mentioned specific products, try to match them
+        if (structuredResponse.specific_products && structuredResponse.specific_products.length > 0) {
+          for (const link of affiliateLinks) {
+            const isMatched = structuredResponse.specific_products.some(productName => 
+              link.title.toLowerCase().includes(productName.toLowerCase()) ||
+              productName.toLowerCase().includes(link.title.toLowerCase())
+            );
+            if (isMatched) {
+              linkUrl = link.url;
+              break;
+            }
           }
-        ]
+        }
+      }
+      
+      return {
+        type: 'simple_link',
+        message: structuredResponse.message,
+        simple_link: {
+          text: structuredResponse.link_text || 'See more details',
+          url: linkUrl
+        }
       };
     }
 
     // Return regular message response
     return {
       type: 'message',
-      message: aiResponse
+      message: structuredResponse.message
     };
     
   } catch (error) {
@@ -170,30 +301,89 @@ async function generateChatResponse(message: string, conversationHistory: { role
   }
 }
 
+// Parse structured JSON response from AI
+function parseAIResponse(rawResponse: string): AIResponseParseResult {
+  try {
+    console.log('Raw AI response:', rawResponse);
+    const parsed = JSON.parse(rawResponse);
+    
+    // Validate required fields
+    if (!parsed.message || (typeof parsed.show_products !== 'boolean' && typeof parsed.show_simple_link !== 'boolean')) {
+      console.error('Invalid response structure:', parsed);
+      return {
+        success: false,
+        error: 'Invalid response structure: missing required fields',
+        fallback_text: rawResponse
+      };
+    }
+    
+    const structuredResponse: StructuredAIResponse = {
+      message: parsed.message,
+      show_products: parsed.show_products || false,
+      show_simple_link: parsed.show_simple_link || false,
+      link_text: parsed.link_text || '',
+      link_url: parsed.link_url || '',
+      specific_products: parsed.specific_products || [],
+      max_products: parsed.max_products || 1,
+      product_context: parsed.product_context || ''
+    };
+    
+    return {
+      success: true,
+      structured: structuredResponse
+    };
+    
+  } catch (error) {
+    return {
+      success: false,
+      error: `JSON parse error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      fallback_text: rawResponse
+    };
+  }
+}
+
+// Fallback function that uses old keyword detection when structured parsing fails
+function getFallbackResponseFromText(text: string, affiliateLinks: any[] = [], trainingMaterials: any[] = []) {
+  const lowerText = text.toLowerCase();
+  
+  // Check if text suggests products using keyword detection as fallback
+  const shouldShowLinks = lowerText.includes('product') || 
+                         lowerText.includes('recommend') || 
+                         lowerText.includes('item') ||
+                         lowerText.includes('option') ||
+                         lowerText.includes('choice') ||
+                         lowerText.includes('available');
+  
+  if (shouldShowLinks && affiliateLinks && affiliateLinks.length > 0) {
+    const links = affiliateLinks.slice(0, 1).map(link => ({
+      name: link.title,
+      description: link.description || 'Click to learn more',
+      url: link.url,
+      button_text: 'View Product',
+      image_url: '' // No placeholder - let component handle missing images
+    }));
+    
+    return {
+      type: 'links',
+      message: text,
+      links: links
+    };
+  }
+  
+  return {
+    type: 'message',
+    message: text
+  };
+}
+
 function getFallbackResponse(message: string) {
   const lowerMessage = message.toLowerCase();
   
-  // Check if user is asking about products or recommendations
-  if (lowerMessage.includes('product') || lowerMessage.includes('recommend') || lowerMessage.includes('buy')) {
+  // Generic fallback responses that work for any niche
+  if (lowerMessage.includes('recommend') || lowerMessage.includes('suggest') || lowerMessage.includes('best')) {
     return {
-      type: 'links',
-      message: 'Here are some great products I can recommend:',
-      links: [
-        {
-          name: 'Sample Product 1',
-          description: 'This is a great product that might interest you.',
-          url: 'https://example.com/product1',
-          button_text: 'View Product',
-          image_url: 'https://via.placeholder.com/80x80?text=Product+1'
-        },
-        {
-          name: 'Sample Product 2',
-          description: 'Another excellent option to consider.',
-          url: 'https://example.com/product2',
-          button_text: 'Learn More',
-          image_url: 'https://via.placeholder.com/80x80?text=Product+2'
-        }
-      ]
+      type: 'message',
+      message: 'I\'d be happy to help you find the right solution. Could you tell me more about what you\'re looking for?'
     };
   }
   
