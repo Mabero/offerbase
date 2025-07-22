@@ -326,6 +326,7 @@ export function ChatWidgetCore({
     },
     header: {
       padding: '16px',
+      paddingTop: '28px',
       display: 'flex',
       alignItems: 'center',
       borderBottom: '1px solid rgba(255, 255, 255, 0.1)',

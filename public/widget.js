@@ -10,7 +10,6 @@
     // Configuration
     const script = document.currentScript;
     const siteId = script.getAttribute('data-site-id');
-    const encodedSettings = script.getAttribute('data-settings');
     const apiUrl = script.src.replace('/widget.js', '');
 
     if (!siteId) {
@@ -18,7 +17,7 @@
         return;
     }
 
-    // Decode settings if provided
+    // Default settings (will be overridden by API call)
     let chatSettings = {
         chat_name: 'Affi',
         chat_color: '#000000',
@@ -30,15 +29,23 @@
         intro_message: 'Hello! How can I help you today?'
     };
 
-    if (encodedSettings) {
+    console.log('ChatWidget: Initializing with siteId:', siteId, 'apiUrl:', apiUrl);
+
+    // Fetch settings dynamically
+    async function loadChatSettings() {
         try {
-            chatSettings = JSON.parse(atob(encodedSettings));
-        } catch (e) {
-            console.warn('ChatWidget: Failed to decode settings, using defaults', e);
+            const response = await fetch(`${apiUrl}/api/widget-settings?siteId=${encodeURIComponent(siteId)}`);
+            if (response.ok) {
+                const settings = await response.json();
+                chatSettings = { ...chatSettings, ...settings };
+                console.log('ChatWidget: Loaded settings from API', chatSettings);
+            } else {
+                console.warn('ChatWidget: Failed to load settings, using defaults');
+            }
+        } catch (error) {
+            console.warn('ChatWidget: Error loading settings, using defaults', error);
         }
     }
-
-    console.log('ChatWidget: Initializing with siteId:', siteId, 'apiUrl:', apiUrl);
 
     // Widget configuration
     const config = {
@@ -70,8 +77,7 @@
 
         // Create iframe
         const iframe = document.createElement('iframe');
-        const settingsParam = encodeURIComponent(JSON.stringify(chatSettings));
-        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&settings=${settingsParam}&embedded=true`;
+        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&embedded=true`;
         iframe.style.cssText = `
             width: 100%;
             height: 100%;
@@ -140,7 +146,13 @@
     }
 
     // Initialize widget
-    function initializeWidget() {
+    async function initializeWidget() {
+        // Load settings first
+        await loadChatSettings();
+        
+        // Update config with loaded settings
+        config.settings = chatSettings;
+        
         const { container, iframe } = createWidgetContainer();
         const button = createChatButton();
 
@@ -343,13 +355,14 @@
 
     // Initialize when DOM is ready
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-            initializeWidget();
+        document.addEventListener('DOMContentLoaded', async () => {
+            await initializeWidget();
             setupAutoPopup();
         });
     } else {
-        initializeWidget();
-        setupAutoPopup();
+        initializeWidget().then(() => {
+            setupAutoPopup();
+        });
     }
 
     // Expose API for external control

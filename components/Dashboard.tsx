@@ -1145,26 +1145,13 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                       <Label htmlFor="embed-code">Embed Code</Label>
                       <Textarea
                         id="embed-code"
-                        value={(() => {
-                          const settingsData = {
-                            chat_name: chatSettings.chat_name,
-                            chat_color: chatSettings.chat_color,
-                            chat_icon_url: chatSettings.chat_icon_url,
-                            chat_name_color: chatSettings.chat_name_color,
-                            chat_bubble_icon_color: chatSettings.chat_bubble_icon_color,
-                            input_placeholder: chatSettings.input_placeholder,
-                            font_size: chatSettings.font_size,
-                            intro_message: introMessage
-                          };
-                          const encodedSettings = btoa(JSON.stringify(settingsData));
-                          return `<script src="${API_URL}/widget.js" data-site-id="${selectedSite?.id || 'your-site-id'}" data-settings="${encodedSettings}"></script>`;
-                        })()}
+                        value={`<script src="${API_URL}/widget.js" data-site-id="${selectedSite?.id || 'your-site-id'}"></script>`}
                         rows={3}
                         className="mt-2 bg-white border-gray-300 font-mono text-sm"
                         readOnly
                       />
                       <p className="text-sm text-gray-600 mt-2">
-                        Copy and paste this code into your website&apos;s HTML to embed the chat widget.
+                        Copy and paste this code into your website&apos;s HTML to embed the chat widget. The widget will automatically load your latest settings.
                       </p>
                     </div>
                     <div className="bg-blue-50 p-4 rounded-lg">
