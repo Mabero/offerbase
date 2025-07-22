@@ -76,11 +76,14 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { siteId, ...settings } = await request.json()
+    const body = await request.json()
+    const { siteId, ...settings } = body
 
     if (!siteId) {
       return NextResponse.json({ error: 'Site ID is required' }, { status: 400 })
     }
+
+    console.log('PUT chat-settings request:', { siteId, userId, settings })
 
     const supabase = createSupabaseAdminClient()
     
@@ -92,29 +95,77 @@ export async function PUT(request: NextRequest) {
       .eq('user_id', userId)
       .single()
 
-    if (siteError || !site) {
+    if (siteError) {
+      console.error('Site verification error:', siteError)
       return NextResponse.json({ error: 'Site not found or unauthorized' }, { status: 404 })
     }
 
-    // Update chat settings for this site
-    const { data: updatedSettings, error } = await supabase
-      .from('chat_settings')
-      .update({
-        ...settings,
-        updated_at: new Date().toISOString()
-      })
-      .eq('site_id', siteId)
-      .select('*')
-      .single()
-
-    if (error) {
-      console.error('Error updating chat settings:', error)
-      return NextResponse.json({ error: 'Failed to update chat settings' }, { status: 500 })
+    if (!site) {
+      console.error('Site not found for user:', { siteId, userId })
+      return NextResponse.json({ error: 'Site not found or unauthorized' }, { status: 404 })
     }
 
-    return NextResponse.json({ settings: updatedSettings })
+    // Check if chat settings already exist for this site
+    const { data: existingSettings, error: checkError } = await supabase
+      .from('chat_settings')
+      .select('id')
+      .eq('site_id', siteId)
+      .maybeSingle()
+
+    if (checkError) {
+      console.error('Error checking existing settings:', checkError)
+      return NextResponse.json({ error: 'Database error' }, { status: 500 })
+    }
+
+    let result;
+    const settingsData = {
+      ...settings,
+      site_id: siteId,
+      updated_at: new Date().toISOString()
+    }
+
+    if (existingSettings) {
+      // Update existing settings
+      const { data: updatedSettings, error: updateError } = await supabase
+        .from('chat_settings')
+        .update(settingsData)
+        .eq('site_id', siteId)
+        .select('*')
+        .single()
+
+      if (updateError) {
+        console.error('Error updating chat settings:', updateError)
+        return NextResponse.json({ error: 'Failed to update chat settings' }, { status: 500 })
+      }
+
+      result = updatedSettings
+    } else {
+      // Insert new settings
+      const { data: newSettings, error: insertError } = await supabase
+        .from('chat_settings')
+        .insert({
+          ...settingsData,
+          created_at: new Date().toISOString()
+        })
+        .select('*')
+        .single()
+
+      if (insertError) {
+        console.error('Error inserting chat settings:', insertError)
+        return NextResponse.json({ error: 'Failed to create chat settings' }, { status: 500 })
+      }
+
+      result = newSettings
+    }
+
+    console.log('Chat settings operation successful:', result)
+    return NextResponse.json({ settings: result })
+    
   } catch (error) {
     console.error('Error in PUT /api/chat-settings:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ 
+      error: 'Internal server error', 
+      details: error instanceof Error ? error.message : 'Unknown error' 
+    }, { status: 500 })
   }
 }
