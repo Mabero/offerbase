@@ -61,7 +61,7 @@ function extractContent(html: string): { content: string; metadata: TrainingMeta
     
     // Extract product info if available
     if (structuredData['@type'] === 'Product' || structuredData.product) {
-      const product = (structuredData.product || structuredData) as any;
+      const product = (structuredData.product || structuredData) as Record<string, unknown>;
       metadata.productInfo = {
         name: product?.name as string,
         price: product?.offers?.price as string,
@@ -132,10 +132,9 @@ function extractContent(html: string): { content: string; metadata: TrainingMeta
 export async function scrapeUrl(url: string, options?: { userAgent?: string; timeout?: number }): Promise<ScrapeResult> {
   try {
     // Validate URL
-    let validUrl: URL;
     try {
-      validUrl = new URL(url);
-    } catch (e) {
+      new URL(url);
+    } catch {
       return {
         success: false,
         error: 'Invalid URL'

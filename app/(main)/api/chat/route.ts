@@ -177,7 +177,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
     
     if (!parseResult.success) {
       console.warn('Failed to parse structured response, using fallback:', parseResult.error);
-      return getFallbackResponseFromText(rawResponse, affiliateLinks, trainingMaterials);
+      return getFallbackResponseFromText(rawResponse, affiliateLinks || []);
     }
 
     const structuredResponse = parseResult.structured!;
@@ -343,7 +343,7 @@ function parseAIResponse(rawResponse: string): AIResponseParseResult {
 }
 
 // Fallback function that uses old keyword detection when structured parsing fails
-function getFallbackResponseFromText(text: string, affiliateLinks: any[] = [], trainingMaterials: any[] = []) {
+function getFallbackResponseFromText(text: string, affiliateLinks: { title: string; description?: string; url: string }[] = []) {
   const lowerText = text.toLowerCase();
   
   // Check if text suggests products using keyword detection as fallback
