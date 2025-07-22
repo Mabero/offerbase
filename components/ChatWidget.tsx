@@ -1,7 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Loader2, X, Send } from "lucide-react";
 
 // Types
@@ -63,6 +60,75 @@ interface ChatWidgetProps {
   isEmbedded?: boolean;
 }
 
+// LinkCard component to handle individual link rendering with hooks
+const LinkCard = ({ link, chatSettings, styles, onLinkClick }: {
+  link: Link;
+  chatSettings: ChatSettings;
+  styles: Record<string, React.CSSProperties>;
+  onLinkClick: (link: Link) => void;
+}) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const [isButtonHovered, setIsButtonHovered] = useState(false);
+  
+  return (
+    <div
+      style={{
+        ...styles.linkCard,
+        ...(isHovered ? styles.linkCardHover : {})
+      }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {link.image_url && (
+        <div style={styles.linkImage}>
+          <img
+            src={link.image_url}
+            alt={link.name}
+            style={styles.linkImageInner}
+          />
+        </div>
+      )}
+      
+      <h4 
+        style={{
+          ...styles.linkTitle,
+          fontSize: chatSettings?.font_size || '14px'
+        }}
+      >
+        {link.name}
+      </h4>
+      
+      <p 
+        style={{
+          ...styles.linkDescription,
+          fontSize: chatSettings?.font_size || '14px'
+        }}
+      >
+        {link.description}
+      </p>
+      
+      <a
+        href={link.url}
+        target="_blank"
+        rel="noopener"
+        onClick={() => onLinkClick(link)}
+        style={{
+          ...styles.linkButton,
+          ...(isButtonHovered ? styles.linkButtonHover : {}),
+          backgroundColor: chatSettings?.chat_color || '#000',
+          fontSize: chatSettings?.font_size || '14px',
+          textDecoration: 'none',
+          color: 'white'
+        }}
+        onMouseEnter={() => setIsButtonHovered(true)}
+        onMouseLeave={() => setIsButtonHovered(false)}
+      >
+        {link.button_text && link.button_text.trim() ? link.button_text : 'Learn more'}
+      </a>
+    </div>
+  );
+};
+
 // Custom Chat Icon Component (preserving the original design)
 const ChatIcon = ({ color = '#fff', ...props }: { color?: string; [key: string]: unknown }) => (
   <svg
@@ -94,6 +160,218 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
     }
     return [];
   };
+
+  // Define reusable style objects matching the embed widget exactly
+  const styles = {
+    container: {
+      width: '100%',
+      height: '100%',
+      backgroundColor: 'white',
+      display: 'flex',
+      flexDirection: 'column' as const,
+      overflow: 'hidden',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif'
+    },
+    header: {
+      padding: '16px',
+      display: 'flex',
+      alignItems: 'center',
+      borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+    },
+    messagesContainer: {
+      flex: '1',
+      overflowY: 'auto' as const,
+      padding: '16px',
+      backgroundColor: '#f9fafb'
+    },
+    messageBubbleBot: {
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      backdropFilter: 'blur(4px)',
+      border: '1px solid rgba(255, 255, 255, 0.3)',
+      borderRadius: '16px',
+      padding: '12px 16px',
+      maxWidth: '80%',
+      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+      marginBottom: '12px'
+    },
+    messageBubbleUser: {
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      backdropFilter: 'blur(4px)',
+      border: '1px solid rgba(255, 255, 255, 0.3)',
+      borderRadius: '16px',
+      padding: '12px 16px',
+      maxWidth: '80%',
+      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+      marginBottom: '12px'
+    },
+    messageText: {
+      color: '#1f2937',
+      lineHeight: '1.5',
+      margin: '0'
+    },
+    inputContainer: {
+      padding: '16px',
+      borderTop: '1px solid #e5e7eb',
+      backgroundColor: '#f9fafb'
+    },
+    inputWrapper: {
+      position: 'relative' as const,
+      display: 'flex',
+      alignItems: 'center'
+    },
+    input: {
+      width: '100%',
+      padding: '12px 48px 12px 16px',
+      border: '1px solid #d1d5db',
+      borderRadius: '24px',
+      outline: 'none',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif',
+      backgroundColor: 'white'
+    },
+    sendButton: {
+      position: 'absolute' as const,
+      right: '8px',
+      top: '50%',
+      transform: 'translateY(-50%)',
+      width: '32px',
+      height: '32px',
+      borderRadius: '50%',
+      border: 'none',
+      color: 'white',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      cursor: 'pointer',
+      transition: 'all 0.2s ease'
+    },
+    messageRow: {
+      display: 'flex',
+      marginBottom: '12px',
+      alignItems: 'flex-start'
+    },
+    messageRowUser: {
+      display: 'flex',
+      marginBottom: '12px',
+      alignItems: 'flex-end',
+      justifyContent: 'flex-end'
+    },
+    avatarSpacing: {
+      marginRight: '12px'
+    },
+    avatar: {
+      width: '32px',
+      height: '32px',
+      borderRadius: '50%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#f3f4f6',
+      color: '#6b7280',
+      fontSize: '14px',
+      fontWeight: '600',
+      overflow: 'hidden'
+    },
+    chatButton: {
+      position: 'fixed' as const,
+      zIndex: 1400,
+      borderRadius: '50%',
+      width: '52px',
+      height: '52px',
+      padding: '0',
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+      border: 'none',
+      cursor: 'pointer',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      transition: 'all 0.2s ease'
+    },
+    chatContainer: {
+      position: 'fixed' as const,
+      zIndex: 1300,
+      display: 'flex',
+      flexDirection: 'column' as const,
+      overflow: 'hidden',
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      backdropFilter: 'blur(8px)',
+      border: '1px solid rgba(255, 255, 255, 0.3)',
+      boxShadow: '0 10px 40px rgba(0, 0, 0, 0.15)',
+      borderRadius: '20px'
+    },
+    linkCard: {
+      backgroundColor: 'rgba(255, 255, 255, 0.9)',
+      backdropFilter: 'blur(12px)',
+      border: '1px solid rgba(255, 255, 255, 0.4)',
+      borderRadius: '16px',
+      padding: '16px',
+      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+      transition: 'all 0.2s ease',
+      minWidth: '220px',
+      maxWidth: '340px',
+      marginBottom: '12px'
+    },
+    linkCardHover: {
+      transform: 'translateY(-2px)',
+      boxShadow: '0 10px 25px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+    },
+    linkImage: {
+      width: '80px',
+      height: '80px',
+      borderRadius: '12px',
+      overflow: 'hidden',
+      backgroundColor: 'white',
+      padding: '2px',
+      marginBottom: '12px',
+      boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)'
+    },
+    linkImageInner: {
+      width: '100%',
+      height: '100%',
+      objectFit: 'contain' as const,
+      borderRadius: '8px'
+    },
+    linkTitle: {
+      fontWeight: '700',
+      color: '#1f2937',
+      lineHeight: '1.25',
+      marginBottom: '8px',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif',
+      margin: '0 0 8px 0'
+    },
+    linkDescription: {
+      color: '#6b7280',
+      lineHeight: '1.5',
+      marginBottom: '16px',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif',
+      margin: '0 0 16px 0'
+    },
+    linkButton: {
+      borderRadius: '8px',
+      fontWeight: '600',
+      padding: '8px 16px',
+      transition: 'all 0.2s ease',
+      boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+      border: 'none',
+      color: 'white',
+      textDecoration: 'none',
+      display: 'inline-block',
+      cursor: 'pointer'
+    },
+    linkButtonHover: {
+      transform: 'translateY(-1px)',
+      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+    },
+    linksContainer: {
+      display: 'flex',
+      flexDirection: 'column' as const,
+      gap: '12px'
+    },
+    loadingSpinner: {
+      display: 'flex',
+      justifyContent: 'center',
+      margin: '16px 0'
+    }
+  };
   
   const [messages, setMessages] = useState<Message[]>(getInitialMessages);
   const [inputMessage, setInputMessage] = useState('');
@@ -103,7 +381,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
   const [internalIntroMessage, setInternalIntroMessage] = useState(initialIntroMessage || '');
   const [chatSettings, setChatSettings] = useState(initialChatSettings);
   const [introMessage, setIntroMessage] = useState(initialIntroMessage);
-  const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+  const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`);
 
   // Responsive values - adjust for embedded mode
   const chatWidth = isEmbedded ? '100%' : '440px';
@@ -183,7 +461,7 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
     };
     window.addEventListener('chat-intro-message', handler);
     return () => window.removeEventListener('chat-intro-message', handler);
-  }, [introMessage]);
+  }, [introMessage, messages.length]);
 
   // Analytics: track widget open
   useEffect(() => {
@@ -224,6 +502,40 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
     window.addEventListener('chat-settings-updated', handleSettingsUpdate as EventListener);
     return () => window.removeEventListener('chat-settings-updated', handleSettingsUpdate as EventListener);
   }, [introMessage]);
+
+  // Avatar component using inline styles
+  const Avatar = ({ src, name, style = {} }: { src?: string; name?: string; style?: React.CSSProperties }) => {
+    const avatarStyle = {
+      ...styles.avatar,
+      ...style
+    };
+
+    if (src) {
+      return (
+        <div style={avatarStyle}>
+          <img
+            src={src}
+            alt={name || 'AI'}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' as const, borderRadius: '50%' }}
+            onError={(e) => {
+              // Hide image and show fallback text
+              (e.target as HTMLImageElement).style.display = 'none';
+              const parent = (e.target as HTMLImageElement).parentNode as HTMLElement;
+              if (parent) {
+                parent.textContent = name ? name.charAt(0).toUpperCase() : 'AI';
+              }
+            }}
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div style={avatarStyle}>
+        {name ? name.charAt(0).toUpperCase() : 'AI'}
+      </div>
+    );
+  };
 
   // Analytics: track message sent
   const handleSendMessage = async () => {
@@ -332,12 +644,14 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
   const renderMessage = (message: Message) => {
     if (message.type === 'user') {
       return (
-        <div className="flex justify-end mb-3 items-end">
+        <div style={styles.messageRowUser}>
           <div
-            className="bg-white/95 backdrop-blur-sm border border-white/30 rounded-2xl px-4 py-3 max-w-[80%] relative shadow-lg"
-            style={{ fontSize: chatSettings?.font_size || '14px' }}
+            style={{
+              ...styles.messageBubbleUser,
+              fontSize: chatSettings?.font_size || '14px'
+            }}
           >
-            <p className="text-gray-800 leading-relaxed font-inter">
+            <p style={styles.messageText}>
               {message.content}
             </p>
           </div>
@@ -349,71 +663,34 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
     const botContent = message.content;
     if (botContent.type === 'links') {
       return (
-        <div className="flex justify-start mb-3 items-start">
-          <Avatar className="mr-3">
-            <AvatarImage src={chatSettings?.chat_icon_url || ''} />
-            <AvatarFallback className="bg-gray-100 text-gray-600">
-              {chatSettings?.chat_name?.[0] || 'AI'}
-            </AvatarFallback>
-          </Avatar>
-          <div className="max-w-[80%]">
+        <div style={styles.messageRow}>
+          <Avatar
+            src={chatSettings?.chat_icon_url}
+            name={chatSettings?.chat_name || 'AI'}
+            style={styles.avatarSpacing}
+          />
+          <div style={{ maxWidth: '80%' }}>
             <div
-              className="bg-white/95 backdrop-blur-sm border border-white/30 rounded-2xl px-4 py-3 mb-3 relative shadow-lg"
-              style={{ fontSize: chatSettings?.font_size || '14px' }}
+              style={{
+                ...styles.messageBubbleBot,
+                fontSize: chatSettings?.font_size || '14px',
+                marginBottom: '12px'
+              }}
             >
-              <p className="text-gray-800 leading-relaxed font-inter mb-3">
+              <p style={{...styles.messageText, marginBottom: '12px'}}>
                 {botContent.message}
               </p>
             </div>
             
-            <div className="space-y-3">
+            <div style={styles.linksContainer}>
               {botContent.links?.map((link, index) => (
-                <div
-                  key={index}
-                  className="bg-white/90 backdrop-blur-md border border-white/40 rounded-2xl p-4 shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 min-w-[220px] max-w-[340px]"
-                >
-                  {link.image_url && (
-                    <div className="w-20 h-20 rounded-xl overflow-hidden bg-white p-0.5 mb-3 shadow-sm">
-                      <img
-                        src={link.image_url}
-                        alt={link.name}
-                        className="w-full h-full object-contain rounded-lg"
-                      />
-                    </div>
-                  )}
-                  
-                  <h4 
-                    className="font-bold text-gray-900 leading-snug mb-2 font-inter"
-                    style={{ fontSize: chatSettings?.font_size || '14px' }}
-                  >
-                    {link.name}
-                  </h4>
-                  
-                  <p 
-                    className="text-gray-600 leading-relaxed mb-4 font-inter"
-                    style={{ fontSize: chatSettings?.font_size || '14px' }}
-                  >
-                    {link.description}
-                  </p>
-                  
-                  <Button
-                    asChild
-                    className="rounded-lg font-semibold px-4 py-2 transition-all duration-200 hover:-translate-y-px shadow-sm hover:shadow-md"
-                    style={{ 
-                      backgroundColor: chatSettings?.chat_color || '#000',
-                      fontSize: chatSettings?.font_size || '14px'
-                    }}
-                  >
-                    <a
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener"
-                      onClick={() => handleLinkClick(link)}
-                    >
-                      {link.button_text && link.button_text.trim() ? link.button_text : 'Learn more'}
-                    </a>
-                  </Button>
-                </div>
+                <LinkCard 
+                  key={index} 
+                  link={link} 
+                  chatSettings={chatSettings} 
+                  styles={styles} 
+                  onLinkClick={handleLinkClick}
+                />
               ))}
             </div>
           </div>
@@ -430,18 +707,19 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
       const fallbackMessage = 'Sorry, I encountered an error processing the response.';
 
       return (
-        <div className="flex justify-start mb-3 items-start">
-          <Avatar className="mr-3">
-            <AvatarImage src={chatSettings?.chat_icon_url || ''} />
-            <AvatarFallback className="bg-gray-100 text-gray-600">
-              {chatSettings?.chat_name?.[0] || 'AI'}
-            </AvatarFallback>
-          </Avatar>
+        <div style={styles.messageRow}>
+          <Avatar
+            src={chatSettings?.chat_icon_url}
+            name={chatSettings?.chat_name || 'AI'}
+            style={styles.avatarSpacing}
+          />
           <div
-            className="bg-white/95 backdrop-blur-sm border border-white/30 rounded-2xl px-4 py-3 max-w-[80%] relative shadow-lg"
-            style={{ fontSize: chatSettings?.font_size || '14px' }}
+            style={{
+              ...styles.messageBubbleBot,
+              fontSize: chatSettings?.font_size || '14px'
+            }}
           >
-            <p className="text-gray-800 leading-relaxed font-inter">
+            <p style={styles.messageText}>
               {fallbackMessage}
             </p>
           </div>
@@ -450,18 +728,19 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
     }
     
     return (
-      <div className="flex justify-start mb-3 items-start">
-        <Avatar className="mr-3">
-          <AvatarImage src={chatSettings?.chat_icon_url || ''} />
-          <AvatarFallback className="bg-gray-100 text-gray-600">
-            {chatSettings?.chat_name?.[0] || 'AI'}
-          </AvatarFallback>
-        </Avatar>
+      <div style={styles.messageRow}>
+        <Avatar
+          src={chatSettings?.chat_icon_url}
+          name={chatSettings?.chat_name || 'AI'}
+          style={styles.avatarSpacing}
+        />
         <div
-          className="bg-white/95 backdrop-blur-sm border border-white/30 rounded-2xl px-4 py-3 max-w-[80%] relative shadow-lg"
-          style={{ fontSize: chatSettings?.font_size || '14px' }}
+          style={{
+            ...styles.messageBubbleBot,
+            fontSize: chatSettings?.font_size || '14px'
+          }}
         >
-          <p className="text-gray-800 leading-relaxed font-inter">
+          <p style={styles.messageText}>
             {messageContent}
           </p>
         </div>
@@ -474,27 +753,41 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
       {/* Chat Button - only show if not embedded and not in iframe */}
       {!isEmbedded && window === window.top && (
         <div
-          className="fixed z-[1400] transition-all duration-200 hover:scale-105"
           style={{
+            position: 'fixed',
+            zIndex: 1400,
             bottom: buttonBottom,
             right: buttonRight,
+            transition: 'all 0.2s ease'
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.transform = 'scale(1.05)';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.transform = 'scale(1)';
           }}
         >
-          <Button
+          <button
             onClick={() => setIsOpen(!isOpen)}
-            className="rounded-full w-[52px] h-[52px] p-0 shadow-lg hover:shadow-xl transition-all duration-200"
             style={{
+              ...styles.chatButton,
               backgroundColor: chatSettings?.chat_color || '#000',
               color: chatSettings?.chat_bubble_icon_color || '#fff',
             }}
             aria-label={isOpen ? 'Close chat' : 'Open chat'}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.boxShadow = '0 10px 25px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+            }}
           >
             {isOpen ? (
               <X size={24} />
             ) : (
               <ChatIcon color={chatSettings?.chat_bubble_icon_color || '#fff'} />
             )}
-          </Button>
+          </button>
         </div>
       )}
 
@@ -502,44 +795,49 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
       {isOpen && (
         isEmbedded ? (
           // Embedded mode - no Portal, fill container
-          <div className="w-full h-full bg-white flex flex-col overflow-hidden">
+          <div style={styles.container}>
             {/* Chat Header */}
             <div
-              className="p-4 flex items-center border-b border-white/10"
               style={{
+                ...styles.header,
                 backgroundColor: chatSettings?.chat_color || '#000',
                 color: chatSettings?.chat_name_color || '#fff',
               }}
             >
-              <Avatar className="mr-3">
-                <AvatarImage src={chatSettings?.chat_icon_url || ''} />
-                <AvatarFallback className="bg-gray-100 text-gray-600">
-                  {chatSettings?.chat_name?.[0] || 'AI'}
-                </AvatarFallback>
-              </Avatar>
+              <Avatar
+                src={chatSettings?.chat_icon_url}
+                name={chatSettings?.chat_name || 'AI'}
+                style={styles.avatarSpacing}
+              />
               <p 
-                className="font-semibold leading-relaxed font-inter"
-                style={{ fontSize: chatSettings?.font_size || '14px' }}
+                style={{
+                  ...styles.messageText,
+                  fontWeight: '600',
+                  fontSize: chatSettings?.font_size || '14px',
+                  color: chatSettings?.chat_name_color || '#fff',
+                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif'
+                }}
               >
                 {chatSettings?.chat_name || 'Affi'}
               </p>
             </div>
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-black/10 scrollbar-track-transparent">
+            <div style={styles.messagesContainer}>
               {messages.length === 0 && !isLoading && (
-                <div className="flex justify-start mb-3 items-start">
-                  <Avatar className="mr-3">
-                    <AvatarImage src={chatSettings?.chat_icon_url || ''} />
-                    <AvatarFallback className="bg-gray-100 text-gray-600">
-                      {chatSettings?.chat_name?.[0] || 'AI'}
-                    </AvatarFallback>
-                  </Avatar>
+                <div style={styles.messageRow}>
+                  <Avatar
+                    src={chatSettings?.chat_icon_url}
+                    name={chatSettings?.chat_name || 'AI'}
+                    style={styles.avatarSpacing}
+                  />
                   <div
-                    className="bg-white/95 backdrop-blur-sm border border-white/30 rounded-2xl px-4 py-3 max-w-[80%] relative shadow-lg"
-                    style={{ fontSize: chatSettings?.font_size || '14px' }}
+                    style={{
+                      ...styles.messageBubbleBot,
+                      fontSize: chatSettings?.font_size || '14px'
+                    }}
                   >
-                    <p className="text-gray-800 leading-relaxed font-inter">
+                    <p style={styles.messageText}>
                       {introMessage || internalIntroMessage || `Hi! I am ${chatSettings?.chat_name || 'Affi'}, your assistant. How can I help you today?`}
                     </p>
                   </div>
@@ -553,10 +851,13 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
               ))}
               
               {isLoading && (
-                <div className="flex justify-center my-4">
+                <div style={styles.loadingSpinner}>
                   <Loader2 
-                    className="h-6 w-6 animate-spin" 
-                    style={{ color: chatSettings?.chat_color || '#6B7280' }}
+                    size={24}
+                    style={{ 
+                      color: chatSettings?.chat_color || '#6B7280',
+                      animation: 'spin 1s linear infinite'
+                    }}
                   />
                 </div>
               )}
@@ -565,82 +866,98 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
             </div>
 
             {/* Input Area */}
-            <div className="p-4 border-t border-white/20 bg-white/50 backdrop-blur-sm">
-              <div className="relative">
-                <Input
+            <div style={styles.inputContainer}>
+              <div style={styles.inputWrapper}>
+                <input
+                  type="text"
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
                   placeholder={chatSettings?.input_placeholder || 'Type your message...'}
-                  className="bg-white border-none rounded-3xl py-6 px-6 pr-14 shadow-sm focus:shadow-md font-inter"
-                  style={{ 
+                  style={{
+                    ...styles.input,
                     fontSize: chatSettings?.font_size || '14px',
-                    boxShadow: `0 4px 20px rgba(0, 0, 0, 0.05)`,
+                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)'
                   }}
                 />
-                <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
-                  <Button
-                    onClick={handleSendMessage}
-                    disabled={isLoading || !inputMessage.trim()}
-                    className="rounded-full w-8 h-8 p-0 transition-all duration-200 hover:scale-105 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed disabled:transform-none"
-                    style={{ backgroundColor: chatSettings?.chat_color || '#000' }}
-                    aria-label="Send message"
-                  >
-                    <Send size={16} />
-                  </Button>
-                </div>
+                <button
+                  onClick={handleSendMessage}
+                  disabled={isLoading || !inputMessage.trim()}
+                  style={{
+                    ...styles.sendButton,
+                    backgroundColor: chatSettings?.chat_color || '#000',
+                    opacity: (isLoading || !inputMessage.trim()) ? 0.5 : 1,
+                    cursor: (isLoading || !inputMessage.trim()) ? 'not-allowed' : 'pointer'
+                  }}
+                  aria-label="Send message"
+                  onMouseEnter={(e) => {
+                    if (!isLoading && inputMessage.trim()) {
+                      (e.currentTarget as HTMLElement).style.transform = 'translateY(-50%) scale(1.05)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLElement).style.transform = 'translateY(-50%) scale(1)';
+                  }}
+                >
+                  <Send size={16} />
+                </button>
               </div>
             </div>
           </div>
         ) : (
-          // Regular mode - Portal with fixed positioning
+          // Regular mode - Fixed positioning
           <div
-            className="fixed z-[1300] flex flex-col overflow-hidden bg-white/95 backdrop-blur-md border border-white/30 shadow-xl"
             style={{
+              ...styles.chatContainer,
               bottom: chatBottom,
               right: chatRight,
               width: chatWidth,
               height: chatHeight,
-              borderRadius: '20px',
             }}
           >
             {/* Chat Header */}
             <div
-              className="p-4 flex items-center border-b border-white/10 rounded-t-xl"
               style={{
+                ...styles.header,
                 backgroundColor: chatSettings?.chat_color || '#000',
                 color: chatSettings?.chat_name_color || '#fff',
+                borderRadius: '20px 20px 0 0'
               }}
             >
-              <Avatar className="mr-3">
-                <AvatarImage src={chatSettings?.chat_icon_url || ''} />
-                <AvatarFallback className="bg-gray-100 text-gray-600">
-                  {chatSettings?.chat_name?.[0] || 'AI'}
-                </AvatarFallback>
-              </Avatar>
+              <Avatar
+                src={chatSettings?.chat_icon_url}
+                name={chatSettings?.chat_name || 'AI'}
+                style={styles.avatarSpacing}
+              />
               <p 
-                className="font-semibold leading-relaxed font-inter"
-                style={{ fontSize: chatSettings?.font_size || '14px' }}
+                style={{
+                  ...styles.messageText,
+                  fontWeight: '600',
+                  fontSize: chatSettings?.font_size || '14px',
+                  color: chatSettings?.chat_name_color || '#fff',
+                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif'
+                }}
               >
                 {chatSettings?.chat_name || 'Affi'}
               </p>
             </div>
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-black/10 scrollbar-track-transparent">
+            <div style={styles.messagesContainer}>
               {messages.length === 0 && !isLoading && (
-                <div className="flex justify-start mb-3 items-start">
-                  <Avatar className="mr-3">
-                    <AvatarImage src={chatSettings?.chat_icon_url || ''} />
-                    <AvatarFallback className="bg-gray-100 text-gray-600">
-                      {chatSettings?.chat_name?.[0] || 'AI'}
-                    </AvatarFallback>
-                  </Avatar>
+                <div style={styles.messageRow}>
+                  <Avatar
+                    src={chatSettings?.chat_icon_url}
+                    name={chatSettings?.chat_name || 'AI'}
+                    style={styles.avatarSpacing}
+                  />
                   <div
-                    className="bg-white/95 backdrop-blur-sm border border-white/30 rounded-2xl px-4 py-3 max-w-[80%] relative shadow-lg"
-                    style={{ fontSize: chatSettings?.font_size || '14px' }}
+                    style={{
+                      ...styles.messageBubbleBot,
+                      fontSize: chatSettings?.font_size || '14px'
+                    }}
                   >
-                    <p className="text-gray-800 leading-relaxed font-inter">
+                    <p style={styles.messageText}>
                       {introMessage || internalIntroMessage || `Hi! I am ${chatSettings?.chat_name || 'Affi'}, your assistant. How can I help you today?`}
                     </p>
                   </div>
@@ -654,10 +971,13 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
               ))}
               
               {isLoading && (
-                <div className="flex justify-center my-4">
+                <div style={styles.loadingSpinner}>
                   <Loader2 
-                    className="h-6 w-6 animate-spin" 
-                    style={{ color: chatSettings?.chat_color || '#6B7280' }}
+                    size={24}
+                    style={{ 
+                      color: chatSettings?.chat_color || '#6B7280',
+                      animation: 'spin 1s linear infinite'
+                    }}
                   />
                 </div>
               )}
@@ -666,30 +986,41 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
             </div>
 
             {/* Input Area */}
-            <div className="p-4 border-t border-white/20 bg-white/50 backdrop-blur-sm">
-              <div className="relative">
-                <Input
+            <div style={styles.inputContainer}>
+              <div style={styles.inputWrapper}>
+                <input
+                  type="text"
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
                   placeholder={chatSettings?.input_placeholder || 'Type your message...'}
-                  className="bg-white border-none rounded-3xl py-6 px-6 pr-14 shadow-sm focus:shadow-md font-inter"
-                  style={{ 
+                  style={{
+                    ...styles.input,
                     fontSize: chatSettings?.font_size || '14px',
-                    boxShadow: `0 4px 20px rgba(0, 0, 0, 0.05)`,
+                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)'
                   }}
                 />
-                <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
-                  <Button
-                    onClick={handleSendMessage}
-                    disabled={isLoading || !inputMessage.trim()}
-                    className="rounded-full w-8 h-8 p-0 transition-all duration-200 hover:scale-105 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed disabled:transform-none"
-                    style={{ backgroundColor: chatSettings?.chat_color || '#000' }}
-                    aria-label="Send message"
-                  >
-                    <Send size={16} />
-                  </Button>
-                </div>
+                <button
+                  onClick={handleSendMessage}
+                  disabled={isLoading || !inputMessage.trim()}
+                  style={{
+                    ...styles.sendButton,
+                    backgroundColor: chatSettings?.chat_color || '#000',
+                    opacity: (isLoading || !inputMessage.trim()) ? 0.5 : 1,
+                    cursor: (isLoading || !inputMessage.trim()) ? 'not-allowed' : 'pointer'
+                  }}
+                  aria-label="Send message"
+                  onMouseEnter={(e) => {
+                    if (!isLoading && inputMessage.trim()) {
+                      (e.currentTarget as HTMLElement).style.transform = 'translateY(-50%) scale(1.05)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLElement).style.transform = 'translateY(-50%) scale(1)';
+                  }}
+                >
+                  <Send size={16} />
+                </button>
               </div>
             </div>
           </div>
@@ -699,4 +1030,4 @@ function ChatWidget({ session, chatSettings: initialChatSettings, siteId, introM
   );
 }
 
-export default ChatWidget; 
+export default ChatWidget;
