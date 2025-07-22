@@ -128,7 +128,7 @@ const TypewriterMessage = ({
         index++;
         
         // Add slight pause after punctuation for more natural feel
-        const delay = (char === '.' || char === '!' || char === '?') ? 300 : 40;
+        const delay = (char === '.' || char === '!' || char === '?') ? 100 : 15;
         timeoutId = setTimeout(typeCharacter, delay);
       } else {
         if (!isCancelled) {
@@ -138,7 +138,7 @@ const TypewriterMessage = ({
       }
     };
     
-    timeoutId = setTimeout(typeCharacter, 40);
+    timeoutId = setTimeout(typeCharacter, 25);
 
     return () => {
       isCancelled = true;
