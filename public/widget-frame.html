@@ -125,10 +125,7 @@
         // Initialize widget
         async function initializeWidget() {
             try {
-                // Load Tailwind CSS
-                await loadCSS('https://cdn.tailwindcss.com');
-                
-                // Load React dependencies
+                // Load React dependencies only - no external CSS needed
                 await loadScript('https://unpkg.com/react@18/umd/react.production.min.js');
                 await loadScript('https://unpkg.com/react-dom@18/umd/react-dom.production.min.js');
                 
@@ -190,7 +187,6 @@
                         
                         if (src) {
                             return React.createElement('div', { 
-                                className,
                                 style: avatarStyle 
                             },
                                 React.createElement('img', {
@@ -209,7 +205,6 @@
                         }
                         
                         return React.createElement('div', { 
-                            className,
                             style: avatarStyle 
                         }, name ? name.charAt(0).toUpperCase() : 'AI');
                     };
@@ -240,56 +235,151 @@
                         }
                     }, []);
                     
+                    // Define reusable style objects for consistency
+                    const styles = {
+                        container: {
+                            width: '100%',
+                            height: '100%',
+                            backgroundColor: 'white',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            overflow: 'hidden',
+                            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif'
+                        },
+                        header: {
+                            padding: '16px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+                            backgroundColor: config.settings.chat_color || '#000000',
+                            color: config.settings.chat_name_color || '#ffffff'
+                        },
+                        messagesContainer: {
+                            flex: '1',
+                            overflowY: 'auto',
+                            padding: '16px',
+                            backgroundColor: '#f9fafb'
+                        },
+                        messageBubbleBot: {
+                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                            backdropFilter: 'blur(4px)',
+                            border: '1px solid rgba(255, 255, 255, 0.3)',
+                            borderRadius: '16px',
+                            padding: '12px 16px',
+                            maxWidth: '80%',
+                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                            marginBottom: '12px'
+                        },
+                        messageBubbleUser: {
+                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                            backdropFilter: 'blur(4px)',
+                            border: '1px solid rgba(255, 255, 255, 0.3)',
+                            borderRadius: '16px',
+                            padding: '12px 16px',
+                            maxWidth: '80%',
+                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                            marginBottom: '12px'
+                        },
+                        messageText: {
+                            color: '#1f2937',
+                            lineHeight: '1.5',
+                            fontSize: config.settings.font_size || '14px',
+                            margin: '0'
+                        },
+                        inputContainer: {
+                            padding: '16px',
+                            borderTop: '1px solid #e5e7eb',
+                            backgroundColor: '#f9fafb'
+                        },
+                        inputWrapper: {
+                            position: 'relative',
+                            display: 'flex',
+                            alignItems: 'center'
+                        },
+                        input: {
+                            width: '100%',
+                            padding: '12px 48px 12px 16px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '24px',
+                            outline: 'none',
+                            fontSize: config.settings.font_size || '14px',
+                            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif',
+                            backgroundColor: 'white'
+                        },
+                        sendButton: {
+                            position: 'absolute',
+                            right: '8px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '50%',
+                            border: 'none',
+                            backgroundColor: config.settings.chat_color || '#000000',
+                            color: 'white',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease'
+                        },
+                        messageRow: {
+                            display: 'flex',
+                            marginBottom: '12px',
+                            alignItems: 'flex-start'
+                        },
+                        messageRowUser: {
+                            display: 'flex',
+                            marginBottom: '12px',
+                            alignItems: 'flex-end',
+                            justifyContent: 'flex-end'
+                        },
+                        avatarSpacing: {
+                            marginRight: '12px'
+                        }
+                    };
+
                     // Exact ChatWidget structure matching the Dashboard preview
                     return React.createElement('div', { 
-                        className: 'w-full h-full bg-white flex flex-col overflow-hidden',
-                        style: { fontFamily: 'Inter, system-ui, sans-serif' }
+                        style: styles.container
                     },
                         // Chat Header - exact match with Dashboard ChatWidget
                         React.createElement('div', {
-                            className: 'p-4 flex items-center border-b border-white/10',
-                            style: {
-                                backgroundColor: config.settings.chat_color || '#000',
-                                color: config.settings.chat_name_color || '#fff'
-                            }
+                            style: styles.header
                         },
                             React.createElement(Avatar, {
                                 src: config.settings.chat_icon_url,
                                 name: config.settings.chat_name,
-                                className: 'mr-3'
+                                style: styles.avatarSpacing
                             }),
                             React.createElement('p', {
-                                className: 'font-semibold leading-relaxed font-inter',
-                                style: { fontSize: config.settings.font_size || '14px' }
+                                style: {
+                                    ...styles.messageText,
+                                    fontWeight: '600',
+                                    color: config.settings.chat_name_color || '#ffffff',
+                                    margin: '0'
+                                }
                             }, config.settings.chat_name || 'Affi')
                         ),
                         
                         // Messages Area - exact match with Dashboard ChatWidget
                         React.createElement('div', {
-                            className: 'flex-1 overflow-y-auto p-4',
-                            style: { scrollbarWidth: 'thin' }
+                            style: styles.messagesContainer
                         },
                             // Show intro message if no messages
                             messages.length === 0 && !isLoading && React.createElement('div', {
-                                className: 'flex justify-start mb-3 items-start'
+                                style: styles.messageRow
                             },
                                 React.createElement(Avatar, {
                                     src: config.settings.chat_icon_url,
                                     name: config.settings.chat_name,
-                                    className: 'mr-3'
+                                    style: styles.avatarSpacing
                                 }),
                                 React.createElement('div', {
-                                    className: 'bg-white/95 backdrop-blur-sm border border-white/30 rounded-2xl px-4 py-3 max-w-[80%] relative shadow-lg',
-                                    style: { 
-                                        fontSize: config.settings.font_size || '14px',
-                                        backdropFilter: 'blur(4px)',
-                                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                                        border: '1px solid rgba(255, 255, 255, 0.3)',
-                                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
-                                    }
+                                    style: styles.messageBubbleBot
                                 },
                                     React.createElement('p', {
-                                        className: 'text-gray-800 leading-relaxed font-inter'
+                                        style: styles.messageText
                                     }, config.settings.intro_message || 'Hello! How can I help you today?')
                                 )
                             ),
@@ -299,45 +389,31 @@
                                 if (msg.role === 'user') {
                                     return React.createElement('div', {
                                         key: idx,
-                                        className: 'flex justify-end mb-3 items-end'
+                                        style: styles.messageRowUser
                                     },
                                         React.createElement('div', {
-                                            className: 'bg-white/95 backdrop-blur-sm border border-white/30 rounded-2xl px-4 py-3 max-w-[80%] relative shadow-lg',
-                                            style: { 
-                                                fontSize: config.settings.font_size || '14px',
-                                                backdropFilter: 'blur(4px)',
-                                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                                                border: '1px solid rgba(255, 255, 255, 0.3)',
-                                                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
-                                            }
+                                            style: styles.messageBubbleUser
                                         },
                                             React.createElement('p', {
-                                                className: 'text-gray-800 leading-relaxed font-inter'
+                                                style: styles.messageText
                                             }, msg.content)
                                         )
                                     );
                                 } else {
                                     return React.createElement('div', {
                                         key: idx,
-                                        className: 'flex justify-start mb-3 items-start'
+                                        style: styles.messageRow
                                     },
                                         React.createElement(Avatar, {
                                             src: config.settings.chat_icon_url,
                                             name: config.settings.chat_name,
-                                            className: 'mr-3'
+                                            style: styles.avatarSpacing
                                         }),
                                         React.createElement('div', {
-                                            className: 'bg-white/95 backdrop-blur-sm border border-white/30 rounded-2xl px-4 py-3 max-w-[80%] relative shadow-lg',
-                                            style: { 
-                                                fontSize: config.settings.font_size || '14px',
-                                                backdropFilter: 'blur(4px)',
-                                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                                                border: '1px solid rgba(255, 255, 255, 0.3)',
-                                                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
-                                            }
+                                            style: styles.messageBubbleBot
                                         },
                                             React.createElement('p', {
-                                                className: 'text-gray-800 leading-relaxed font-inter'
+                                                style: styles.messageText
                                             }, msg.content)
                                         )
                                     );
@@ -346,24 +422,18 @@
                             
                             // Loading indicator
                             isLoading && React.createElement('div', {
-                                className: 'flex justify-start mb-3 items-start'
+                                style: styles.messageRow
                             },
                                 React.createElement(Avatar, {
                                     src: config.settings.chat_icon_url,
                                     name: config.settings.chat_name,
-                                    className: 'mr-3'
+                                    style: styles.avatarSpacing
                                 }),
                                 React.createElement('div', {
-                                    className: 'bg-white/95 backdrop-blur-sm border border-white/30 rounded-2xl px-4 py-3 max-w-[80%] relative shadow-lg',
-                                    style: { 
-                                        backdropFilter: 'blur(4px)',
-                                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                                        border: '1px solid rgba(255, 255, 255, 0.3)',
-                                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
-                                    }
+                                    style: styles.messageBubbleBot
                                 },
                                     React.createElement('p', {
-                                        className: 'text-gray-800 leading-relaxed font-inter'
+                                        style: styles.messageText
                                     }, 'Typing...')
                                 )
                             )
@@ -371,11 +441,10 @@
                         
                         // Input Area - exact match with Dashboard ChatWidget
                         React.createElement('div', {
-                            className: 'p-4 border-t border-gray-200 bg-gray-50'
+                            style: styles.inputContainer
                         },
                             React.createElement('div', {
-                                className: 'relative flex items-center',
-                                style: { position: 'relative' }
+                                style: styles.inputWrapper
                             },
                                 React.createElement('input', {
                                     type: 'text',
@@ -383,25 +452,16 @@
                                     onChange: (e) => setInputValue(e.target.value),
                                     onKeyPress: (e) => e.key === 'Enter' && !isLoading && inputValue.trim() && sendMessage(),
                                     placeholder: config.settings.input_placeholder || 'Type your message...',
-                                    className: 'w-full px-4 py-3 pr-12 border border-gray-300 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-inter',
-                                    style: { 
-                                        fontSize: config.settings.font_size || '14px',
-                                        borderRadius: '24px',
-                                        paddingRight: '48px'
-                                    },
+                                    style: styles.input,
                                     disabled: isLoading
                                 }),
                                 React.createElement('button', {
                                     onClick: sendMessage,
                                     disabled: isLoading || !inputValue.trim(),
-                                    className: 'absolute right-2 top-1/2 transform -translate-y-1/2 rounded-full w-8 h-8 p-0 transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed',
                                     style: {
-                                        backgroundColor: config.settings.chat_color || '#000',
-                                        color: 'white',
-                                        border: 'none',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center'
+                                        ...styles.sendButton,
+                                        opacity: (isLoading || !inputValue.trim()) ? 0.5 : 1,
+                                        cursor: (isLoading || !inputValue.trim()) ? 'not-allowed' : 'pointer'
                                     }
                                 },
                                     React.createElement(SendIcon, { size: 16, color: 'white' })
