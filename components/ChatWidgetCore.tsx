@@ -71,23 +71,104 @@ const SendIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?
   </svg>
 );
 
-const LoadingIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke={color}
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    style={{
-      animation: 'spin 1s linear infinite'
-    }}
-  >
-    <path d="M21 12a9 9 0 11-6.219-8.56" />
-  </svg>
+const TypingIndicator = ({ chatSettings, styles }: { 
+  chatSettings: ChatSettings; 
+  styles: Record<string, React.CSSProperties> 
+}) => (
+  <div style={styles.messageRow}>
+    <Avatar
+      src={chatSettings?.chat_icon_url}
+      name={chatSettings?.chat_name}
+      style={styles.avatarSpacing}
+    />
+    <div
+      style={{
+        ...styles.messageBubbleBot,
+        fontSize: chatSettings?.font_size || '14px',
+        padding: '16px 20px'
+      }}
+    >
+      <div style={styles.typingContainer}>
+        <div style={{...styles.typingDot, ...styles.typingDot1}}></div>
+        <div style={{...styles.typingDot, ...styles.typingDot2}}></div>
+        <div style={{...styles.typingDot, ...styles.typingDot3}}></div>
+      </div>
+    </div>
+  </div>
 );
+
+const TypewriterMessage = ({ 
+  message, 
+  chatSettings, 
+  styles, 
+  onComplete 
+}: { 
+  message: string;
+  chatSettings: ChatSettings;
+  styles: Record<string, React.CSSProperties>;
+  onComplete: () => void;
+}) => {
+  const [displayedText, setDisplayedText] = useState('');
+  const [isTyping, setIsTyping] = useState(true);
+
+  useEffect(() => {
+    let index = 0;
+    let timeoutId: NodeJS.Timeout | null = null;
+    let isCancelled = false;
+    
+    setDisplayedText('');
+    setIsTyping(true);
+
+    const typeCharacter = () => {
+      if (isCancelled) return;
+      
+      if (index < message.length) {
+        const char = message[index];
+        setDisplayedText(prev => prev + char);
+        index++;
+        
+        // Add slight pause after punctuation for more natural feel
+        const delay = (char === '.' || char === '!' || char === '?') ? 300 : 40;
+        timeoutId = setTimeout(typeCharacter, delay);
+      } else {
+        if (!isCancelled) {
+          setIsTyping(false);
+          onComplete();
+        }
+      }
+    };
+    
+    timeoutId = setTimeout(typeCharacter, 40);
+
+    return () => {
+      isCancelled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [message, onComplete]);
+
+  return (
+    <div style={styles.messageRow}>
+      <Avatar
+        src={chatSettings?.chat_icon_url}
+        name={chatSettings?.chat_name}
+        style={styles.avatarSpacing}
+      />
+      <div
+        style={{
+          ...styles.messageBubbleBot,
+          fontSize: chatSettings?.font_size || '14px'
+        }}
+      >
+        <p style={styles.messageText}>
+          {displayedText}
+          {isTyping && <span style={styles.typingCursor}>|</span>}
+        </p>
+      </div>
+    </div>
+  );
+};
 
 // Avatar component
 const Avatar = ({ src, name, style = {} }: { src?: string; name?: string; style?: React.CSSProperties }) => {
@@ -395,17 +476,39 @@ export function ChatWidgetCore({
       transform: 'translateY(-1px)',
       boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)'
     },
-    loadingContainer: {
+    typingContainer: {
       display: 'flex',
-      justifyContent: 'center',
       alignItems: 'center',
-      padding: '16px'
+      gap: '4px',
+      height: '20px'
+    },
+    typingDot: {
+      width: '8px',
+      height: '8px',
+      borderRadius: '50%',
+      backgroundColor: '#6b7280',
+      opacity: 0.4,
+      animation: 'bounce 1.4s infinite ease-in-out'
+    },
+    typingDot1: {
+      animationDelay: '0s'
+    },
+    typingDot2: {
+      animationDelay: '0.2s'  
+    },
+    typingDot3: {
+      animationDelay: '0.4s'
+    },
+    typingCursor: {
+      animation: 'blink 1s infinite'
     }
   };
 
   const [messages, setMessages] = useState<Message[]>(getInitialMessages);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [typingMessage, setTypingMessage] = useState<string | null>(null);
+  const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`);
 
@@ -415,11 +518,24 @@ export function ChatWidgetCore({
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, isTyping]);
 
   // Handle link clicks
   const handleLinkClick = (link: Link) => {
     onLinkClick?.(link);
+  };
+
+  // Handle typewriter completion
+  const handleTypewriterComplete = (message: string) => {
+    setIsTyping(false);
+    setTypingMessage(null);
+    setMessages(prev => [...prev, { 
+      type: 'bot', 
+      content: { 
+        type: 'message', 
+        message: message 
+      } 
+    } as BotMessage]);
   };
 
   // Handle sending messages
@@ -477,9 +593,20 @@ export function ChatWidgetCore({
       }
 
       const data = await response.json();
-      setMessages(prev => [...prev, { type: 'bot', content: data } as BotMessage]);
+      
+      setIsLoading(false);
+      
+      // If it's a simple text message, use typewriter effect
+      if (data.type === 'message' && typeof data.message === 'string') {
+        setTypingMessage(data.message);
+        setIsTyping(true);
+      } else {
+        // For links or other complex content, add directly
+        setMessages(prev => [...prev, { type: 'bot', content: data } as BotMessage]);
+      }
     } catch (error) {
       console.error('Error:', error);
+      setIsLoading(false);
       setMessages(prev => [...prev, {
         type: 'bot',
         content: {
@@ -487,8 +614,6 @@ export function ChatWidgetCore({
           message: 'Sorry, I encountered an error. Please try again.'
         }
       } as BotMessage]);
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -621,9 +746,16 @@ export function ChatWidgetCore({
         ))}
         
         {isLoading && (
-          <div style={styles.loadingContainer}>
-            <LoadingIcon size={24} color={chatSettings?.chat_color || '#6B7280'} />
-          </div>
+          <TypingIndicator chatSettings={chatSettings} styles={styles} />
+        )}
+        
+        {isTyping && typingMessage && (
+          <TypewriterMessage 
+            message={typingMessage}
+            chatSettings={chatSettings}
+            styles={styles}
+            onComplete={() => handleTypewriterComplete(typingMessage)}
+          />
         )}
         
         <div ref={messagesEndRef} />
@@ -655,12 +787,26 @@ export function ChatWidgetCore({
           </button>
         </div>
       </div>
-
       {/* CSS animations */}
       <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
+        @keyframes bounce {
+          0%, 60%, 100% {
+            transform: scale(0.8);
+            opacity: 0.4;
+          }
+          30% {
+            transform: scale(1.2);
+            opacity: 1;
+          }
+        }
+        
+        @keyframes blink {
+          0%, 50% {
+            opacity: 1;
+          }
+          51%, 100% {
+            opacity: 0;
+          }
         }
       `}</style>
     </div>
