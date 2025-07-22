@@ -54,13 +54,13 @@
         container.id = 'chat-widget-' + siteId;
         container.style.cssText = `
             position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 400px;
-            height: 600px;
+            bottom: 100px;
+            right: 16px;
+            width: 440px;
+            height: 700px;
             z-index: 1000;
             border: none;
-            border-radius: 12px;
+            border-radius: 20px;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
             background: white;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
@@ -92,17 +92,17 @@
         button.id = 'chat-widget-button-' + siteId;
         button.style.cssText = `
             position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 60px;
-            height: 60px;
+            bottom: 16px;
+            right: 16px;
+            width: 52px;
+            height: 52px;
             border-radius: 50%;
             border: none;
             background: ${chatSettings.chat_color || '#000'};
             color: ${chatSettings.chat_bubble_icon_color || 'white'};
             cursor: pointer;
             z-index: 1001;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             transition: all 0.2s ease;
             display: flex;
             align-items: center;
@@ -151,10 +151,6 @@
             isOpen = !isOpen;
 
             if (isOpen) {
-                // Position container above button to avoid overlap
-                if (window.innerWidth >= 768) {
-                    container.style.bottom = '90px';
-                }
                 container.style.display = 'block';
                 button.innerHTML = `
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
@@ -165,10 +161,6 @@
                 // Track widget open
                 trackEvent('widget_open');
             } else {
-                // Reset container position when closing
-                if (window.innerWidth >= 768) {
-                    container.style.bottom = '20px';
-                }
                 container.style.display = 'none';
                 button.innerHTML = `
                     <svg
@@ -225,16 +217,15 @@
 
                 iframe.style.borderRadius = '0';
             } else {
-                const bottomPosition = isOpen ? '90px' : '20px';
                 container.style.cssText = `
                     position: fixed;
-                    bottom: ${bottomPosition};
-                    right: 20px;
-                    width: 400px;
-                    height: 600px;
+                    bottom: 100px;
+                    right: 16px;
+                    width: 440px;
+                    height: 700px;
                     z-index: 1000;
                     border: none;
-                    border-radius: 12px;
+                    border-radius: 20px;
                     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
                     background: white;
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
@@ -242,7 +233,7 @@
                     display: ${isOpen ? 'block' : 'none'};
                 `;
 
-                iframe.style.borderRadius = '12px';
+                iframe.style.borderRadius = '20px';
             }
         }
 
@@ -287,8 +278,8 @@
                 const popup = document.createElement('div');
                 popup.style.cssText = `
                     position: fixed;
-                    bottom: 100px;
-                    right: 20px;
+                    bottom: 84px;
+                    right: 16px;
                     background: white;
                     border: 1px solid #e5e7eb;
                     border-radius: 12px;
