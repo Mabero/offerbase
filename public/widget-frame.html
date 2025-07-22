@@ -93,7 +93,7 @@
         // Configuration
         const config = {
             siteId: siteId || 'demo-site',
-            apiUrl: decodeURIComponent(apiUrl || 'https://choosly.onrender.com'),
+            apiUrl: decodeURIComponent(apiUrl || window.location.origin),
             settings: chatSettings,
             embedded: embedded
         };

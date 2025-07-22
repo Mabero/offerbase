@@ -153,8 +153,8 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
 
   const { toast } = useToast();
 
-  // API URL
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://choosly.onrender.com';
+  // API URL - Use environment variable or current origin for dynamic deployment support
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
 
   // Site management functions
   const loadSitesFromAPI = async () => {
