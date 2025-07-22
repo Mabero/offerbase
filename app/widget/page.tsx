@@ -1,11 +1,11 @@
 'use client';
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import ChatWidget from '../../components/ChatWidget';
 import { ChatSettings } from '../../components/ChatWidgetCore';
 
-export default function WidgetPage() {
+function WidgetContent() {
   const searchParams = useSearchParams();
   
   // Default settings
@@ -21,12 +21,12 @@ export default function WidgetPage() {
   };
 
   // Parse URL parameters
-  const siteId = searchParams.get('siteId') || 'demo-site';
-  const apiUrl = searchParams.get('apiUrl') ? decodeURIComponent(searchParams.get('apiUrl')!) : window.location.origin;
-  const embedded = searchParams.get('embedded') === 'true';
+  const siteId = searchParams?.get('siteId') || 'demo-site';
+  const apiUrl = searchParams?.get('apiUrl') ? decodeURIComponent(searchParams.get('apiUrl')!) : (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
+  const embedded = searchParams?.get('embedded') === 'true';
   
   let chatSettings = defaultSettings;
-  const settingsParam = searchParams.get('settings');
+  const settingsParam = searchParams?.get('settings');
   if (settingsParam) {
     try {
       chatSettings = JSON.parse(decodeURIComponent(settingsParam));
@@ -54,5 +54,37 @@ export default function WidgetPage() {
         isEmbedded={embedded}
       />
     </div>
+  );
+}
+
+export default function WidgetPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ 
+        width: '100%', 
+        height: '100vh', 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        backgroundColor: 'transparent'
+      }}>
+        <div style={{
+          width: '40px',
+          height: '40px',
+          border: '4px solid #f3f3f3',
+          borderTop: '4px solid #3498db',
+          borderRadius: '50%',
+          animation: 'spin 1s linear infinite'
+        }} />
+        <style jsx>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}</style>
+      </div>
+    }>
+      <WidgetContent />
+    </Suspense>
   );
 }
