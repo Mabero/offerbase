@@ -71,12 +71,12 @@
         // Create iframe
         const iframe = document.createElement('iframe');
         const settingsParam = encodeURIComponent(JSON.stringify(chatSettings));
-        iframe.src = `${apiUrl}/widget-frame.html?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&settings=${settingsParam}`;
+        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&settings=${settingsParam}&embedded=true`;
         iframe.style.cssText = `
             width: 100%;
             height: 100%;
             border: none;
-            border-radius: 12px;
+            border-radius: 20px;
         `;
         iframe.title = 'Chat Widget';
 
