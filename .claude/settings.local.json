@@ -12,7 +12,8 @@
       "Bash(git commit:*)",
       "Bash(npm run build:*)",
       "WebFetch(domain:docs.clerk.dev)",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "Bash(pkill:*)"
     ],
     "deny": []
   }
