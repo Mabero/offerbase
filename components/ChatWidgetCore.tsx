@@ -9,6 +9,7 @@ export interface ChatSettings {
   chat_bubble_icon_color: string;
   input_placeholder: string;
   font_size: string;
+  intro_message?: string;
 }
 
 export interface Session {
