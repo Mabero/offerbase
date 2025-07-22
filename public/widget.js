@@ -10,11 +10,32 @@
     // Configuration
     const script = document.currentScript;
     const siteId = script.getAttribute('data-site-id');
+    const encodedSettings = script.getAttribute('data-settings');
     const apiUrl = script.src.replace('/widget.js', '');
     
     if (!siteId) {
         console.error('ChatWidget: data-site-id attribute is required');
         return;
+    }
+    
+    // Decode settings if provided
+    let chatSettings = {
+        chat_name: 'Affi',
+        chat_color: '#000000',
+        chat_icon_url: '',
+        chat_name_color: '#FFFFFF',
+        chat_bubble_icon_color: '#FFFFFF',
+        input_placeholder: 'Type your message...',
+        font_size: '14px',
+        intro_message: 'Hello! How can I help you today?'
+    };
+    
+    if (encodedSettings) {
+        try {
+            chatSettings = JSON.parse(atob(encodedSettings));
+        } catch (e) {
+            console.warn('ChatWidget: Failed to decode settings, using defaults', e);
+        }
     }
     
     console.log('ChatWidget: Initializing with siteId:', siteId, 'apiUrl:', apiUrl);
@@ -23,6 +44,7 @@
     const config = {
         siteId: siteId,
         apiUrl: apiUrl,
+        settings: chatSettings,
         embedded: false
     };
     
@@ -48,7 +70,8 @@
         
         // Create iframe
         const iframe = document.createElement('iframe');
-        iframe.src = `${apiUrl}/widget-frame.html?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}`;
+        const settingsParam = encodeURIComponent(JSON.stringify(chatSettings));
+        iframe.src = `${apiUrl}/widget-frame.html?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&settings=${settingsParam}`;
         iframe.style.cssText = `
             width: 100%;
             height: 100%;
@@ -75,8 +98,8 @@
             height: 60px;
             border-radius: 50%;
             border: none;
-            background: #000;
-            color: white;
+            background: ${chatSettings.chat_color || '#000'};
+            color: ${chatSettings.chat_bubble_icon_color || 'white'};
             cursor: pointer;
             z-index: 1001;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
@@ -269,11 +292,11 @@
                 
                 popup.innerHTML = `
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-                        <div style="font-weight: 600; color: #111827;">Hi there! 👋</div>
+                        <div style="font-weight: 600; color: #111827;">${chatSettings.chat_name || 'Affi'} 👋</div>
                         <button style="background: none; border: none; cursor: pointer; padding: 0; color: #6b7280; font-size: 16px;" onclick="this.parentElement.parentElement.remove();">×</button>
                     </div>
-                    <div style="margin-bottom: 12px;">Have a question? I'm here to help!</div>
-                    <button style="background: #000; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;" onclick="document.getElementById('chat-widget-button-${siteId}').click(); this.parentElement.remove();">
+                    <div style="margin-bottom: 12px;">${chatSettings.intro_message || 'Hello! How can I help you today?'}</div>
+                    <button style="background: ${chatSettings.chat_color || '#000'}; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;" onclick="document.getElementById('chat-widget-button-${siteId}').click(); this.parentElement.remove();">
                         Start Chat
                     </button>
                 `;

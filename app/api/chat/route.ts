@@ -13,7 +13,14 @@ export async function POST(request: NextRequest) {
     if (!message || !siteId) {
       return NextResponse.json(
         { error: 'Message and siteId are required' },
-        { status: 400 }
+        { 
+          status: 400,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          }
+        }
       );
     }
     
@@ -31,7 +38,13 @@ export async function POST(request: NextRequest) {
     // Generate AI response using OpenAI
     const response = await generateChatResponse(message, conversationHistory, siteId);
     
-    return NextResponse.json(response);
+    return NextResponse.json(response, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      }
+    });
     
   } catch (error) {
     console.error('Chat API error:', error);
@@ -51,7 +64,14 @@ export async function POST(request: NextRequest) {
     
     return NextResponse.json(
       { error: errorMessage },
-      { status: 500 }
+      { 
+        status: 500,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }
+      }
     );
   }
 }
@@ -214,5 +234,17 @@ export async function GET() {
   return NextResponse.json({ 
     message: 'Chat API is running',
     timestamp: new Date().toISOString()
+  });
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Max-Age': '86400',
+    },
   });
 }

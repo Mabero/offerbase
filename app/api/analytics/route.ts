@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { createSupabaseAdminClient } from '@/lib/supabase-server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,15 +39,33 @@ export async function POST(request: NextRequest) {
       session_id: getSessionId(request)
     };
     
-    // Log the event (in production, this would go to a database)
-    console.log('Analytics Event:', analyticsEvent);
+    // Store the event in the database
+    const supabase = createSupabaseAdminClient();
     
-    // In a real implementation, you would store this in a database
-    // await storeAnalyticsEvent(analyticsEvent);
+    const { data: event, error } = await supabase
+      .from('analytics_events')
+      .insert([{
+        site_id: site_id,
+        event_type,
+        user_session_id: user_id || getSessionId(request),
+        user_agent,
+        ip_address: getClientIP(request),
+        event_data: details
+      }])
+      .select('id')
+      .single();
+    
+    if (error) {
+      console.error('Error storing analytics event:', error);
+      return NextResponse.json(
+        { error: 'Failed to store analytics event' },
+        { status: 500 }
+      );
+    }
     
     return NextResponse.json({ 
       success: true, 
-      event_id: analyticsEvent.id 
+      event_id: event.id 
     });
     
   } catch (error) {
@@ -60,7 +79,11 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    await auth();
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const siteId = searchParams.get('site_id');
     const startDate = searchParams.get('start_date');
@@ -72,47 +95,83 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const supabase = createSupabaseAdminClient();
     
-    // In a real implementation, you would fetch from a database
-    const mockAnalytics = {
+    // Verify site ownership
+    const { data: site, error: siteError } = await supabase
+      .from('sites')
+      .select('id')
+      .eq('id', siteId)
+      .eq('user_id', userId)
+      .single();
+
+    if (siteError || !site) {
+      return NextResponse.json({ error: 'Site not found or unauthorized' }, { status: 404 });
+    }
+
+    const start = startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const end = endDate || new Date().toISOString();
+    
+    // Get analytics metrics
+    const { data: events, error: eventsError } = await supabase
+      .from('analytics_events')
+      .select('*')
+      .eq('site_id', siteId)
+      .gte('created_at', start)
+      .lte('created_at', end)
+      .order('created_at', { ascending: false });
+
+    if (eventsError) {
+      console.error('Error fetching analytics events:', eventsError);
+      return NextResponse.json({ error: 'Failed to fetch analytics' }, { status: 500 });
+    }
+
+    // Get chat sessions for the period
+    const { data: sessions, error: sessionsError } = await supabase
+      .from('chat_sessions')
+      .select('*')
+      .eq('site_id', siteId)
+      .gte('started_at', start)
+      .lte('started_at', end);
+
+    if (sessionsError) {
+      console.error('Error fetching chat sessions:', sessionsError);
+    }
+
+    // Calculate metrics
+    const widgetOpens = events?.filter(e => e.event_type === 'widget_open').length || 0;
+    const linkClicks = events?.filter(e => e.event_type === 'link_click').length || 0;
+    const totalMessages = sessions?.reduce((sum, session) => sum + (session.message_count || 0), 0) || 0;
+    const uniqueUsers = new Set(events?.map(e => e.user_session_id)).size || 0;
+    const totalSessions = sessions?.length || 0;
+    
+    // Calculate average session duration
+    const sessionsWithDuration = sessions?.filter(s => s.ended_at) || [];
+    const averageSessionDuration = sessionsWithDuration.length > 0
+      ? sessionsWithDuration.reduce((sum, session) => {
+          const duration = new Date(session.ended_at).getTime() - new Date(session.started_at).getTime();
+          return sum + (duration / 1000); // Convert to seconds
+        }, 0) / sessionsWithDuration.length
+      : 0;
+
+    const analytics = {
       site_id: siteId,
-      period: {
-        start: startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-        end: endDate || new Date().toISOString()
-      },
+      period: { start, end },
       metrics: {
-        total_widget_opens: 42,
-        total_messages: 156,
-        total_link_clicks: 23,
-        unique_users: 38,
-        average_session_duration: 145, // seconds
-        bounce_rate: 0.32,
-        conversion_rate: 0.15
+        total_widget_opens: widgetOpens,
+        total_messages: totalMessages,
+        total_link_clicks: linkClicks,
+        unique_users: uniqueUsers,
+        total_sessions: totalSessions,
+        average_session_duration: Math.round(averageSessionDuration),
+        bounce_rate: totalSessions > 0 ? (sessionsWithDuration.filter(s => s.message_count === 0).length / totalSessions) : 0,
+        conversion_rate: totalSessions > 0 ? (linkClicks / totalSessions) : 0
       },
-      events: [
-        {
-          id: 'evt_1',
-          event_type: 'widget_open',
-          timestamp: new Date().toISOString(),
-          user_id: 'user_123',
-          details: {}
-        },
-        {
-          id: 'evt_2',
-          event_type: 'message_sent',
-          timestamp: new Date().toISOString(),
-          user_id: 'user_123',
-          details: { message_length: 25 }
-        }
-      ],
-      popular_pages: [
-        { url: 'https://example.com/', visits: 15 },
-        { url: 'https://example.com/products', visits: 12 },
-        { url: 'https://example.com/about', visits: 8 }
-      ]
+      recent_events: events?.slice(0, 10) || []
     };
     
-    return NextResponse.json(mockAnalytics);
+    return NextResponse.json(analytics);
     
   } catch (error) {
     console.error('Analytics GET error:', error);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
-import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { createSupabaseAdminClient } from '@/lib/supabase-server'
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Site ID is required' }, { status: 400 })
     }
 
-    const supabase = await createServerSupabaseClient()
+    const supabase = createSupabaseAdminClient()
     
     // First verify the site belongs to the user
     const { data: site, error: siteError } = await supabase
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Site ID and URL are required' }, { status: 400 })
     }
 
-    const supabase = await createServerSupabaseClient()
+    const supabase = createSupabaseAdminClient()
     
     // First verify the site belongs to the user
     const { data: site, error: siteError } = await supabase

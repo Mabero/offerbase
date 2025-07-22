@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { createSupabaseAdminClient } from '@/lib/supabase-server'
 import { auth } from '@clerk/nextjs/server'
 
 export async function POST(request: NextRequest) {
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Task name is required' }, { status: 400 })
     }
 
-    const supabase = await createServerSupabaseClient()
+    const supabase = createSupabaseAdminClient()
     
     const { data, error } = await supabase
       .from('tasks')

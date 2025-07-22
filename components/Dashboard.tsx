@@ -141,6 +141,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     averageResponseTime: 0,
     satisfactionRate: 0
   });
+  const [isLoadingChatSettings, setIsLoadingChatSettings] = useState(false);
   const [isSupabaseConfiguredState, setIsSupabaseConfiguredState] = useState<boolean | null>(null);
   const [useDirectWidget, setUseDirectWidget] = useState(false);
   const [isSiteDialogOpen, setIsSiteDialogOpen] = useState(false);
@@ -190,14 +191,11 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     }
   };
 
-  const handleSiteChange = () => {
+  const handleSiteChange = async () => {
     // Reload site data and refresh any site-specific data
-    loadSitesFromAPI();
-    // Reload data for the currently selected site
-    if (selectedSite) {
-      loadAffiliateLinks(selectedSite.id);
-      loadTrainingMaterials(selectedSite.id);
-    }
+    await loadSitesFromAPI();
+    // The useEffect for selectedSite will handle reloading the data automatically
+    // when selectedSite changes, so we don't need to manually reload here
   };
 
   const loadAffiliateLinks = async (siteId: string) => {
@@ -467,16 +465,33 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   };
 
   const handleSaveChatSettings = async () => {
+    if (!selectedSite) return;
+    
     setIsSaving(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await fetch('/api/chat-settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          siteId: selectedSite.id,
+          ...chatSettings,
+          intro_message: introMessage
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save chat settings');
+      }
       
       toast({
         title: "Success",
         description: "Chat settings saved successfully"
       });
-    } catch {
+    } catch (error) {
+      console.error('Error saving chat settings:', error);
       toast({
         title: "Error",
         description: "Failed to save chat settings",
@@ -488,16 +503,32 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   };
 
   const handleSaveInstructions = async () => {
+    if (!selectedSite) return;
+    
     setIsSaving(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await fetch('/api/chat-settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          siteId: selectedSite.id,
+          instructions
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save instructions');
+      }
       
       toast({
         title: "Success",
         description: "Instructions saved successfully"
       });
-    } catch {
+    } catch (error) {
+      console.error('Error saving instructions:', error);
       toast({
         title: "Error",
         description: "Failed to save instructions",
@@ -509,22 +540,27 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   };
 
   const handleRefreshChatLogs = async () => {
+    if (!selectedSite) return;
+    
     setIsLoadingLogs(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Mock data for demo
-      setChatSessions([
-        { id: '1', created_at: new Date().toISOString() },
-        { id: '2', created_at: new Date(Date.now() - 3600000).toISOString() },
-      ]);
+      const response = await fetch(`/api/chat-sessions?siteId=${selectedSite.id}`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch chat sessions');
+      }
+
+      const data = await response.json();
+      setChatSessions(data.sessions || []);
       
       toast({
         title: "Success",
         description: "Chat logs refreshed"
       });
-    } catch {
+    } catch (error) {
+      console.error('Error fetching chat sessions:', error);
       toast({
         title: "Error",
         description: "Failed to refresh chat logs",
@@ -537,6 +573,62 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
 
   const handleViewSession = (_session: ChatSession) => {
     // TODO: Implement session view functionality
+  };
+
+  const loadAnalyticsData = async (siteId: string) => {
+    try {
+      const response = await fetch(`/api/analytics?site_id=${siteId}`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch analytics');
+      }
+
+      const data = await response.json();
+      setChatStats({
+        totalChats: data.metrics.total_sessions || 0,
+        totalMessages: data.metrics.total_messages || 0,
+        averageResponseTime: data.metrics.average_session_duration || 0,
+        satisfactionRate: Math.round((1 - (data.metrics.bounce_rate || 0)) * 100)
+      });
+    } catch (error) {
+      console.error('Error fetching analytics:', error);
+      // Keep current stats on error
+    }
+  };
+
+  const loadChatSettings = async (siteId: string) => {
+    setIsLoadingChatSettings(true);
+    try {
+      const response = await fetch(`/api/chat-settings?siteId=${siteId}`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch chat settings');
+      }
+
+      const data = await response.json();
+      if (data.settings) {
+        setChatSettings({
+          chat_name: data.settings.chat_name || 'Affi',
+          chat_color: data.settings.chat_color || '#000000',
+          chat_icon_url: data.settings.chat_icon_url || '',
+          chat_name_color: data.settings.chat_name_color || '#FFFFFF',
+          chat_bubble_icon_color: data.settings.chat_bubble_icon_color || '#FFFFFF',
+          input_placeholder: data.settings.input_placeholder || 'Type your message...',
+          font_size: data.settings.font_size || '14px'
+        });
+        setIntroMessage(data.settings.intro_message || 'Hello! How can I help you today?');
+        setInstructions(data.settings.instructions || BASE_INSTRUCTIONS);
+      }
+    } catch (error) {
+      console.error('Error fetching chat settings:', error);
+      // Keep current settings on error
+    } finally {
+      setIsLoadingChatSettings(false);
+    }
   };
 
   // Check if Supabase is configured
@@ -614,6 +706,8 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     if (selectedSite && isSupabaseConfiguredState === true) {
       loadAffiliateLinks(selectedSite.id);
       loadTrainingMaterials(selectedSite.id);
+      loadAnalyticsData(selectedSite.id);
+      loadChatSettings(selectedSite.id);
     }
   }, [selectedSite, isSupabaseConfiguredState]);
 
@@ -1051,7 +1145,20 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                       <Label htmlFor="embed-code">Embed Code</Label>
                       <Textarea
                         id="embed-code"
-                        value={`<script src="${API_URL}/widget.js" data-site-id="${selectedSite?.id || 'your-site-id'}"></script>`}
+                        value={(() => {
+                          const settingsData = {
+                            chat_name: chatSettings.chat_name,
+                            chat_color: chatSettings.chat_color,
+                            chat_icon_url: chatSettings.chat_icon_url,
+                            chat_name_color: chatSettings.chat_name_color,
+                            chat_bubble_icon_color: chatSettings.chat_bubble_icon_color,
+                            input_placeholder: chatSettings.input_placeholder,
+                            font_size: chatSettings.font_size,
+                            intro_message: introMessage
+                          };
+                          const encodedSettings = btoa(JSON.stringify(settingsData));
+                          return `<script src="${API_URL}/widget.js" data-site-id="${selectedSite?.id || 'your-site-id'}" data-settings="${encodedSettings}"></script>`;
+                        })()}
                         rows={3}
                         className="mt-2 bg-white border-gray-300 font-mono text-sm"
                         readOnly

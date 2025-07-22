@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
-import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { createSupabaseAdminClient } from '@/lib/supabase-server'
 
 export async function DELETE(
   request: NextRequest,
@@ -13,7 +13,7 @@ export async function DELETE(
     }
 
     const { materialId } = await context.params
-    const supabase = await createServerSupabaseClient()
+    const supabase = createSupabaseAdminClient()
     
     // First verify the material belongs to the user (through site ownership)
     const { data: material, error: materialError } = await supabase

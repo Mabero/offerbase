@@ -11,7 +11,8 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(npm run build:*)",
-      "WebFetch(domain:docs.clerk.dev)"
+      "WebFetch(domain:docs.clerk.dev)",
+      "Bash(npm run dev:*)"
     ],
     "deny": []
   }

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Embed Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; }
+        h2 { color: #666; }
+        p { color: #555; line-height: 1.6; }
+        .embed-code {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-section">
+        <h1>Chat Widget Embed Test</h1>
+        <p>This page tests the chat widget embed functionality with custom site settings.</p>
+        
+        <h2>Test 1: Default Settings</h2>
+        <p>Testing with default black chat widget settings.</p>
+        <div class="embed-code">
+            Default embed code with basic settings would go here.
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 2: Custom Blue Widget</h2>
+        <p>This tests a blue-themed chat widget with custom name and message.</p>
+        <div class="embed-code">
+            Blue theme embed code would go here.
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 3: Red Widget with Custom Icon</h2>
+        <p>This tests a red-themed widget with custom branding.</p>
+        <div class="embed-code">
+            Red theme embed code would go here.
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Instructions</h2>
+        <ol>
+            <li>Go to the Dashboard and create different sites</li>
+            <li>Customize each site's chat settings (colors, name, intro message)</li>
+            <li>Copy the embed code for each site</li>
+            <li>Replace the embed code placeholders above with real codes</li>
+            <li>Open this page in a browser to test the widgets</li>
+            <li>Verify that each widget shows the correct:
+                <ul>
+                    <li>Chat button color</li>
+                    <li>Chat name in header</li>
+                    <li>Intro message</li>
+                    <li>Input placeholder text</li>
+                    <li>Font size (if different)</li>
+                </ul>
+            </li>
+        </ol>
+    </div>
+
+    <div class="test-section">
+        <h2>Expected Behavior</h2>
+        <ul>
+            <li>Each widget should display with its site-specific styling</li>
+            <li>Chat button colors should match the site's chat_color</li>
+            <li>Widget headers should show the custom chat_name</li>
+            <li>First message should be the custom intro_message</li>
+            <li>Input placeholder should be customized</li>
+            <li>Chat should work and send messages to the correct site</li>
+        </ul>
+    </div>
+
+    <!-- Example embed codes would be inserted here -->
+    <!-- 
+    Example of what the embed codes should look like:
+    <script src="http://localhost:3000/widget.js" data-site-id="site-uuid-1" data-settings="eyJjaGF0X25hbWUiOiJCbHVlIEJvdCIsImNoYXRfY29sb3IiOiIjMDA3N0ZGIn0="></script>
+    -->
+
+    <p style="margin-top: 40px; font-size: 14px; color: #999;">
+        Note: This is a test page to verify embed functionality. Replace the placeholder embed codes with actual codes from your Dashboard.
+    </p>
+</body>
+</html>

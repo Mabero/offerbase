@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { useAuth } from '@clerk/nextjs'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -44,6 +45,7 @@ export function SiteSelector({
   onSiteChange,
   className = '',
 }: SiteSelectorProps) {
+  const { getToken } = useAuth()
   const [sites, setSites] = useState<Site[]>([])
   const [loading, setLoading] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -70,7 +72,11 @@ export function SiteSelector({
         setSites(data.sites)
       } else {
         console.error('Failed to fetch sites:', data.error)
-        toast.error('Failed to fetch sites')
+        if (response.status === 401) {
+          toast.error('Session expired. Please log in again.')
+        } else {
+          toast.error(data.error || 'Failed to fetch sites')
+        }
       }
     } catch (error) {
       console.error('Error fetching sites:', error)
@@ -125,9 +131,14 @@ export function SiteSelector({
         onSiteChange()
         toast.success('Site created successfully')
       } else {
-        toast.error(data.error || 'Failed to create site')
+        if (response.status === 401) {
+          toast.error('Session expired. Please log in again.')
+        } else {
+          toast.error(data.error || 'Failed to create site')
+        }
       }
     } catch (error) {
+      console.error('Error creating site:', error)
       toast.error('Error creating site')
     } finally {
       setActionLoading(false)
@@ -169,9 +180,14 @@ export function SiteSelector({
         onSiteChange()
         toast.success('Site updated successfully')
       } else {
-        toast.error(data.error || 'Failed to update site')
+        if (response.status === 401) {
+          toast.error('Session expired. Please log in again.')
+        } else {
+          toast.error(data.error || 'Failed to update site')
+        }
       }
     } catch (error) {
+      console.error('Error updating site:', error)
       toast.error('Error updating site')
     } finally {
       setActionLoading(false)
@@ -202,9 +218,14 @@ export function SiteSelector({
         toast.success('Site deleted successfully')
       } else {
         const data = await response.json()
-        toast.error(data.error || 'Failed to delete site')
+        if (response.status === 401) {
+          toast.error('Session expired. Please log in again.')
+        } else {
+          toast.error(data.error || 'Failed to delete site')
+        }
       }
     } catch (error) {
+      console.error('Error deleting site:', error)
       toast.error('Error deleting site')
     } finally {
       setActionLoading(false)

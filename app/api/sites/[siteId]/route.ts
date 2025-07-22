@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
-import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { createSupabaseAdminClient } from '@/lib/supabase-server'
 
 export async function PATCH(
   request: NextRequest,
@@ -19,7 +19,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Site name is required' }, { status: 400 })
     }
 
-    const supabase = await createServerSupabaseClient()
+    const supabase = createSupabaseAdminClient()
     
     // First check if the site belongs to the user
     const { data: existingSite, error: checkError } = await supabase
@@ -65,7 +65,7 @@ export async function DELETE(
     }
 
     const { siteId } = await context.params
-    const supabase = await createServerSupabaseClient()
+    const supabase = createSupabaseAdminClient()
     
     // First check if the site belongs to the user
     const { data: existingSite, error: checkError } = await supabase

@@ -11,8 +11,9 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
-  // Protect all routes except public ones
-  if (!isPublicRoute(req)) {
+  // For API routes, we let them handle their own authentication
+  // Page routes use auth.protect() which redirects to login
+  if (!isPublicRoute(req) && !req.nextUrl.pathname.startsWith('/api/')) {
     await auth.protect();
   }
 });

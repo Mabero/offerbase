@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
-import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { createSupabaseAdminClient } from '@/lib/supabase-server'
 
 export async function DELETE(
   request: NextRequest,
@@ -13,7 +13,7 @@ export async function DELETE(
     }
 
     const { linkId } = await context.params
-    const supabase = await createServerSupabaseClient()
+    const supabase = createSupabaseAdminClient()
     
     // First verify the link belongs to the user (through site ownership)
     const { data: link, error: linkError } = await supabase
