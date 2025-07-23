@@ -69,6 +69,7 @@
         const apiUrl = urlParams.get('apiUrl');
         const settingsParam = urlParams.get('settings');
         const embedded = urlParams.get('embedded') === 'true';
+        const pageTitle = urlParams.get('pageTitle') || '';
         
         // Default settings
         let chatSettings = {
@@ -104,7 +105,8 @@
             siteId: config.siteId,
             apiUrl: config.apiUrl,
             settings: encodeURIComponent(JSON.stringify(config.settings)),
-            embedded: config.embedded.toString()
+            embedded: config.embedded.toString(),
+            pageTitle: pageTitle
         })}`;
         
         // Replace current page content with iframe to widget page

@@ -75,9 +75,12 @@
             display: none;
         `;
 
+        // Get page title for contextual intro message
+        const pageTitle = document.title || '';
+        
         // Create iframe
         const iframe = document.createElement('iframe');
-        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&embedded=true`;
+        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&embedded=true&pageTitle=${encodeURIComponent(pageTitle)}`;
         iframe.style.cssText = `
             width: 100%;
             height: 100%;
@@ -256,6 +259,36 @@
         console.log('ChatWidget: Initialized successfully');
     }
 
+    // Helper function to generate contextual intro message based on page title
+    function generateContextualIntroMessage(pageTitle) {
+        if (!pageTitle || pageTitle.trim() === '') {
+            return 'Hello! How can I help you today?';
+        }
+        
+        // Clean up the page title - remove common suffixes
+        let cleanTitle = pageTitle
+            .replace(/\s*[-|–—]\s*.+$/, '') // Remove site name after dash
+            .replace(/\s*\|\s*.+$/, '') // Remove site name after pipe
+            .trim();
+        
+        // Limit title length for better readability
+        if (cleanTitle.length > 50) {
+            cleanTitle = cleanTitle.substring(0, 47) + '...';
+        }
+        
+        // Generate varied greetings
+        const greetings = [
+            `Hi! I see you're looking at "${cleanTitle}". How can I help you with that?`,
+            `Hello! Need any help with "${cleanTitle}"?`,
+            `Hi there! I'm here to help you with "${cleanTitle}". What would you like to know?`,
+            `Welcome! I noticed you're viewing "${cleanTitle}". Is there anything I can help you with?`,
+            `Hey! Looking at "${cleanTitle}"? I'm here if you need any assistance!`
+        ];
+        
+        // Return a random greeting for variety
+        return greetings[Math.floor(Math.random() * greetings.length)];
+    }
+
     // Analytics tracking
     function trackEvent(eventType, details = {}) {
         try {
@@ -283,6 +316,16 @@
 
     // Auto-popup functionality
     function setupAutoPopup() {
+        // Helper function to get the appropriate intro message
+        function getIntroMessage() {
+            // Check if intro message is empty or is the default message
+            if (!chatSettings.intro_message || chatSettings.intro_message === 'Hello! How can I help you today?') {
+                // Generate contextual intro message based on page title
+                return generateContextualIntroMessage(document.title);
+            }
+            return chatSettings.intro_message;
+        }
+        
         // Show intro popup after 3 seconds if not already shown
         setTimeout(() => {
             if (!localStorage.getItem('chat-widget-intro-shown-' + siteId)) {
@@ -321,7 +364,7 @@
                         <div style="font-weight: 600; color: #111827;">${chatSettings.chat_name || 'Affi'} 👋</div>
                         <button style="background: none; border: none; cursor: pointer; padding: 0; color: #6b7280; font-size: 16px;" onclick="this.parentElement.parentElement.remove();">×</button>
                     </div>
-                    <div style="margin-bottom: 12px; cursor: pointer;">${chatSettings.intro_message || 'Hello! How can I help you today?'}</div>
+                    <div style="margin-bottom: 12px; cursor: pointer;">${getIntroMessage()}</div>
                 `;
 
                 // Make the entire popup clickable to open chat

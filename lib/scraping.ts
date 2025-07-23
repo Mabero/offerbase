@@ -62,16 +62,20 @@ function extractContent(html: string): { content: string; metadata: TrainingMeta
     // Extract product info if available
     if (structuredData['@type'] === 'Product' || structuredData.product) {
       const product = (structuredData.product || structuredData) as Record<string, unknown>;
+      const offers = product?.offers as Record<string, unknown> | undefined;
+      const aggregateRating = product?.aggregateRating as Record<string, unknown> | undefined;
+      const brand = product?.brand as Record<string, unknown> | string | undefined;
+      
       metadata.productInfo = {
         name: product?.name as string,
-        price: product?.offers?.price as string,
-        currency: product?.offers?.priceCurrency as string,
-        availability: product?.offers?.availability as string,
-        brand: (product?.brand?.name || product?.brand) as string,
+        price: offers?.price as string,
+        currency: offers?.priceCurrency as string,
+        availability: offers?.availability as string,
+        brand: (typeof brand === 'object' ? brand?.name : brand) as string,
         category: product?.category as string,
         sku: product?.sku as string,
-        rating: product?.aggregateRating?.ratingValue as number,
-        reviewCount: product?.aggregateRating?.reviewCount as number,
+        rating: aggregateRating?.ratingValue as number,
+        reviewCount: aggregateRating?.reviewCount as number,
       };
     }
   }
