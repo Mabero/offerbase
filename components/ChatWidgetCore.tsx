@@ -521,27 +521,25 @@ export function ChatWidgetCore({
   const [typingMessage, setTypingMessage] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [sessionId] = useState(() => {
-    // Try to get existing session from localStorage
-    const storageKey = `chat_session_${siteId}`;
+  const [sessionId, setSessionId] = useState<string | null>(() => {
+    // Clean up old session format and try to get existing session UUID from localStorage (backend-generated)
+    const oldStorageKey = `chat_session_${siteId}`;
+    const newStorageKey = `chat_session_uuid_${siteId}`;
+    
     if (typeof window !== 'undefined') {
-      const existingSessionId = localStorage.getItem(storageKey);
+      // Clean up old format
+      localStorage.removeItem(oldStorageKey);
+      
+      const existingSessionId = localStorage.getItem(newStorageKey);
       if (existingSessionId) {
-        console.log('ChatWidget: Using existing sessionId:', existingSessionId);
+        console.log('ChatWidget: Using existing sessionId (UUID):', existingSessionId);
         return existingSessionId;
       }
     }
     
-    // Create new session ID
-    const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-    
-    // Store it in localStorage
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(storageKey, newSessionId);
-      console.log('ChatWidget: Created new sessionId:', newSessionId);
-    }
-    
-    return newSessionId;
+    // No existing session - will be created by backend on first message
+    console.log('ChatWidget: No existing session, backend will create one');
+    return null;
   });
 
   const scrollToBottom = () => {
@@ -616,7 +614,7 @@ export function ChatWidgetCore({
           message: userMessage,
           siteId: siteId,
           conversationHistory: conversationHistory,
-          sessionId: sessionId
+          sessionId: sessionId // null on first message, UUID on subsequent messages
         }),
       });
 
@@ -626,13 +624,15 @@ export function ChatWidgetCore({
 
       const data = await response.json();
       
-      // Update sessionId if server returned a new one
-      if (data.sessionId && data.sessionId !== sessionId) {
-        const storageKey = `chat_session_${siteId}`;
+      // Update sessionId if server returned a new one (UUID format)
+      if (data.sessionId) {
+        const storageKey = `chat_session_uuid_${siteId}`;
         if (typeof window !== 'undefined') {
           localStorage.setItem(storageKey, data.sessionId);
           console.log('ChatWidget: Updated sessionId from server:', data.sessionId);
         }
+        // Update state to use this sessionId for subsequent messages
+        setSessionId(data.sessionId);
       }
       
       setIsLoading(false);

@@ -42,6 +42,8 @@ export async function POST(request: NextRequest) {
     const supabase = createSupabaseAdminClient();
     let chatSessionId = sessionId;
     
+    console.log('Chat API: Received sessionId:', sessionId, 'Type:', typeof sessionId);
+    
     // Create or update chat session
     if (!chatSessionId) {
       // Create new session
