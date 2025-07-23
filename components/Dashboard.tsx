@@ -104,7 +104,13 @@ interface ChatSettings {
 
 interface ChatSession {
   id: string;
-  created_at: string;
+  user_session_id: string;
+  started_at: string;
+  ended_at?: string;
+  message_count: number;
+  user_agent?: string;
+  is_active: boolean;
+  last_activity_at: string;
 }
 
 interface ChatStats {
@@ -142,6 +148,9 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   const [introMessage, setIntroMessage] = useState('Hello! How can I help you today?');
   const [isSaving, setIsSaving] = useState(false);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
+  const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
+  const [sessionMessages, setSessionMessages] = useState<any[]>([]);
+  const [isLoadingSessionDetails, setIsLoadingSessionDetails] = useState(false);
   const [instructions, setInstructions] = useState(BASE_INSTRUCTIONS);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [chatStats, setChatStats] = useState<ChatStats>({
@@ -795,8 +804,33 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     }
   };
 
-  const handleViewSession = (_session: ChatSession) => {
-    // TODO: Implement session view functionality
+  const handleViewSession = async (session: ChatSession) => {
+    if (!selectedSite) return;
+    
+    setIsLoadingSessionDetails(true);
+    setSelectedSession(session);
+    
+    try {
+      const response = await fetch(`/api/chat-sessions/${session.id}`, {
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch session details');
+      }
+      
+      const data = await response.json();
+      setSessionMessages(data.messages || []);
+    } catch (error) {
+      console.error('Error fetching session details:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load session details",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoadingSessionDetails(false);
+    }
   };
 
   const loadAnalyticsData = async (siteId: string) => {
@@ -1537,7 +1571,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                               <div>
                                 <div className="font-medium">Session {session.id}</div>
                                 <div className="text-sm text-gray-600">
-                                  {new Date(session.created_at).toLocaleString()}
+                                  {session.started_at ? new Date(session.started_at).toLocaleString() : 'No date available'}
                                 </div>
                               </div>
                               <Button
@@ -1566,6 +1600,85 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
           </Card>
         </div>
       </div>
+
+      {/* Session Details Dialog */}
+      {selectedSession && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-4xl w-full m-4 max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Chat Session Details</h2>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSelectedSession(null);
+                  setSessionMessages([]);
+                }}
+              >
+                ✕
+              </Button>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4 mb-4 p-4 bg-gray-50 rounded-lg">
+              <div>
+                <div className="text-sm text-gray-600">Session ID</div>
+                <div className="font-medium">{selectedSession.id}</div>
+              </div>
+              <div>
+                <div className="text-sm text-gray-600">Started</div>
+                <div className="font-medium">
+                  {selectedSession.started_at ? new Date(selectedSession.started_at).toLocaleString() : 'N/A'}
+                </div>
+              </div>
+              <div>
+                <div className="text-sm text-gray-600">Messages</div>
+                <div className="font-medium">{selectedSession.message_count}</div>
+              </div>
+              <div>
+                <div className="text-sm text-gray-600">Status</div>
+                <div className="font-medium">
+                  <span className={`px-2 py-1 rounded-full text-xs ${selectedSession.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                    {selectedSession.is_active ? 'Active' : 'Ended'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-hidden">
+              <h3 className="text-lg font-medium mb-3">Conversation</h3>
+              {isLoadingSessionDetails ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                </div>
+              ) : (
+                <div className="overflow-y-auto max-h-96 space-y-3">
+                  {sessionMessages.length > 0 ? (
+                    sessionMessages.map((message, index) => (
+                      <div key={index} className={`p-3 rounded-lg ${message.role === 'user' ? 'bg-blue-50 ml-8' : 'bg-gray-50 mr-8'}`}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`text-xs font-medium px-2 py-1 rounded ${message.role === 'user' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
+                            {message.role === 'user' ? 'User' : 'Assistant'}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {message.created_at ? new Date(message.created_at).toLocaleTimeString() : ''}
+                          </span>
+                        </div>
+                        <div className="text-sm">
+                          {message.content}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      No messages in this session yet.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Chat Widget - Always Visible */}
       {selectedSite && (

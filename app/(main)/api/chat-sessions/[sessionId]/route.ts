@@ -9,7 +9,14 @@ export async function GET(
   try {
     const { userId } = await auth()
     if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: 'Unauthorized' }, { 
+        status: 401,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }
+      })
     }
 
     const { sessionId } = await context.params
@@ -30,7 +37,14 @@ export async function GET(
       .single()
 
     if (sessionError || !session) {
-      return NextResponse.json({ error: 'Session not found or unauthorized' }, { status: 404 })
+      return NextResponse.json({ error: 'Session not found or unauthorized' }, { 
+        status: 404,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }
+      })
     }
 
     // Get messages for this session
@@ -42,7 +56,14 @@ export async function GET(
 
     if (messagesError) {
       console.error('Error fetching chat messages:', messagesError)
-      return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 })
+      return NextResponse.json({ error: 'Failed to fetch messages' }, { 
+        status: 500,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }
+      })
     }
 
     return NextResponse.json({ 
@@ -51,10 +72,23 @@ export async function GET(
         sites: undefined // Remove the sites data from response
       },
       messages: messages || []
+    }, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      }
     })
   } catch (error) {
     console.error('Error in GET /api/chat-sessions/[sessionId]:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ error: 'Internal server error' }, { 
+      status: 500,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      }
+    })
   }
 }
 
@@ -82,12 +116,43 @@ export async function PUT(
 
     if (error) {
       console.error('Error updating chat session:', error)
-      return NextResponse.json({ error: 'Failed to update session' }, { status: 500 })
+      return NextResponse.json({ error: 'Failed to update session' }, { 
+        status: 500,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }
+      })
     }
 
-    return NextResponse.json({ session })
+    return NextResponse.json({ session }, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      }
+    })
   } catch (error) {
     console.error('Error in PUT /api/chat-sessions/[sessionId]:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ error: 'Internal server error' }, { 
+      status: 500,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      }
+    })
   }
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    },
+  });
 }
