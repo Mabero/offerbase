@@ -76,6 +76,170 @@ const SendIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?
   </svg>
 );
 
+const CopyIcon = ({ size = 14, color = 'currentColor' }: { size?: number; color?: string }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
+    <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+  </svg>
+);
+
+const ThumbsUpIcon = ({ size = 14, color = 'currentColor' }: { size?: number; color?: string }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M7 10v12l5-5 5 5V10a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2z"/>
+  </svg>
+);
+
+const ThumbsDownIcon = ({ size = 14, color = 'currentColor' }: { size?: number; color?: string }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M17 14V2l-5 5-5-5v12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2z"/>
+  </svg>
+);
+
+const RetryIcon = ({ size = 14, color = 'currentColor' }: { size?: number; color?: string }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+    <path d="M21 3v5h-5"/>
+    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+    <path d="M3 21v-5h5"/>
+  </svg>
+);
+
+const MessageActions = ({ 
+  messageContent, 
+  onCopy, 
+  onThumbsUp, 
+  onThumbsDown, 
+  onRetry,
+  isVisible = true
+}: { 
+  messageContent: string;
+  onCopy: () => void;
+  onThumbsUp: () => void;
+  onThumbsDown: () => void;
+  onRetry: () => void;
+  isVisible?: boolean;
+}) => {
+  const [copied, setCopied] = useState(false);
+
+  const buttonStyle: React.CSSProperties = {
+    background: 'none',
+    border: 'none',
+    padding: '6px',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.2s ease',
+    color: '#6b7280'
+  };
+
+  const buttonHoverStyle: React.CSSProperties = {
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    color: '#374151'
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(messageContent);
+      setCopied(true);
+      onCopy();
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy message:', err);
+    }
+  };
+
+  return (
+    <div 
+      style={{
+        display: 'flex',
+        gap: '4px',
+        marginTop: '8px',
+        marginLeft: '44px', // Align with message content
+        opacity: isVisible ? 1 : 0,
+        transition: 'opacity 0.2s ease'
+      }}
+    >
+      <button
+        onClick={handleCopy}
+        style={buttonStyle}
+        onMouseEnter={(e) => Object.assign(e.currentTarget.style, buttonHoverStyle)}
+        onMouseLeave={(e) => Object.assign(e.currentTarget.style, { backgroundColor: 'transparent', color: '#6b7280' })}
+        title={copied ? 'Copied!' : 'Copy message'}
+      >
+        <CopyIcon size={14} color={copied ? '#10b981' : 'currentColor'} />
+      </button>
+      
+      <button
+        onClick={onThumbsUp}
+        style={buttonStyle}
+        onMouseEnter={(e) => Object.assign(e.currentTarget.style, buttonHoverStyle)}
+        onMouseLeave={(e) => Object.assign(e.currentTarget.style, { backgroundColor: 'transparent', color: '#6b7280' })}
+        title="Good response"
+      >
+        <ThumbsUpIcon size={14} />
+      </button>
+      
+      <button
+        onClick={onThumbsDown}
+        style={buttonStyle}
+        onMouseEnter={(e) => Object.assign(e.currentTarget.style, buttonHoverStyle)}
+        onMouseLeave={(e) => Object.assign(e.currentTarget.style, { backgroundColor: 'transparent', color: '#6b7280' })}
+        title="Poor response"
+      >
+        <ThumbsDownIcon size={14} />
+      </button>
+      
+      <button
+        onClick={onRetry}
+        style={buttonStyle}
+        onMouseEnter={(e) => Object.assign(e.currentTarget.style, buttonHoverStyle)}
+        onMouseLeave={(e) => Object.assign(e.currentTarget.style, { backgroundColor: 'transparent', color: '#6b7280' })}
+        title="Retry message"
+      >
+        <RetryIcon size={14} />
+      </button>
+    </div>
+  );
+};
+
 const TypingIndicator = ({ chatSettings, styles }: { 
   chatSettings: ChatSettings; 
   styles: Record<string, React.CSSProperties> 
@@ -557,6 +721,7 @@ export function ChatWidgetCore({
 
   // Track if history has been loaded to prevent re-loading
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [hoveredMessageIndex, setHoveredMessageIndex] = useState<number | null>(null);
 
   // Restore chat history when sessionId exists
   useEffect(() => {
@@ -675,6 +840,116 @@ export function ChatWidgetCore({
     } as BotMessage]);
   };
 
+  // Handle message actions
+  const handleCopyMessage = (messageContent: string) => {
+    console.log('Message copied:', messageContent);
+  };
+
+  const handleThumbsUp = (messageContent: string) => {
+    console.log('Thumbs up for:', messageContent);
+    // TODO: Send feedback to backend
+  };
+
+  const handleThumbsDown = (messageContent: string) => {
+    console.log('Thumbs down for:', messageContent);
+    // TODO: Send feedback to backend
+  };
+
+  const handleRetryMessage = async (messageContent: string) => {
+    console.log('Retry message:', messageContent);
+    // Get the last user message and resend it
+    const lastUserMessage = messages.filter(msg => msg.type === 'user').pop();
+    if (lastUserMessage && !isLoading) {
+      const userMessage = lastUserMessage.content;
+      
+      // Remove the bot's response we want to retry
+      setMessages(prev => {
+        const lastBotIndex = prev.findLastIndex(msg => 
+          msg.type === 'bot' && 
+          (msg.content.type === 'message' ? msg.content.message === messageContent : false)
+        );
+        if (lastBotIndex !== -1) {
+          return prev.slice(0, lastBotIndex);
+        }
+        return prev;
+      });
+      
+      // Add the user message again and send
+      setMessages(prev => [...prev, { type: 'user', content: userMessage } as UserMessage]);
+      setIsLoading(true);
+      
+      onMessageSent?.(userMessage);
+
+      try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'x-site-id': siteId
+        };
+        
+        if (session?.user?.id) {
+          headers['x-user-id'] = session.user.id;
+        }
+
+        // Build conversation history (excluding the retry message)
+        const conversationHistory = messages
+          .filter(msg => {
+            if (msg.type === 'bot' && msg.content.type === 'message') {
+              const content = msg.content.message;
+              if (content && typeof content === 'string') {
+                const isIntroMessage = content.includes('Hi! I am') || content.includes('How can I help');
+                const isRetryMessage = content === messageContent;
+                return !isIntroMessage && !isRetryMessage;
+              }
+            }
+            return true;
+          })
+          .map(msg => ({
+            role: msg.type === 'user' ? 'user' : 'assistant',
+            content: msg.type === 'user' ? msg.content : msg.content.message || ''
+          }))
+          .filter(msg => msg.content.trim().length > 0);
+        
+        const response = await fetch(`${apiUrl}/api/chat`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ 
+            message: userMessage,
+            siteId: siteId,
+            conversationHistory: conversationHistory,
+            sessionId: sessionId
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
+        }
+
+        const data = await response.json();
+        
+        setIsLoading(false);
+        
+        // If it's a simple text message, use typewriter effect
+        if (data.type === 'message' && typeof data.message === 'string') {
+          setTypingMessage(data.message);
+          setIsTyping(true);
+        } else {
+          // For links, simple links, or other complex content, add directly
+          setMessages(prev => [...prev, { type: 'bot', content: data } as BotMessage]);
+        }
+      } catch (error) {
+        console.error('Error retrying message:', error);
+        setIsLoading(false);
+        setMessages(prev => [...prev, {
+          type: 'bot',
+          content: {
+            type: 'message',
+            message: 'Sorry, I encountered an error while retrying. Please try again.'
+          }
+        } as BotMessage]);
+      }
+    }
+  };
+
   // Handle sending messages
   const handleSendMessage = async () => {
     if (!inputMessage.trim()) return;
@@ -765,7 +1040,7 @@ export function ChatWidgetCore({
     }
   };
 
-  const renderMessage = (message: Message) => {
+  const renderMessage = (message: Message, messageIndex: number) => {
     if (message.type === 'user') {
       return (
         <div style={styles.messageRowUser}>
@@ -786,113 +1061,157 @@ export function ChatWidgetCore({
     // Bot message
     const botContent = message.content;
     if (botContent.type === 'links') {
+      const isHovered = hoveredMessageIndex === messageIndex;
+      
       return (
-        <div style={styles.messageRow}>
-          <Avatar
-            src={chatSettings?.chat_icon_url}
-            name={chatSettings?.chat_name}
-            style={styles.avatarSpacing}
-          />
-          <div style={{ maxWidth: '80%' }}>
-            <div
-              style={{
-                ...styles.messageBubbleBot,
-                fontSize: chatSettings?.font_size || '14px',
-                marginBottom: '12px'
-              }}
-            >
-              <p style={{...styles.messageText, marginBottom: '12px'}}>
-                {botContent.message}
-              </p>
-            </div>
-            
-            <div style={styles.linksContainer}>
-              {botContent.links?.map((link, index) => (
-                <LinkCard 
-                  key={index} 
-                  link={link} 
-                  chatSettings={chatSettings} 
-                  styles={styles} 
-                  onLinkClick={handleLinkClick}
-                />
-              ))}
+        <div 
+          onMouseEnter={() => setHoveredMessageIndex(messageIndex)}
+          onMouseLeave={() => setHoveredMessageIndex(null)}
+        >
+          <div style={styles.messageRow}>
+            <Avatar
+              src={chatSettings?.chat_icon_url}
+              name={chatSettings?.chat_name}
+              style={styles.avatarSpacing}
+            />
+            <div style={{ maxWidth: '80%' }}>
+              <div
+                style={{
+                  ...styles.messageBubbleBot,
+                  fontSize: chatSettings?.font_size || '14px',
+                  marginBottom: '12px'
+                }}
+              >
+                <p style={{...styles.messageText, marginBottom: '12px'}}>
+                  {botContent.message}
+                </p>
+              </div>
+              
+              <div style={styles.linksContainer}>
+                {botContent.links?.map((link, index) => (
+                  <LinkCard 
+                    key={index} 
+                    link={link} 
+                    chatSettings={chatSettings} 
+                    styles={styles} 
+                    onLinkClick={handleLinkClick}
+                  />
+                ))}
+              </div>
             </div>
           </div>
+          <MessageActions
+            messageContent={botContent.message}
+            onCopy={() => handleCopyMessage(botContent.message)}
+            onThumbsUp={() => handleThumbsUp(botContent.message)}
+            onThumbsDown={() => handleThumbsDown(botContent.message)}
+            onRetry={() => handleRetryMessage(botContent.message)}
+            isVisible={isHovered}
+          />
         </div>
       );
     }
 
     // Simple link message
     if (botContent.type === 'simple_link') {
+      const isHovered = hoveredMessageIndex === messageIndex;
+      
       return (
-        <div style={styles.messageRow}>
-          <Avatar
-            src={chatSettings?.chat_icon_url}
-            name={chatSettings?.chat_name}
-            style={styles.avatarSpacing}
-          />
-          <div style={{ maxWidth: '80%' }}>
-            <div
-              style={{
-                ...styles.messageBubbleBot,
-                fontSize: chatSettings?.font_size || '14px'
-              }}
-            >
-              <p style={styles.messageText}>
-                {botContent.message}
-              </p>
-              
-              {botContent.simple_link && (
-                <a
-                  href={botContent.simple_link.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => handleLinkClick({ 
-                    name: botContent.simple_link!.text, 
-                    url: botContent.simple_link!.url, 
-                    description: '',
-                    button_text: '',
-                    image_url: ''
-                  })}
-                  style={{
-                    display: 'inline-block',
-                    color: chatSettings?.chat_color || '#007bff',
-                    textDecoration: 'underline',
-                    fontSize: chatSettings?.font_size || '14px',
-                    cursor: 'pointer',
-                    padding: '4px 0',
-                    marginTop: '8px'
-                  }}
-                >
-                  {botContent.simple_link.text}
-                </a>
-              )}
+        <div
+          onMouseEnter={() => setHoveredMessageIndex(messageIndex)}
+          onMouseLeave={() => setHoveredMessageIndex(null)}
+        >
+          <div style={styles.messageRow}>
+            <Avatar
+              src={chatSettings?.chat_icon_url}
+              name={chatSettings?.chat_name}
+              style={styles.avatarSpacing}
+            />
+            <div style={{ maxWidth: '80%' }}>
+              <div
+                style={{
+                  ...styles.messageBubbleBot,
+                  fontSize: chatSettings?.font_size || '14px'
+                }}
+              >
+                <p style={styles.messageText}>
+                  {botContent.message}
+                </p>
+                
+                {botContent.simple_link && (
+                  <a
+                    href={botContent.simple_link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => handleLinkClick({ 
+                      name: botContent.simple_link!.text, 
+                      url: botContent.simple_link!.url, 
+                      description: '',
+                      button_text: '',
+                      image_url: ''
+                    })}
+                    style={{
+                      display: 'inline-block',
+                      color: chatSettings?.chat_color || '#007bff',
+                      textDecoration: 'underline',
+                      fontSize: chatSettings?.font_size || '14px',
+                      cursor: 'pointer',
+                      padding: '4px 0',
+                      marginTop: '8px'
+                    }}
+                  >
+                    {botContent.simple_link.text}
+                  </a>
+                )}
+              </div>
             </div>
           </div>
+          <MessageActions
+            messageContent={botContent.message}
+            onCopy={() => handleCopyMessage(botContent.message)}
+            onThumbsUp={() => handleThumbsUp(botContent.message)}
+            onThumbsDown={() => handleThumbsDown(botContent.message)}
+            onRetry={() => handleRetryMessage(botContent.message)}
+            isVisible={isHovered}
+          />
         </div>
       );
     }
 
     // Regular message
     const messageContent = botContent?.message || 'Sorry, I could not understand the response.';
+    const isHovered = hoveredMessageIndex === messageIndex;
     
     return (
-      <div style={styles.messageRow}>
-        <Avatar
-          src={chatSettings?.chat_icon_url}
-          name={chatSettings?.chat_name}
-          style={styles.avatarSpacing}
-        />
-        <div
-          style={{
-            ...styles.messageBubbleBot,
-            fontSize: chatSettings?.font_size || '14px'
-          }}
-        >
-          <p style={styles.messageText}>
-            {messageContent}
-          </p>
+      <div
+        onMouseEnter={() => setHoveredMessageIndex(messageIndex)}
+        onMouseLeave={() => setHoveredMessageIndex(null)}
+      >
+        <div style={styles.messageRow}>
+          <Avatar
+            src={chatSettings?.chat_icon_url}
+            name={chatSettings?.chat_name}
+            style={styles.avatarSpacing}
+          />
+          <div
+            style={{
+              ...styles.messageBubbleBot,
+              fontSize: chatSettings?.font_size || '14px'
+            }}
+          >
+            <p style={styles.messageText}>
+              {messageContent}
+            </p>
+          </div>
         </div>
+        <MessageActions
+          messageContent={messageContent}
+          onCopy={() => handleCopyMessage(messageContent)}
+          onThumbsUp={() => handleThumbsUp(messageContent)}
+          onThumbsDown={() => handleThumbsDown(messageContent)}
+          onRetry={() => handleRetryMessage(messageContent)}
+          isVisible={isHovered}
+        />
       </div>
     );
   };
@@ -960,7 +1279,7 @@ export function ChatWidgetCore({
         
         {messages.map((message, index) => (
           <div key={index}>
-            {renderMessage(message)}
+            {renderMessage(message, index)}
           </div>
         ))}
         
