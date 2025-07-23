@@ -38,10 +38,85 @@ export async function POST(request: NextRequest) {
       conversationHistory: conversationHistory.length
     });
     
+    // Initialize Supabase for session tracking
+    const supabase = createSupabaseAdminClient();
+    let chatSessionId = sessionId;
+    
+    // Create or update chat session
+    if (!chatSessionId) {
+      // Create new session
+      const { data: newSession, error: sessionError } = await supabase
+        .from('chat_sessions')
+        .insert([{
+          site_id: siteId,
+          user_session_id: userId || xUserId || 'anonymous_' + Date.now(),
+          user_agent: request.headers.get('user-agent'),
+          ip_address: request.headers.get('x-forwarded-for')?.split(',')[0] || 
+                     request.headers.get('x-real-ip') || 
+                     'unknown'
+        }])
+        .select('id')
+        .single();
+      
+      if (sessionError) {
+        console.warn('Failed to create chat session:', sessionError);
+        // Continue without session tracking
+      } else {
+        chatSessionId = newSession.id;
+        console.log('Created new chat session:', chatSessionId);
+      }
+    } else {
+      // Update existing session activity
+      const { error: updateError } = await supabase
+        .from('chat_sessions')
+        .update({ 
+          last_activity_at: new Date().toISOString()
+        })
+        .eq('id', chatSessionId);
+      
+      if (updateError) {
+        console.warn('Failed to update chat session:', updateError);
+      }
+    }
+    
     // Generate AI response using OpenAI
     const response = await generateChatResponse(message, conversationHistory, siteId);
     
-    return NextResponse.json(response, {
+    // Log chat messages if session tracking is available
+    if (chatSessionId && supabase) {
+      try {
+        // Log user message
+        await supabase
+          .from('chat_messages')
+          .insert([{
+            chat_session_id: chatSessionId,
+            role: 'user',
+            content: message
+          }]);
+        
+        // Log assistant response
+        const responseMessage = typeof response.message === 'string' ? response.message : JSON.stringify(response);
+        await supabase
+          .from('chat_messages')
+          .insert([{
+            chat_session_id: chatSessionId,
+            role: 'assistant',
+            content: responseMessage
+          }]);
+          
+        console.log('Chat messages logged for session:', chatSessionId);
+      } catch (error) {
+        console.warn('Failed to log chat messages:', error);
+      }
+    }
+    
+    // Include session ID in response for frontend tracking
+    const responseWithSession = {
+      ...response,
+      sessionId: chatSessionId
+    };
+    
+    return NextResponse.json(responseWithSession, {
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',

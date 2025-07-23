@@ -21,26 +21,28 @@ export async function POST(request: NextRequest) {
     if (!event_type || !site_id) {
       return NextResponse.json(
         { error: 'event_type and site_id are required' },
-        { status: 400 }
+        { 
+          status: 400,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-site-id, x-user-id, x-session-id',
+          }
+        }
       );
     }
     
-    // Create analytics event
-    const analyticsEvent = {
-      id: generateEventId(),
-      event_type,
-      site_id,
-      user_id: user_id || userId,
-      details,
-      timestamp: timestamp || new Date().toISOString(),
-      url,
-      user_agent,
-      ip_address: getClientIP(request),
-      session_id: getSessionId(request)
-    };
-    
     // Store the event in the database
     const supabase = createSupabaseAdminClient();
+    
+    console.log('Analytics API: Inserting event', {
+      site_id,
+      event_type,
+      user_session_id: user_id || getSessionId(request),
+      user_agent,
+      ip_address: getClientIP(request),
+      event_data: details
+    });
     
     const { data: event, error } = await supabase
       .from('analytics_events')
@@ -56,23 +58,65 @@ export async function POST(request: NextRequest) {
       .single();
     
     if (error) {
-      console.error('Error storing analytics event:', error);
+      console.error('Error storing analytics event:', {
+        error,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
       return NextResponse.json(
-        { error: 'Failed to store analytics event' },
-        { status: 500 }
+        { 
+          error: 'Failed to store analytics event',
+          details: process.env.NODE_ENV === 'development' ? error.message : 'Check server logs'
+        },
+        { 
+          status: 500,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-site-id, x-user-id, x-session-id',
+          }
+        }
       );
     }
     
     return NextResponse.json({ 
       success: true, 
       event_id: event.id 
+    }, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-site-id, x-user-id, x-session-id',
+      }
     });
     
   } catch (error) {
-    console.error('Analytics API error:', error);
+    console.error('Analytics API error:', {
+      error,
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    
+    // If it's a database connection or schema issue, provide a graceful fallback
+    const errorMessage = error instanceof Error && error.message.includes('relation "analytics_events" does not exist')
+      ? 'Analytics table not configured - contact administrator'
+      : 'Internal server error';
+    
     return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+      { 
+        error: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.message : 'Unknown error') : 'Check server logs'
+      },
+      { 
+        status: 500,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-site-id, x-user-id, x-session-id',
+        }
+      }
     );
   }
 }
@@ -81,7 +125,14 @@ export async function GET(request: NextRequest) {
   try {
     const { userId } = await auth();
     if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized' }, { 
+        status: 401,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-site-id, x-user-id, x-session-id',
+        }
+      });
     }
 
     const { searchParams } = new URL(request.url);
@@ -92,7 +143,14 @@ export async function GET(request: NextRequest) {
     if (!siteId) {
       return NextResponse.json(
         { error: 'site_id is required' },
-        { status: 400 }
+        { 
+          status: 400,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-site-id, x-user-id, x-session-id',
+          }
+        }
       );
     }
 
@@ -107,7 +165,14 @@ export async function GET(request: NextRequest) {
       .single();
 
     if (siteError || !site) {
-      return NextResponse.json({ error: 'Site not found or unauthorized' }, { status: 404 });
+      return NextResponse.json({ error: 'Site not found or unauthorized' }, { 
+        status: 404,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-site-id, x-user-id, x-session-id',
+        }
+      });
     }
 
     const start = startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -124,7 +189,14 @@ export async function GET(request: NextRequest) {
 
     if (eventsError) {
       console.error('Error fetching analytics events:', eventsError);
-      return NextResponse.json({ error: 'Failed to fetch analytics' }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to fetch analytics' }, { 
+        status: 500,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-site-id, x-user-id, x-session-id',
+        }
+      });
     }
 
     // Get chat sessions for the period
@@ -171,13 +243,26 @@ export async function GET(request: NextRequest) {
       recent_events: events?.slice(0, 10) || []
     };
     
-    return NextResponse.json(analytics);
+    return NextResponse.json(analytics, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-site-id, x-user-id, x-session-id',
+      }
+    });
     
   } catch (error) {
     console.error('Analytics GET error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
-      { status: 500 }
+      { 
+        status: 500,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-site-id, x-user-id, x-session-id',
+        }
+      }
     );
   }
 }

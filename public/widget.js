@@ -265,30 +265,178 @@
     }
 
 
-    // Analytics tracking
+    // Analytics batching system for scalability
+    const analyticsQueue = [];
+    const BATCH_SIZE = 5;
+    const BATCH_TIMEOUT = 3000; // 3 seconds
+    let batchTimer = null;
+    let isProcessingBatch = false;
+    
     function trackEvent(eventType, details = {}) {
+        const event = {
+            event_type: eventType,
+            site_id: siteId,
+            user_id: null,
+            details: details,
+            timestamp: new Date().toISOString(),
+            url: window.location.href,
+            user_agent: navigator.userAgent
+        };
+        
+        console.log('ChatWidget: Queuing event:', eventType, details);
+        analyticsQueue.push(event);
+        
+        // Process immediately if critical event or queue is full
+        if (eventType === 'widget_open' || eventType === 'session_start' || analyticsQueue.length >= BATCH_SIZE) {
+            processBatch();
+        } else {
+            // Set timer to process batch after timeout
+            if (!batchTimer) {
+                batchTimer = setTimeout(() => {
+                    processBatch();
+                }, BATCH_TIMEOUT);
+            }
+        }
+    }
+    
+    function processBatch(retryCount = 0) {
+        if (isProcessingBatch || analyticsQueue.length === 0) {
+            return;
+        }
+        
+        isProcessingBatch = true;
+        const maxRetries = 2;
+        const retryDelay = 1000 * Math.pow(2, retryCount);
+        
+        // Clear the timer
+        if (batchTimer) {
+            clearTimeout(batchTimer);
+            batchTimer = null;
+        }
+        
+        // Take events from queue
+        const eventsToSend = analyticsQueue.splice(0, BATCH_SIZE);
+        console.log('ChatWidget: Processing analytics batch:', eventsToSend.length, 'events');
+        
         try {
-            fetch(`${apiUrl}/api/analytics`, {
+            fetch(`${apiUrl}/api/analytics/batch`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    event_type: eventType,
-                    site_id: siteId,
-                    user_id: null,
-                    details: details,
-                    timestamp: new Date().toISOString(),
-                    url: window.location.href,
-                    user_agent: navigator.userAgent
+                    events: eventsToSend
                 })
-            }).catch(error => {
-                console.warn('ChatWidget: Analytics tracking failed:', error);
+            })
+            .then(response => {
+                isProcessingBatch = false;
+                
+                if (!response.ok) {
+                    console.warn('ChatWidget: Analytics batch API responded with status:', response.status);
+                    return response.text().then(text => {
+                        console.warn('ChatWidget: Analytics batch API error response:', text);
+                        throw new Error(`HTTP ${response.status}: ${text}`);
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('ChatWidget: Analytics batch processed successfully:', data);
+                
+                // Process remaining events if any
+                if (analyticsQueue.length > 0) {
+                    setTimeout(() => processBatch(), 100);
+                }
+            })
+            .catch(error => {
+                isProcessingBatch = false;
+                console.warn('ChatWidget: Analytics batch processing failed:', error);
+                
+                // Retry logic for transient failures
+                if (retryCount < maxRetries && (
+                    error.message.includes('Failed to fetch') || 
+                    error.message.includes('500') ||
+                    error.message.includes('503') ||
+                    error.message.includes('CORS')
+                )) {
+                    console.log(`ChatWidget: Retrying batch processing in ${retryDelay}ms (attempt ${retryCount + 1}/${maxRetries})`);
+                    // Put events back in queue
+                    analyticsQueue.unshift(...eventsToSend);
+                    setTimeout(() => {
+                        processBatch(retryCount + 1);
+                    }, retryDelay);
+                } else {
+                    // Fallback to individual event tracking for critical events
+                    const criticalEvents = eventsToSend.filter(e => 
+                        e.event_type === 'widget_open' || 
+                        e.event_type === 'session_start' ||
+                        e.event_type === 'link_click'
+                    );
+                    
+                    if (criticalEvents.length > 0) {
+                        console.log('ChatWidget: Falling back to individual tracking for critical events');
+                        criticalEvents.forEach(event => trackEventIndividual(event));
+                    }
+                    
+                    // Process any remaining events
+                    if (analyticsQueue.length > 0) {
+                        setTimeout(() => processBatch(), 5000);
+                    }
+                }
             });
         } catch (error) {
-            console.warn('ChatWidget: Analytics tracking failed:', error);
+            isProcessingBatch = false;
+            console.warn('ChatWidget: Analytics batch setup failed:', error);
+            // Put events back in queue
+            analyticsQueue.unshift(...eventsToSend);
         }
     }
+    
+    // Fallback individual event tracking
+    function trackEventIndividual(event, retryCount = 0) {
+        const maxRetries = 1;
+        const retryDelay = 1000 * Math.pow(2, retryCount);
+        
+        fetch(`${apiUrl}/api/analytics`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(event)
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('ChatWidget: Individual event tracked successfully:', data);
+        })
+        .catch(error => {
+            if (retryCount < maxRetries) {
+                setTimeout(() => {
+                    trackEventIndividual(event, retryCount + 1);
+                }, retryDelay);
+            } else {
+                console.warn('ChatWidget: Individual event tracking failed permanently:', error);
+            }
+        });
+    }
+    
+    // Process any remaining events when page is about to unload
+    window.addEventListener('beforeunload', () => {
+        if (analyticsQueue.length > 0) {
+            // Use sendBeacon for more reliable delivery on page unload
+            if (navigator.sendBeacon) {
+                const eventsToSend = analyticsQueue.splice(0);
+                navigator.sendBeacon(
+                    `${apiUrl}/api/analytics/batch`,
+                    JSON.stringify({ events: eventsToSend })
+                );
+            }
+        }
+    });
 
     // Auto-popup functionality
     function setupAutoPopup() {
