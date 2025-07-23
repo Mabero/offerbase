@@ -1,0 +1,139 @@
+
+> nextjs-project@0.1.0 build
+> next build
+
+   ▲ Next.js 15.4.1
+   - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 4.0s
+   Linting and checking validity of types ...
+
+./app/(main)/api/admin/sync-users/route.ts
+6:28  Warning: '_request' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./app/(main)/api/analytics/route.ts
+7:13  Warning: 'userId' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+15:7  Warning: 'timestamp' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+16:7  Warning: 'url' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+262:10  Warning: 'generateEventId' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./app/(main)/api/webhooks/clerk/test/route.ts
+4:27  Warning: '_request' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./app/api/widget-settings/route.ts
+2:10  Warning: 'auth' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./components/ChatIntroPopup.js
+7:43  Warning: 'apiUrl' is defined but never used.  @typescript-eslint/no-unused-vars
+16:12  Warning: 'e' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./components/ChatWidgetCore.tsx
+362:9  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+409:11  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+464:3  Warning: 'isEmbedded' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+467:3  Warning: 'onWidgetOpen' is defined but never used.  @typescript-eslint/no-unused-vars
+846:30  Warning: 'messageContent' is defined but never used.  @typescript-eslint/no-unused-vars
+850:27  Warning: 'messageContent' is defined but never used.  @typescript-eslint/no-unused-vars
+854:29  Warning: 'messageContent' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./components/ConditionalHeader.tsx
+21:13  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+./components/Dashboard.tsx
+8:29  Warning: 'CardDescription' is defined but never used.  @typescript-eslint/no-unused-vars
+8:46  Warning: 'CardHeader' is defined but never used.  @typescript-eslint/no-unused-vars
+8:58  Warning: 'CardTitle' is defined but never used.  @typescript-eslint/no-unused-vars
+12:10  Warning: 'Tabs' is defined but never used.  @typescript-eslint/no-unused-vars
+12:16  Warning: 'TabsContent' is defined but never used.  @typescript-eslint/no-unused-vars
+12:29  Warning: 'TabsList' is defined but never used.  @typescript-eslint/no-unused-vars
+12:39  Warning: 'TabsTrigger' is defined but never used.  @typescript-eslint/no-unused-vars
+14:10  Warning: 'Switch' is defined but never used.  @typescript-eslint/no-unused-vars
+15:10  Warning: 'Select' is defined but never used.  @typescript-eslint/no-unused-vars
+15:18  Warning: 'SelectContent' is defined but never used.  @typescript-eslint/no-unused-vars
+15:33  Warning: 'SelectItem' is defined but never used.  @typescript-eslint/no-unused-vars
+15:45  Warning: 'SelectTrigger' is defined but never used.  @typescript-eslint/no-unused-vars
+15:60  Warning: 'SelectValue' is defined but never used.  @typescript-eslint/no-unused-vars
+16:10  Warning: 'Table' is defined but never used.  @typescript-eslint/no-unused-vars
+16:17  Warning: 'TableBody' is defined but never used.  @typescript-eslint/no-unused-vars
+16:28  Warning: 'TableCell' is defined but never used.  @typescript-eslint/no-unused-vars
+16:39  Warning: 'TableHead' is defined but never used.  @typescript-eslint/no-unused-vars
+16:50  Warning: 'TableHeader' is defined but never used.  @typescript-eslint/no-unused-vars
+16:63  Warning: 'TableRow' is defined but never used.  @typescript-eslint/no-unused-vars
+18:10  Warning: 'DropdownMenu' is defined but never used.  @typescript-eslint/no-unused-vars
+18:24  Warning: 'DropdownMenuContent' is defined but never used.  @typescript-eslint/no-unused-vars
+18:45  Warning: 'DropdownMenuItem' is defined but never used.  @typescript-eslint/no-unused-vars
+18:63  Warning: 'DropdownMenuTrigger' is defined but never used.  @typescript-eslint/no-unused-vars
+29:3  Warning: 'ChevronDown' is defined but never used.  @typescript-eslint/no-unused-vars
+30:3  Warning: 'Plus' is defined but never used.  @typescript-eslint/no-unused-vars
+34:3  Warning: 'EyeOff' is defined but never used.  @typescript-eslint/no-unused-vars
+39:10  Warning: 'supabase' is defined but never used.  @typescript-eslint/no-unused-vars
+45:7  Warning: 'drawerWidth' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+133:52  Warning: '_widgetSiteId' is defined but never used.  @typescript-eslint/no-unused-vars
+225:14  Warning: '_error' is defined but never used.  @typescript-eslint/no-unused-vars
+1040:6  Warning: React Hook useEffect has a missing dependency: 'loadSitesFromAPI'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+1050:6  Warning: React Hook useEffect has missing dependencies: 'loadAffiliateLinks' and 'loadTrainingMaterials'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/site-selection-dialog.tsx
+69:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+111:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+155:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+189:14  Warning: 'error' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./components/site-selector.tsx
+48:11  Warning: 'getToken' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules
+   Collecting page data ...
+   Generating static pages (0/22) ...
+   Generating static pages (5/22) 
+   Generating static pages (10/22) 
+   Generating static pages (16/22) 
+ ✓ Generating static pages (22/22)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                     Size  First Load JS
+┌ ○ /                                        51.1 kB         163 kB
+├ ○ /_not-found                                993 B         101 kB
+├ ƒ /api/admin/sync-users                      184 B        99.9 kB
+├ ƒ /api/affiliate-links                       184 B        99.9 kB
+├ ƒ /api/affiliate-links/[linkId]              184 B        99.9 kB
+├ ƒ /api/analytics                             184 B        99.9 kB
+├ ƒ /api/analytics/batch                       184 B        99.9 kB
+├ ƒ /api/chat                                  184 B        99.9 kB
+├ ƒ /api/chat-messages                         184 B        99.9 kB
+├ ƒ /api/chat-sessions                         184 B        99.9 kB
+├ ƒ /api/chat-sessions/[sessionId]             184 B        99.9 kB
+├ ƒ /api/chat-sessions/[sessionId]/messages    184 B        99.9 kB
+├ ƒ /api/chat-settings                         184 B        99.9 kB
+├ ƒ /api/scrape-content                        184 B        99.9 kB
+├ ƒ /api/sites                                 184 B        99.9 kB
+├ ƒ /api/sites/[siteId]                        184 B        99.9 kB
+├ ƒ /api/tasks                                 184 B        99.9 kB
+├ ƒ /api/training-materials                    184 B        99.9 kB
+├ ƒ /api/training-materials/[materialId]       184 B        99.9 kB
+├ ƒ /api/webhooks/clerk                        184 B        99.9 kB
+├ ƒ /api/webhooks/clerk/test                   184 B        99.9 kB
+├ ƒ /api/widget-settings                       184 B        99.9 kB
+├ ƒ /auth/login/[[...rest]]                    339 B         136 kB
+├ ƒ /auth/signup/[[...rest]]                   339 B         136 kB
+├ ƒ /dashboard                               58.6 kB         210 kB
+├ ƒ /tasks                                     756 B         100 kB
+└ ○ /widget                                  4.58 kB         111 kB
++ First Load JS shared by all                99.7 kB
+  ├ chunks/4bd1b696-602635ee57868870.js      54.1 kB
+  ├ chunks/5964-e98f132f9229d654.js          43.5 kB
+  └ other shared chunks (total)                 2 kB
+
+
+ƒ Middleware                                 78.1 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+npm notice
+npm notice New major version of npm available! 10.9.2 -> 11.4.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.4.2
+npm notice To update run: npm install -g npm@11.4.2
+npm notice
