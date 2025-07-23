@@ -17,6 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import ColorPicker from "@/components/ColorPicker";
 import { 
   ExternalLink, 
   FileText, 
@@ -1402,26 +1403,18 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         className="bg-white/80 border-gray-300 focus:border-gray-500"
                       />
                     </div>
-                    <div>
-                      <Label htmlFor="chat-color">Chat Color</Label>
-                      <input
-                        type="color"
-                        id="chat-color"
-                        value={chatSettings.chat_color}
-                        onChange={(e) => setChatSettings({ ...chatSettings, chat_color: e.target.value })}
-                        className="w-16 h-16 border border-gray-300 rounded-full cursor-pointer bg-white/80 hover:bg-gray-50 focus:border-gray-500"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="chat-bubble-icon-color">Chat Bubble Icon Color</Label>
-                      <input
-                        type="color"
-                        id="chat-bubble-icon-color"
-                        value={chatSettings.chat_bubble_icon_color}
-                        onChange={(e) => setChatSettings({ ...chatSettings, chat_bubble_icon_color: e.target.value })}
-                        className="w-16 h-16 border border-gray-300 rounded-full cursor-pointer bg-white/80 hover:bg-gray-50 focus:border-gray-500"
-                      />
-                    </div>
+                    <ColorPicker
+                      label="Chat Color"
+                      value={chatSettings.chat_color}
+                      onChange={(color) => setChatSettings({ ...chatSettings, chat_color: color })}
+                      id="chat-color"
+                    />
+                    <ColorPicker
+                      label="Chat Bubble Icon Color"
+                      value={chatSettings.chat_bubble_icon_color}
+                      onChange={(color) => setChatSettings({ ...chatSettings, chat_bubble_icon_color: color })}
+                      id="chat-bubble-icon-color"
+                    />
                     <div>
                       <Label htmlFor="chat-icon-url">Chat Icon URL</Label>
                       <Input
