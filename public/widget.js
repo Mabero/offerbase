@@ -269,7 +269,7 @@
             'de': ['der', 'die', 'das', 'und', 'mit', 'wie', 'beste', 'besten', 'anleitung', 'tipps'],
             'it': ['il', 'la', 'di', 'in', 'con', 'come', 'migliore', 'migliori', 'guida', 'consigli'],
             'pt': ['o', 'a', 'de', 'em', 'com', 'como', 'melhor', 'melhores', 'guia', 'dicas'],
-            'no': ['og', 'med', 'for', 'hvordan', 'beste', 'topp', 'anmeldelse', 'guide', 'tips']
+            'no': ['og', 'med', 'for', 'hvordan', 'beste', 'topp', 'anmeldelse', 'guide', 'tips', 'til', 'innen', 'din', 'alt', 'kilde', 'ledmaske', 'norsk', 'norge', 'alle', 'som', 'det', 'er', 'en', 'av', 'på', 'fra', 'ikke', 'har', 'kan', 'man', 'skal', 'bli', 'om', 'både', 'når', 'hvor']
         };
         
         const lowerText = text.toLowerCase();
@@ -294,44 +294,75 @@
     function extractTopic(title) {
         if (!title || title.trim() === '') return null;
         
-        // Clean up title first
-        let cleanTitle = title
-            .replace(/\s*[-|–—]\s*.+$/, '') // Remove site name after dash
-            .replace(/\s*\|\s*.+$/, '') // Remove site name after pipe
-            .trim();
+        console.log('ChatWidget DEBUG: Original title for extraction:', title);
         
-        // Common patterns to extract topics
-        const patterns = [
-            // "10 Best X" or "Top 5 X" patterns
-            /(?:top\s+)?\d+\s+(?:best|top|greatest|most)\s+(.+)/i,
-            // "Best X" or "Top X" patterns
-            /(?:best|top|greatest|most)\s+(.+?)(?:\s+(?:for|in|of|\d+).*)?$/i,
-            // "How to X" patterns
-            /how\s+to\s+(.+?)(?:\s+[-–—].*)?$/i,
-            // "X Review" or "X Guide" patterns
-            /(.+?)\s+(?:review|guide|tutorial|tips|tricks|comparison)s?(?:\s+[-–—].*)?$/i,
-            // "Complete X" or "Ultimate X" patterns
-            /(?:complete|ultimate|comprehensive)\s+(.+?)(?:\s+(?:guide|tutorial))?(?:\s+[-–—].*)?$/i,
-            // "X vs Y" patterns
-            /(.+?)\s+vs?\s+.+/i,
-            // "X for Y" patterns
-            /(.+?)\s+for\s+.+/i
+        // First try patterns on the full title (don't clean yet)
+        const fullTitlePatterns = [
+            // "X - Description about Y" patterns (like "Ledmaske - Din kilde til alt innen LED-masker")
+            /^[^-]+?\s*[-–—]\s*(?:din\s+kilde\s+til|your\s+source\s+for|everything\s+about|alt\s+innen|all\s+about)\s+(.+)/i,
+            // "Brand - Description" → extract the main topic from description
+            /^[^-]+?\s*[-–—]\s*(.+?)(?:\s+[-–—].*)?$/i
         ];
         
-        for (const pattern of patterns) {
-            const match = cleanTitle.match(pattern);
+        for (const pattern of fullTitlePatterns) {
+            const match = title.match(pattern);
+            console.log('ChatWidget DEBUG: Testing pattern', pattern, 'Result:', match);
             if (match && match[1]) {
                 let topic = match[1].trim()
-                    .replace(/\b(?:the|a|an|and|or|but|in|on|at|to|for|of|with|by)\b/gi, ' ') // Remove common words
+                    .replace(/\b(?:the|a|an|and|or|but|in|on|at|to|for|of|with|by|din|til|alt|innen|om|og|i)\b/gi, ' ') // Remove common words
                     .replace(/\s+/g, ' ') // Clean up multiple spaces
                     .trim();
                 
+                console.log('ChatWidget DEBUG: Extracted topic from full title:', topic);
                 if (topic.length > 3) { // Only return meaningful topics
                     return topic.toLowerCase();
                 }
             }
         }
         
+        // Clean up title for other patterns
+        let cleanTitle = title
+            .replace(/\s*[-|–—]\s*.+$/, '') // Remove site name after dash
+            .replace(/\s*\|\s*.+$/, '') // Remove site name after pipe
+            .trim();
+        
+        console.log('ChatWidget DEBUG: Cleaned title:', cleanTitle);
+        
+        // Common patterns to extract topics
+        const patterns = [
+            // "10 Best X" or "Top 5 X" patterns
+            /(?:top\s+)?\d+\s+(?:best|top|greatest|most|beste)\s+(.+)/i,
+            // "Best X" or "Top X" patterns
+            /(?:best|top|greatest|most|beste)\s+(.+?)(?:\s+(?:for|in|of|til|\d+).*)?$/i,
+            // "How to X" patterns
+            /(?:how\s+to|hvordan)\s+(.+?)(?:\s+[-–—].*)?$/i,
+            // "X Review" or "X Guide" patterns
+            /(.+?)\s+(?:review|guide|tutorial|tips|tricks|comparison|anmeldelse|guide|tips)s?(?:\s+[-–—].*)?$/i,
+            // "Complete X" or "Ultimate X" patterns
+            /(?:complete|ultimate|comprehensive)\s+(.+?)(?:\s+(?:guide|tutorial))?(?:\s+[-–—].*)?$/i,
+            // "X vs Y" patterns
+            /(.+?)\s+vs?\s+.+/i,
+            // "X for Y" patterns
+            /(.+?)\s+(?:for|til)\s+.+/i
+        ];
+        
+        for (const pattern of patterns) {
+            const match = cleanTitle.match(pattern);
+            console.log('ChatWidget DEBUG: Testing cleaned pattern', pattern, 'Result:', match);
+            if (match && match[1]) {
+                let topic = match[1].trim()
+                    .replace(/\b(?:the|a|an|and|or|but|in|on|at|to|for|of|with|by|din|til|alt|innen|om|og|i)\b/gi, ' ') // Remove common words
+                    .replace(/\s+/g, ' ') // Clean up multiple spaces
+                    .trim();
+                
+                console.log('ChatWidget DEBUG: Extracted topic from cleaned title:', topic);
+                if (topic.length > 3) { // Only return meaningful topics
+                    return topic.toLowerCase();
+                }
+            }
+        }
+        
+        console.log('ChatWidget DEBUG: No topic extracted');
         return null;
     }
 
