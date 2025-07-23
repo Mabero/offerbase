@@ -77,6 +77,7 @@
 
         // Get page title for contextual intro message
         const pageTitle = document.title || '';
+        console.log('ChatWidget DEBUG: Capturing page title:', pageTitle);
         
         // Create iframe
         const iframe = document.createElement('iframe');
@@ -336,12 +337,18 @@
 
     // Smart intro message generation
     function generateContextualIntroMessage(pageTitle) {
+        console.log('ChatWidget DEBUG: Generating intro for title:', pageTitle);
+        
         if (!pageTitle || pageTitle.trim() === '') {
+            console.log('ChatWidget DEBUG: No page title, using default');
             return 'Hello! How can I help you today?';
         }
         
         const language = detectLanguage(pageTitle);
         const topic = extractTopic(pageTitle);
+        
+        console.log('ChatWidget DEBUG: Detected language:', language);
+        console.log('ChatWidget DEBUG: Extracted topic:', topic);
         
         // Message templates by language
         const templates = {
@@ -432,9 +439,12 @@
         
         // Choose appropriate template array
         const messageArray = topic ? langTemplates.withTopic : langTemplates.withoutTopic;
+        const finalMessage = messageArray[Math.floor(Math.random() * messageArray.length)];
+        
+        console.log('ChatWidget DEBUG: Final message:', finalMessage);
         
         // Return random message from array
-        return messageArray[Math.floor(Math.random() * messageArray.length)];
+        return finalMessage;
     }
 
     // Analytics tracking
@@ -466,11 +476,17 @@
     function setupAutoPopup() {
         // Helper function to get the appropriate intro message
         function getIntroMessage() {
+            console.log('ChatWidget DEBUG: Getting intro message');
+            console.log('ChatWidget DEBUG: Current page title:', document.title);
+            console.log('ChatWidget DEBUG: Chat settings intro:', chatSettings.intro_message);
+            
             // Check if intro message is empty or is the default message
             if (!chatSettings.intro_message || chatSettings.intro_message === 'Hello! How can I help you today?') {
+                console.log('ChatWidget DEBUG: Using contextual message');
                 // Generate contextual intro message based on page title
                 return generateContextualIntroMessage(document.title);
             }
+            console.log('ChatWidget DEBUG: Using custom intro message');
             return chatSettings.intro_message;
         }
         

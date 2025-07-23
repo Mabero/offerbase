@@ -82,12 +82,18 @@ function extractTopic(title: string): string | null {
 
 // Smart intro message generation
 function generateContextualIntroMessage(pageTitle: string): string {
+  console.log('Widget DEBUG: Generating intro for title:', pageTitle);
+  
   if (!pageTitle || pageTitle.trim() === '') {
+    console.log('Widget DEBUG: No page title, using default');
     return 'Hello! How can I help you today?';
   }
   
   const language = detectLanguage(pageTitle);
   const topic = extractTopic(pageTitle);
+  
+  console.log('Widget DEBUG: Detected language:', language);
+  console.log('Widget DEBUG: Extracted topic:', topic);
   
   // Message templates by language
   const templates: Record<string, { withTopic: string[], withoutTopic: string[] }> = {
@@ -178,9 +184,12 @@ function generateContextualIntroMessage(pageTitle: string): string {
   
   // Choose appropriate template array
   const messageArray = topic ? langTemplates.withTopic : langTemplates.withoutTopic;
+  const finalMessage = messageArray[Math.floor(Math.random() * messageArray.length)];
+  
+  console.log('Widget DEBUG: Final message:', finalMessage);
   
   // Return random message from array
-  return messageArray[Math.floor(Math.random() * messageArray.length)];
+  return finalMessage;
 }
 
 function WidgetContent() {
@@ -256,10 +265,16 @@ function WidgetContent() {
   // Determine intro message - use custom if set and not default, otherwise generate contextual
   let introMessage = chatSettings.intro_message || '';
   
+  console.log('Widget DEBUG: Page title from URL:', pageTitle);
+  console.log('Widget DEBUG: Chat settings intro:', chatSettings.intro_message);
+  
   // Check if intro message is empty or is the default message
   if (!introMessage || introMessage === 'Hello! How can I help you today?') {
+    console.log('Widget DEBUG: Using contextual message generation');
     // Generate contextual intro message based on page title
     introMessage = generateContextualIntroMessage(pageTitle);
+  } else {
+    console.log('Widget DEBUG: Using custom intro message');
   }
 
   return (
