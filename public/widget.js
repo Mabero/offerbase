@@ -319,6 +319,7 @@
         console.log('ChatWidget: Processing analytics batch:', eventsToSend.length, 'events');
         
         try {
+            // Try batch endpoint first, fallback to individual if it doesn't exist
             fetch(`${apiUrl}/api/analytics/batch`, {
                 method: 'POST',
                 headers: {
@@ -366,16 +367,22 @@
                         processBatch(retryCount + 1);
                     }, retryDelay);
                 } else {
-                    // Fallback to individual event tracking for critical events
-                    const criticalEvents = eventsToSend.filter(e => 
-                        e.event_type === 'widget_open' || 
-                        e.event_type === 'session_start' ||
-                        e.event_type === 'link_click'
-                    );
-                    
-                    if (criticalEvents.length > 0) {
-                        console.log('ChatWidget: Falling back to individual tracking for critical events');
-                        criticalEvents.forEach(event => trackEventIndividual(event));
+                    // Check if batch endpoint doesn't exist (404) - fallback to individual
+                    if (error.message.includes('404')) {
+                        console.log('ChatWidget: Batch endpoint not available, falling back to individual tracking');
+                        eventsToSend.forEach(event => trackEventIndividual(event));
+                    } else {
+                        // Fallback to individual event tracking for critical events only
+                        const criticalEvents = eventsToSend.filter(e => 
+                            e.event_type === 'widget_open' || 
+                            e.event_type === 'session_start' ||
+                            e.event_type === 'link_click'
+                        );
+                        
+                        if (criticalEvents.length > 0) {
+                            console.log('ChatWidget: Falling back to individual tracking for critical events');
+                            criticalEvents.forEach(event => trackEventIndividual(event));
+                        }
                     }
                     
                     // Process any remaining events
