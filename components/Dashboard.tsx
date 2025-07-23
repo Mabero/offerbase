@@ -240,7 +240,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     // when selectedSite changes, so we don't need to manually reload here
   };
 
-  const loadAffiliateLinks = async (siteId: string) => {
+  const loadAffiliateLinks = useCallback(async (siteId: string) => {
     if (isSupabaseConfiguredState === false) return; // Skip if using demo mode
     
     try {
@@ -257,7 +257,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     } catch (error) {
       console.error('Error loading affiliate links:', error);
     }
-  };
+  }, [isSupabaseConfiguredState]);
 
   const loadTrainingMaterials = useCallback(async (siteId: string) => {
     if (isSupabaseConfiguredState === false) return; // Skip if using demo mode
@@ -846,36 +846,75 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     }
   };
 
-  const handleRefreshChatLogs = async () => {
-    if (!selectedSite) return;
-    
+  const loadChatSessions = async (siteId: string) => {
     setIsLoadingLogs(true);
     try {
-      const response = await fetch(`/api/chat-sessions?siteId=${selectedSite.id}`, {
-        credentials: 'include'
+      const response = await fetch(`/api/chat-sessions?siteId=${siteId}`, {
+        credentials: 'include',
       });
-
+      
       if (!response.ok) {
         throw new Error('Failed to fetch chat sessions');
       }
-
       const data = await response.json();
       setChatSessions(data.sessions || []);
-      
-      toast({
-        title: "Success",
-        description: "Chat logs refreshed"
-      });
     } catch (error) {
       console.error('Error fetching chat sessions:', error);
       toast({
         title: "Error",
-        description: "Failed to refresh chat logs",
+        description: "Failed to load chat logs",
         variant: "destructive"
       });
     } finally {
       setIsLoadingLogs(false);
     }
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    if (!confirm('Are you sure you want to delete this chat session? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/chat-sessions/${sessionId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete chat session');
+      }
+      
+      // Remove the session from local state
+      setChatSessions(prev => prev.filter(session => session.id !== sessionId));
+      
+      // Close the session details modal if it's the deleted session
+      if (selectedSession?.id === sessionId) {
+        setSelectedSession(null);
+        setSessionMessages([]);
+      }
+      
+      toast({
+        title: "Success",
+        description: "Chat session deleted successfully"
+      });
+    } catch (error) {
+      console.error('Error deleting chat session:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete chat session",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleRefreshChatLogs = async () => {
+    if (!selectedSite) return;
+    await loadChatSessions(selectedSite.id);
+    toast({
+      title: "Success",
+      description: "Chat logs refreshed"
+    });
   };
 
   const handleViewSession = async (session: ChatSession) => {
@@ -907,7 +946,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     }
   };
 
-  const loadAnalyticsData = async (siteId: string) => {
+  const loadAnalyticsData = useCallback(async (siteId: string) => {
     try {
       const response = await fetch(`/api/analytics?site_id=${siteId}`, {
         credentials: 'include'
@@ -928,9 +967,9 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       console.error('Error fetching analytics:', error);
       // Keep current stats on error
     }
-  };
+  }, []);
 
-  const loadChatSettings = async (siteId: string) => {
+  const loadChatSettings = useCallback(async (siteId: string) => {
     setIsLoadingChatSettings(true);
     try {
       const response = await fetch(`/api/chat-settings?siteId=${siteId}`, {
@@ -961,7 +1000,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     } finally {
       setIsLoadingChatSettings(false);
     }
-  };
+  }, []);
 
   // Check if Supabase is configured
   const isSupabaseConfigured = useCallback((): boolean => {
@@ -1046,8 +1085,19 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       loadTrainingMaterials(selectedSite.id);
       loadAnalyticsData(selectedSite.id);
       loadChatSettings(selectedSite.id);
+      // Chat sessions will be refreshed when Chat Logs tab is clicked
     }
-  }, [selectedSite, isSupabaseConfiguredState]);
+  }, [selectedSite, isSupabaseConfiguredState, loadAffiliateLinks, loadTrainingMaterials, loadAnalyticsData, loadChatSettings]);
+
+  // Handle tab selection with optional refresh for Chat Logs
+  const handleTabSelection = (tabIndex: number) => {
+    setSelectedTab(tabIndex);
+    
+    // If Chat Logs tab is selected, refresh the data
+    if (tabIndex === 6 && selectedSite && isSupabaseConfiguredState === true) {
+      loadChatSessions(selectedSite.id);
+    }
+  };
 
   // Loading state
   if (!isLoaded) {
@@ -1147,7 +1197,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                 <Button
                   key={item.label}
                   variant="ghost"
-                  onClick={() => setSelectedTab(index)}
+                  onClick={() => handleTabSelection(index)}
                   className={`w-full justify-start text-sm font-normal ${
                     selectedTab === index 
                       ? 'bg-gray-100 text-gray-900' 
@@ -1647,26 +1697,49 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         <Card key={session.id} className="cursor-pointer hover:bg-gray-50">
                           <CardContent className="p-4">
                             <div className="flex items-center justify-between">
-                              <div>
-                                <div className="font-medium">Session {session.id}</div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <div className="font-medium">Session {session.id}</div>
+                                  <Badge variant="secondary" className="text-xs">
+                                    {session.message_count || 0} messages
+                                  </Badge>
+                                  {session.is_active && (
+                                    <Badge variant="default" className="text-xs bg-green-100 text-green-800">
+                                      Active
+                                    </Badge>
+                                  )}
+                                </div>
                                 <div className="text-sm text-gray-600">
                                   {session.started_at ? new Date(session.started_at).toLocaleString() : 'No date available'}
                                 </div>
                               </div>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleViewSession(session)}
-                              >
-                                <Eye className="h-4 w-4" />
-                              </Button>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleViewSession(session)}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteSession(session.id);
+                                  }}
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </div>
                           </CardContent>
                         </Card>
                       ))}
                       {chatSessions.length === 0 && (
                         <div className="text-center py-8 text-gray-500">
-                          No chat sessions yet.
+                          {isLoadingLogs ? 'Loading chat sessions...' : 'No chat sessions yet.'}
                         </div>
                       )}
                     </div>
