@@ -30,7 +30,6 @@ function getSupabaseAdmin() {
 }
 
 export async function POST(request: NextRequest) {
-  console.log('🔔 Webhook received at:', new Date().toISOString())
   
   // Get the headers
   const headerPayload = await headers()
@@ -38,11 +37,6 @@ export async function POST(request: NextRequest) {
   const svix_timestamp = headerPayload.get('svix-timestamp')
   const svix_signature = headerPayload.get('svix-signature')
 
-  console.log('📋 Headers:', {
-    'svix-id': svix_id ? 'present' : 'missing',
-    'svix-timestamp': svix_timestamp ? 'present' : 'missing', 
-    'svix-signature': svix_signature ? 'present' : 'missing'
-  })
 
   // If there are no headers, error out
   if (!svix_id || !svix_timestamp || !svix_signature) {
@@ -55,7 +49,6 @@ export async function POST(request: NextRequest) {
 
   // Get the body
   const payload = await request.text()
-  console.log('📦 Payload length:', payload.length)
 
   // Check webhook secret
   if (!process.env.CLERK_WEBHOOK_SECRET) {
@@ -78,7 +71,6 @@ export async function POST(request: NextRequest) {
       'svix-timestamp': svix_timestamp,
       'svix-signature': svix_signature,
     }) as ClerkEvent
-    console.log('✅ Webhook signature verified')
   } catch (err) {
     console.error('❌ Error verifying webhook signature:', err)
     return NextResponse.json(
@@ -91,9 +83,6 @@ export async function POST(request: NextRequest) {
   const eventType = evt.type
   const user = evt.data
 
-  console.log('📌 Event type:', eventType)
-  console.log('👤 User ID:', user.id)
-  console.log('📧 User email:', user.email_addresses?.[0]?.email_address)
 
   try {
     switch (eventType) {
@@ -107,10 +96,8 @@ export async function POST(request: NextRequest) {
         await handleUserDeleted(user)
         break
       default:
-        console.log(`⚠️ Unhandled event type: ${eventType}`)
     }
 
-    console.log('✅ Webhook processed successfully')
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('❌ Error processing webhook:', error)
@@ -127,7 +114,6 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleUserCreated(user: ClerkUser) {
-  console.log('🆕 Creating user:', user.id)
   
   try {
     // Check environment variables
@@ -136,7 +122,6 @@ async function handleUserCreated(user: ClerkUser) {
     }
     
     const supabaseAdmin = getSupabaseAdmin()
-    console.log('🔗 Supabase client created')
     
     const userData = {
       id: user.id,
@@ -146,7 +131,6 @@ async function handleUserCreated(user: ClerkUser) {
       avatar_url: user.image_url || '',
     }
     
-    console.log('📝 Inserting user data:', userData)
     
     const { error } = await supabaseAdmin
       .from('users')
@@ -162,10 +146,8 @@ async function handleUserCreated(user: ClerkUser) {
       throw error
     }
     
-    console.log('✅ User inserted into Supabase')
 
     // Create a default site for the new user
-    console.log('🏗️ Creating default site for user')
     const { error: siteError } = await supabaseAdmin
       .from('sites')
       .insert({
@@ -180,11 +162,8 @@ async function handleUserCreated(user: ClerkUser) {
         details: siteError.details
       })
       // Don't throw here - user creation is more important than site creation
-    } else {
-      console.log('✅ Default site created')
     }
 
-    console.log('🎉 User created successfully:', user.id)
   } catch (error) {
     console.error('❌ Failed to create user:', error)
     throw error
@@ -192,7 +171,6 @@ async function handleUserCreated(user: ClerkUser) {
 }
 
 async function handleUserUpdated(user: ClerkUser) {
-  console.log('Updating user:', user.id)
   
   const supabaseAdmin = getSupabaseAdmin()
   
@@ -212,11 +190,9 @@ async function handleUserUpdated(user: ClerkUser) {
     throw error
   }
 
-  console.log('User updated successfully:', user.id)
 }
 
 async function handleUserDeleted(user: ClerkUser) {
-  console.log('Deleting user:', user.id)
   
   const supabaseAdmin = getSupabaseAdmin()
   
@@ -230,7 +206,6 @@ async function handleUserDeleted(user: ClerkUser) {
     throw error
   }
 
-  console.log('User deleted successfully:', user.id)
 }
 
 export async function GET() {

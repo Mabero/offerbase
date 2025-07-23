@@ -4,19 +4,13 @@ import { createSupabaseAdminClient } from '@/lib/supabase-server'
 
 export async function GET() {
   try {
-    console.log('🔍 GET /api/sites - Starting request')
     const { userId } = await auth()
-    console.log('🔍 GET /api/sites - userId:', userId)
     
     if (!userId) {
-      console.log('🔍 GET /api/sites - No userId, returning 401')
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    console.log('🔍 GET /api/sites - Creating Supabase admin client')
     const supabase = createSupabaseAdminClient()
-    
-    console.log('🔍 GET /api/sites - Querying sites for user:', userId)
     const { data: sites, error } = await supabase
       .from('sites')
       .select('id, name, created_at, updated_at')
@@ -28,7 +22,6 @@ export async function GET() {
       return NextResponse.json({ error: 'Failed to fetch sites' }, { status: 500 })
     }
 
-    console.log('✅ GET /api/sites - Found sites:', sites?.length || 0)
     return NextResponse.json({ sites })
   } catch (error) {
     console.error('❌ Error in GET /api/sites:', error)

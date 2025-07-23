@@ -30,24 +30,15 @@ export async function POST(request: NextRequest) {
     // Get headers
     const xUserId = request.headers.get('x-user-id');
     
-    console.log('Chat API called:', {
-      message,
-      siteId,
-      userId: userId || xUserId,
-      sessionId,
-      conversationHistory: conversationHistory.length
-    });
     
     // Initialize Supabase for session tracking
     const supabase = createSupabaseAdminClient();
     let chatSessionId = sessionId;
     
-    console.log('Chat API: Received sessionId:', sessionId, 'Type:', typeof sessionId);
     
     // Create or update chat session
     if (!chatSessionId) {
       // Create new session
-      console.log('Creating new chat session for siteId:', siteId);
       const { data: newSession, error: sessionError } = await supabase
         .from('chat_sessions')
         .insert([{
@@ -66,11 +57,9 @@ export async function POST(request: NextRequest) {
         // Continue without session tracking
       } else {
         chatSessionId = newSession.id;
-        console.log('Created new chat session:', chatSessionId);
       }
     } else {
       // Verify session exists and update activity, or create new one if it doesn't exist
-      console.log('Attempting to update existing session:', chatSessionId);
       const { data: existingSession, error: fetchError } = await supabase
         .from('chat_sessions')
         .select('id')
@@ -78,7 +67,6 @@ export async function POST(request: NextRequest) {
         .single();
       
       if (fetchError || !existingSession) {
-        console.log('Session not found, creating new session for sessionId:', chatSessionId);
         // Session doesn't exist, create a new one
         const { data: newSession, error: sessionError } = await supabase
           .from('chat_sessions')
@@ -97,11 +85,9 @@ export async function POST(request: NextRequest) {
           console.error('Failed to create new chat session:', sessionError);
         } else {
           chatSessionId = newSession.id;
-          console.log('Created replacement chat session:', chatSessionId);
         }
       } else {
         // Update existing session activity
-        console.log('Updating existing session activity:', chatSessionId);
         const { error: updateError } = await supabase
           .from('chat_sessions')
           .update({ 
@@ -112,7 +98,6 @@ export async function POST(request: NextRequest) {
         if (updateError) {
           console.warn('Failed to update chat session:', updateError);
         } else {
-          console.log('Successfully updated session activity');
         }
       }
     }
@@ -142,7 +127,6 @@ export async function POST(request: NextRequest) {
             content: responseMessage
           }]);
           
-        console.log('Chat messages logged for session:', chatSessionId);
       } catch (error) {
         console.warn('Failed to log chat messages:', error);
       }
@@ -196,7 +180,6 @@ async function generateChatResponse(message: string, conversationHistory: { role
   try {
     // Check if OpenAI API key is configured
     if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'your_openai_api_key_here') {
-      console.warn('OpenAI API key not configured, using fallback response');
       return getFallbackResponse(message);
     }
 
@@ -289,18 +272,10 @@ async function generateChatResponse(message: string, conversationHistory: { role
     const parseResult = parseAIResponse(rawResponse);
     
     if (!parseResult.success) {
-      console.warn('Failed to parse structured response, using fallback:', parseResult.error);
       return getFallbackResponseFromText(rawResponse, affiliateLinks || []);
     }
 
     const structuredResponse = parseResult.structured!;
-    console.log('Parsed structured response:', {
-      show_products: structuredResponse.show_products,
-      show_simple_link: structuredResponse.show_simple_link,
-      link_text: structuredResponse.link_text,
-      specific_products: structuredResponse.specific_products,
-      message_preview: structuredResponse.message.substring(0, 100) + '...'
-    });
     
     // If AI decided to show products, return with links
     if (structuredResponse.show_products && affiliateLinks && affiliateLinks.length > 0) {
@@ -361,7 +336,6 @@ async function generateChatResponse(message: string, conversationHistory: { role
 
     // If AI decided to show simple link, return with simple link
     if (structuredResponse.show_simple_link) {
-      console.log('Processing simple link - link_text:', structuredResponse.link_text);
       let linkUrl = structuredResponse.link_url;
       
       // If link_url is a placeholder or example URL, try to find actual product URL
@@ -417,12 +391,11 @@ async function generateChatResponse(message: string, conversationHistory: { role
 // Parse structured JSON response from AI
 function parseAIResponse(rawResponse: string): AIResponseParseResult {
   try {
-    console.log('Raw AI response:', rawResponse);
     const parsed = JSON.parse(rawResponse);
     
     // Validate required fields
     if (!parsed.message || (typeof parsed.show_products !== 'boolean' && typeof parsed.show_simple_link !== 'boolean')) {
-      console.error('Invalid response structure:', parsed);
+      console.error('Invalid AI response structure:', parsed);
       return {
         success: false,
         error: 'Invalid response structure: missing required fields',

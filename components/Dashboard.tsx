@@ -74,6 +74,7 @@ interface AffiliateLink {
   url: string;
   title: string;
   description: string;
+  image_url?: string;
   site_id: string;
   created_at: string;
 }
@@ -142,6 +143,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     url: '',
     title: '',
     description: '',
+    image_url: '',
   });
   const [chatSettings, setChatSettings] = useState<ChatSettings>({
     chat_name: 'Affi',
@@ -350,7 +352,8 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
             siteId: selectedSite.id,
             url: newLink.url,
             title: newLink.title,
-            description: newLink.description
+            description: newLink.description,
+            image_url: newLink.image_url
           }),
           credentials: 'include',
         });
@@ -364,7 +367,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         }
       }
       
-      setNewLink({ url: '', title: '', description: '' });
+      setNewLink({ url: '', title: '', description: '', image_url: '' });
       
       toast({
         title: "Success",
@@ -381,8 +384,71 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     }
   };
 
-  const handleEditLink = (_link: AffiliateLink) => {
-    // TODO: Implement edit functionality
+  const [editingLink, setEditingLink] = useState<AffiliateLink | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+
+  const handleEditLink = (link: AffiliateLink) => {
+    setEditingLink(link);
+    setIsEditDialogOpen(true);
+  };
+
+  const handleSaveEditLink = async () => {
+    if (!editingLink) return;
+    
+    setIsSaving(true);
+    try {
+      if (isSupabaseConfiguredState === false) {
+        // Demo mode - update in state
+        setAffiliateLinks(prev => 
+          prev.map(link => 
+            link.id === editingLink.id ? editingLink : link
+          )
+        );
+      } else {
+        // Real API call
+        const response = await fetch(`/api/affiliate-links/${editingLink.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            url: editingLink.url,
+            title: editingLink.title,
+            description: editingLink.description,
+            image_url: editingLink.image_url
+          }),
+          credentials: 'include',
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          setAffiliateLinks(prev => 
+            prev.map(link => 
+              link.id === editingLink.id ? data.link : link
+            )
+          );
+        } else {
+          throw new Error(data.error || 'Failed to update offer link');
+        }
+      }
+      
+      setIsEditDialogOpen(false);
+      setEditingLink(null);
+      
+      toast({
+        title: "Success",
+        description: "Offer link updated successfully"
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update offer link",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleDeleteLink = async (link: AffiliateLink) => {
@@ -478,7 +544,6 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
 
         if (response.ok) {
           setTrainingMaterials(prev => [...prev, responseData.material]);
-          console.log('Added new training material:', responseData.material);
         } else {
           throw new Error(responseData.error || 'Failed to add training material');
         }
@@ -562,16 +627,13 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       m.scrape_status === 'pending' || m.scrape_status === 'processing'
     );
 
-    console.log('Polling check:', { hasProcessingMaterials, materialsCount: trainingMaterials.length, selectedSite: selectedSite.id });
 
     if (hasProcessingMaterials) {
       // Start polling if not already running
       if (!pollingIntervalRef.current) {
-        console.log('Starting polling for training materials...');
         setIsPolling(true);
         
         pollingIntervalRef.current = setInterval(async () => {
-          console.log('Polling tick - checking for updates...');
           try {
             // Call loadTrainingMaterials directly without depending on the function reference
             if (isSupabaseConfiguredState === false) return;
@@ -590,7 +652,6 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
               newMaterials.forEach((newMaterial: TrainingMaterial) => {
                 const previousMaterial = previousMaterials.find(m => m.id === newMaterial.id);
                 if (previousMaterial && previousMaterial.scrape_status !== newMaterial.scrape_status) {
-                  console.log('Status changed for material:', newMaterial.id, previousMaterial.scrape_status, '->', newMaterial.scrape_status);
                   
                   if (newMaterial.scrape_status === 'success') {
                     toast({
@@ -622,7 +683,6 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     } else {
       // Stop polling if no materials are being processed
       if (pollingIntervalRef.current) {
-        console.log('Stopping polling - no more processing materials');
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
         setIsPolling(false);
@@ -686,7 +746,6 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       });
 
       if (response.ok) {
-        console.log('Retry scraping triggered for material:', material.id);
         
         toast({
           title: "Processing",
@@ -938,6 +997,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
             url: 'https://example.com/product1',
             title: 'Sample Product 1',
             description: 'This is a sample affiliate link for testing',
+            image_url: 'https://via.placeholder.com/80x80?text=Demo',
             site_id: 'demo-site',
             created_at: new Date().toISOString()
           }
@@ -1076,7 +1136,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
               />
             </div>
             
-            <div className="text-xs font-medium text-gray-500 uppercase tracking-wider ml-1 mb-2">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wider ml-1 !mb-1 !mt-5">
               Menu
             </div>
             
@@ -1088,13 +1148,13 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                   key={item.label}
                   variant="ghost"
                   onClick={() => setSelectedTab(index)}
-                  className={`w-full justify-start text-sm font-medium ${
+                  className={`w-full justify-start text-sm font-normal ${
                     selectedTab === index 
                       ? 'bg-gray-100 text-gray-900' 
                       : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                   }`}
                 >
-                  <Icon className="h-4 w-4 mr-2" />
+                  <Icon className="h-4 w-4 mr-1" />
                   {item.label}
                 </Button>
               );
@@ -1163,6 +1223,19 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         onChange={(e) => setNewLink({ ...newLink, description: e.target.value })}
                         className="bg-white/80 border-gray-300 focus:border-gray-500"
                       />
+                    </div>
+                    <div>
+                      <Label htmlFor="image_url">Image URL (optional)</Label>
+                      <Input
+                        id="image_url"
+                        value={newLink.image_url}
+                        onChange={(e) => setNewLink({ ...newLink, image_url: e.target.value })}
+                        placeholder="https://example.com/image.jpg"
+                        className="bg-white/80 border-gray-300 focus:border-gray-500"
+                      />
+                      <p className="text-sm text-gray-600 mt-1">
+                        Add an image URL to display a product image in the chat. Leave empty if no image is needed.
+                      </p>
                     </div>
                     <Button
                       onClick={() => handleAddLink()}
@@ -1705,6 +1778,89 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         onClose={handleCloseEditor}
         onSave={handleMaterialSaved}
       />
+      
+      {/* Edit Link Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Edit Offer Link</DialogTitle>
+            <DialogDescription>
+              Update the details for this offer link.
+            </DialogDescription>
+          </DialogHeader>
+          {editingLink && (
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="edit-url">URL</Label>
+                <Input
+                  id="edit-url"
+                  value={editingLink.url}
+                  onChange={(e) => setEditingLink({ ...editingLink, url: e.target.value })}
+                  className="bg-white/80 border-gray-300 focus:border-gray-500"
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit-title">Title</Label>
+                <Input
+                  id="edit-title"
+                  value={editingLink.title}
+                  onChange={(e) => setEditingLink({ ...editingLink, title: e.target.value })}
+                  className="bg-white/80 border-gray-300 focus:border-gray-500"
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit-description">Description</Label>
+                <Textarea
+                  id="edit-description"
+                  value={editingLink.description}
+                  onChange={(e) => setEditingLink({ ...editingLink, description: e.target.value })}
+                  className="bg-white/80 border-gray-300 focus:border-gray-500"
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit-image-url">Image URL (optional)</Label>
+                <Input
+                  id="edit-image-url"
+                  value={editingLink.image_url || ''}
+                  onChange={(e) => setEditingLink({ ...editingLink, image_url: e.target.value })}
+                  placeholder="https://example.com/image.jpg"
+                  className="bg-white/80 border-gray-300 focus:border-gray-500"
+                />
+                <p className="text-sm text-gray-600 mt-1">
+                  Add an image URL to display a product image in the chat. Leave empty if no image is needed.
+                </p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setIsEditDialogOpen(false);
+                setEditingLink(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSaveEditLink}
+              disabled={isSaving}
+              className="bg-gray-900 hover:bg-gray-800 text-white"
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save Changes'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

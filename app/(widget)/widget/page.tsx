@@ -33,7 +33,6 @@ function WidgetContent() {
         if (response.ok) {
           const settings = await response.json();
           setChatSettings(settings);
-          console.log('Widget: Loaded settings from API', settings);
         } else {
           console.warn('Widget: Failed to load settings, using defaults');
         }

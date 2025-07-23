@@ -105,7 +105,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Trigger content scraping asynchronously
-    console.log('Triggering scrape for material:', material.id, 'URL:', url.trim());
     scrapeContentForMaterial(material.id, url.trim()).catch(error => {
       console.error('Error triggering scrape:', error)
     })
@@ -119,12 +118,10 @@ export async function POST(request: NextRequest) {
 
 // Function to scrape content for a training material
 async function scrapeContentForMaterial(materialId: string, url: string) {
-  console.log('scrapeContentForMaterial called:', { materialId, url });
   const supabase = createSupabaseAdminClient()
   
   try {
     // Update status to processing
-    console.log('Updating material status to processing:', materialId);
     const { error: updateError } = await supabase
       .from('training_materials')
       .update({ scrape_status: 'processing' })
@@ -132,17 +129,12 @@ async function scrapeContentForMaterial(materialId: string, url: string) {
     
     if (updateError) {
       console.error('Error updating status to processing:', updateError);
-    } else {
-      console.log('Successfully updated status to processing');
     }
     
     // Use the shared scraping function directly
-    console.log('Starting scraping for URL:', url);
     const scrapeResult = await scrapeUrl(url);
-    console.log('Scrape result:', { success: scrapeResult.success, contentLength: scrapeResult.content?.length, error: scrapeResult.error });
     
     if (scrapeResult.success) {
-      console.log('Scraping successful, updating database with content...');
       // Update training material with scraped content
       const { error: successUpdateError } = await supabase
         .from('training_materials')
@@ -158,11 +150,8 @@ async function scrapeContentForMaterial(materialId: string, url: string) {
       
       if (successUpdateError) {
         console.error('Error updating material with success:', successUpdateError);
-      } else {
-        console.log('Successfully updated material with scraped content');
       }
     } else {
-      console.log('Scraping failed, updating database with error...');
       // Update with error
       const { error: failUpdateError } = await supabase
         .from('training_materials')
@@ -174,8 +163,6 @@ async function scrapeContentForMaterial(materialId: string, url: string) {
       
       if (failUpdateError) {
         console.error('Error updating material with failure:', failUpdateError);
-      } else {
-        console.log('Successfully updated material with error status');
       }
     }
   } catch (error) {

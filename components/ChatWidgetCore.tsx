@@ -700,13 +700,11 @@ export function ChatWidgetCore({
       
       const existingSessionId = localStorage.getItem(newStorageKey);
       if (existingSessionId) {
-        console.log('ChatWidget: Using existing sessionId (UUID):', existingSessionId);
         return existingSessionId;
       }
     }
     
     // No existing session - will be created by backend on first message
-    console.log('ChatWidget: No existing session, backend will create one');
     return null;
   });
 
@@ -729,7 +727,6 @@ export function ChatWidgetCore({
       }
 
       setIsLoadingHistory(true);
-      console.log('ChatWidget: Attempting to restore history for sessionId:', sessionId);
 
       try {
         const response = await fetch(`${apiUrl}/api/chat-sessions/${sessionId}/messages`, {
@@ -742,7 +739,6 @@ export function ChatWidgetCore({
 
         if (!response.ok) {
           if (response.status === 404) {
-            console.log('ChatWidget: Session not found, starting fresh conversation');
             // Clear invalid sessionId from localStorage
             const storageKey = `chat_session_uuid_${siteId}`;
             if (typeof window !== 'undefined') {
@@ -750,7 +746,6 @@ export function ChatWidgetCore({
             }
             setSessionId(null);
           } else {
-            console.warn('ChatWidget: Failed to fetch chat history:', response.status);
           }
           return;
         }
@@ -759,7 +754,6 @@ export function ChatWidgetCore({
         const chatMessages = data.messages || [];
 
         if (chatMessages.length > 0) {
-          console.log('ChatWidget: Restored', chatMessages.length, 'messages from history');
           
           // Convert database messages to UI message format
           const restoredMessages: Message[] = chatMessages.map((dbMessage: { role: string; content: string; created_at: string; id: string }) => {
@@ -805,11 +799,9 @@ export function ChatWidgetCore({
           setTimeout(() => {
             scrollToBottom();
           }, 100); // Small delay to ensure DOM has updated
-        } else {
-          console.log('ChatWidget: No previous messages found, starting fresh conversation');
         }
       } catch (error) {
-        console.error('ChatWidget: Error restoring chat history:', error);
+        console.error('Error restoring chat history:', error);
         // Continue with fresh conversation on error
       } finally {
         setIsLoadingHistory(false);
@@ -852,28 +844,24 @@ export function ChatWidgetCore({
 
   // Handle message actions
   const handleCopyMessage = (messageContent: string) => {
-    console.log('Message copied:', messageContent);
+    // Message copied - no action needed
   };
 
   const handleThumbsUp = (messageContent: string) => {
-    console.log('Thumbs up for:', messageContent);
     // TODO: Send feedback to backend
   };
 
   const handleThumbsDown = (messageContent: string) => {
-    console.log('Thumbs down for:', messageContent);
     // TODO: Send feedback to backend
   };
 
   const handleRetryMessage = async (messageContent: string) => {
-    console.log('Retry message:', messageContent);
     
     if (isLoading) return; // Prevent multiple simultaneous retries
     
     // Get the last user message and resend it
     const lastUserMessage = messages.filter(msg => msg.type === 'user').pop();
     if (!lastUserMessage) {
-      console.warn('No user message found to retry');
       return;
     }
     
@@ -1037,7 +1025,6 @@ export function ChatWidgetCore({
         const storageKey = `chat_session_uuid_${siteId}`;
         if (typeof window !== 'undefined') {
           localStorage.setItem(storageKey, data.sessionId);
-          console.log('ChatWidget: Updated sessionId from server:', data.sessionId);
         }
         // Update state to use this sessionId for subsequent messages
         setSessionId(data.sessionId);
@@ -1256,22 +1243,19 @@ export function ChatWidgetCore({
       {/* Messages Area */}
       <div style={styles.messagesContainer}>
         {isLoadingHistory && (
-          <div style={styles.messageRow}>
-            <Avatar
-              src={chatSettings?.chat_icon_url}
-              name={chatSettings?.chat_name}
-              style={styles.avatarSpacing}
-            />
-            <div
-              style={{
-                ...styles.messageBubbleBot,
-                fontSize: chatSettings?.font_size || '14px'
-              }}
-            >
-              <p style={styles.messageText}>
-                Restoring conversation...
-              </p>
-            </div>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'center',
+            padding: '20px'
+          }}>
+            <div style={{
+              width: '24px',
+              height: '24px',
+              border: '2px solid #e5e7eb',
+              borderTopColor: chatSettings?.chat_color || '#000000',
+              borderRadius: '50%',
+              animation: 'spin 0.6s linear infinite'
+            }} />
           </div>
         )}
         
@@ -1362,6 +1346,15 @@ export function ChatWidgetCore({
           }
           51%, 100% {
             opacity: 0;
+          }
+        }
+        
+        @keyframes spin {
+          0% {
+            transform: rotate(0deg);
+          }
+          100% {
+            transform: rotate(360deg);
           }
         }
       `}</style>

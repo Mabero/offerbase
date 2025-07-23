@@ -30,6 +30,7 @@ CREATE TABLE affiliate_links (
   url TEXT NOT NULL,
   title TEXT NOT NULL,
   description TEXT,
+  image_url TEXT,
   site_id UUID NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

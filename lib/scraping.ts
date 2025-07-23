@@ -145,7 +145,6 @@ export async function scrapeUrl(url: string, options?: { userAgent?: string; tim
       };
     }
     
-    console.log('Scraping URL:', url);
     
     // Fetch the HTML content
     const response = await fetch(url, {

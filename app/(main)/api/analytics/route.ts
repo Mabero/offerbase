@@ -35,14 +35,6 @@ export async function POST(request: NextRequest) {
     // Store the event in the database
     const supabase = createSupabaseAdminClient();
     
-    console.log('Analytics API: Inserting event', {
-      site_id,
-      event_type,
-      user_session_id: user_id || getSessionId(request),
-      user_agent,
-      ip_address: getClientIP(request),
-      event_data: details
-    });
     
     const { data: event, error } = await supabase
       .from('analytics_events')

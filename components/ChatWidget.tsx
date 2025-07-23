@@ -45,7 +45,6 @@ function ChatWidget({
   apiUrl = '', 
   isEmbedded = false 
 }: ChatWidgetProps) {
-  console.log('ChatWidget received apiUrl:', apiUrl); // Debug log
   
   const [isOpen, setIsOpen] = useState(isEmbedded); // Auto-open if embedded
   const [internalIntroMessage, setInternalIntroMessage] = useState(initialIntroMessage || '');

@@ -8,7 +8,6 @@ export async function POST(request: NextRequest) {
     // Require authentication for all scrape API calls
     const { userId } = await auth();
     if (!userId) {
-      console.log('Scrape API: No userId found, returning 401');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     

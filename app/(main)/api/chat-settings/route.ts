@@ -83,7 +83,6 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Site ID is required' }, { status: 400 })
     }
 
-    console.log('PUT chat-settings request:', { siteId, userId, settings })
 
     const supabase = createSupabaseAdminClient()
     
@@ -158,7 +157,6 @@ export async function PUT(request: NextRequest) {
       result = newSettings
     }
 
-    console.log('Chat settings operation successful:', result)
     return NextResponse.json({ settings: result })
     
   } catch (error) {

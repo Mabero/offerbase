@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
     // Get affiliate links for this site
     const { data: links, error } = await supabase
       .from('affiliate_links')
-      .select('id, url, title, description, created_at, updated_at')
+      .select('id, url, title, description, image_url, created_at, updated_at')
       .eq('site_id', siteId)
       .order('created_at', { ascending: false })
 
@@ -56,7 +56,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { siteId, url, title, description } = await request.json()
+    const body = await request.json()
+    
+    const { siteId, url, title, description, image_url } = body
 
     if (!siteId || !url || !title) {
       return NextResponse.json({ error: 'Site ID, URL, and title are required' }, { status: 400 })
@@ -83,9 +85,10 @@ export async function POST(request: NextRequest) {
         site_id: siteId,
         url: url.trim(),
         title: title.trim(),
-        description: description?.trim() || ''
+        description: description?.trim() || '',
+        image_url: image_url?.trim() || null
       }])
-      .select('id, url, title, description, created_at, updated_at')
+      .select('id, url, title, description, image_url, created_at, updated_at')
       .single()
 
     if (error) {

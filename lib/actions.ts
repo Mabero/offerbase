@@ -14,7 +14,6 @@ export async function addTask(name: string) {
 
     const task = await createTask(name, userId)
     
-    console.log('Task successfully added!', task)
     
     // Revalidate the tasks page to show the new task
     revalidatePath('/tasks')

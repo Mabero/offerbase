@@ -29,19 +29,16 @@
         intro_message: 'Hello! How can I help you today?'
     };
 
-    console.log('ChatWidget: Initializing with siteId:', siteId, 'apiUrl:', apiUrl);
 
     // Fetch settings dynamically
     async function loadChatSettings() {
         try {
-            console.log('ChatWidget: Attempting to load settings from:', `${apiUrl}/api/widget-settings?siteId=${encodeURIComponent(siteId)}`);
             const response = await fetch(`${apiUrl}/api/widget-settings?siteId=${encodeURIComponent(siteId)}`);
             
             if (response.ok) {
                 const settings = await response.json();
                 // Merge with defaults to ensure all required fields exist
                 chatSettings = { ...chatSettings, ...settings };
-                console.log('ChatWidget: Successfully loaded settings from API', chatSettings);
                 return true; // Indicate success
             } else {
                 console.warn('ChatWidget: API responded with error status:', response.status, response.statusText);
@@ -157,8 +154,6 @@
         // Load settings first (returns true/false indicating success)
         const settingsLoaded = await loadChatSettings();
         
-        console.log('ChatWidget: Settings loaded:', settingsLoaded ? 'from API' : 'using defaults');
-        console.log('ChatWidget: Final settings:', chatSettings);
 
         // Update config with loaded settings (either from API or defaults)
         config.settings = chatSettings;
@@ -212,7 +207,7 @@
         // Listen for messages from iframe
         window.addEventListener('message', (event) => {
             if (event.data.type === 'WIDGET_READY') {
-                console.log('ChatWidget: Widget ready');
+                // Widget ready - no action needed
             }
         });
 
@@ -261,7 +256,6 @@
         window.addEventListener('resize', updateResponsiveStyles);
         updateResponsiveStyles();
 
-        console.log('ChatWidget: Initialized successfully');
     }
 
 
@@ -283,7 +277,6 @@
             user_agent: navigator.userAgent
         };
         
-        console.log('ChatWidget: Queuing event:', eventType, details);
         analyticsQueue.push(event);
         
         // Process immediately if critical event or queue is full
@@ -316,7 +309,6 @@
         
         // Take events from queue
         const eventsToSend = analyticsQueue.splice(0, BATCH_SIZE);
-        console.log('ChatWidget: Processing analytics batch:', eventsToSend.length, 'events');
         
         try {
             // Try batch endpoint first, fallback to individual if it doesn't exist
@@ -342,7 +334,6 @@
                 return response.json();
             })
             .then(data => {
-                console.log('ChatWidget: Analytics batch processed successfully:', data);
                 
                 // Process remaining events if any
                 if (analyticsQueue.length > 0) {
@@ -360,7 +351,6 @@
                     error.message.includes('503') ||
                     error.message.includes('CORS')
                 )) {
-                    console.log(`ChatWidget: Retrying batch processing in ${retryDelay}ms (attempt ${retryCount + 1}/${maxRetries})`);
                     // Put events back in queue
                     analyticsQueue.unshift(...eventsToSend);
                     setTimeout(() => {
@@ -369,7 +359,6 @@
                 } else {
                     // Check if batch endpoint doesn't exist (404) - fallback to individual
                     if (error.message.includes('404')) {
-                        console.log('ChatWidget: Batch endpoint not available, falling back to individual tracking');
                         eventsToSend.forEach(event => trackEventIndividual(event));
                     } else {
                         // Fallback to individual event tracking for critical events only
@@ -380,7 +369,6 @@
                         );
                         
                         if (criticalEvents.length > 0) {
-                            console.log('ChatWidget: Falling back to individual tracking for critical events');
                             criticalEvents.forEach(event => trackEventIndividual(event));
                         }
                     }
@@ -418,7 +406,6 @@
             return response.json();
         })
         .then(data => {
-            console.log('ChatWidget: Individual event tracked successfully:', data);
         })
         .catch(error => {
             if (retryCount < maxRetries) {
@@ -450,21 +437,16 @@
         // Helper function to get the appropriate intro message
         function getIntroMessage() {
             const introMsg = chatSettings.intro_message || 'Hello! How can I help you today?';
-            console.log('ChatWidget: Using intro message:', introMsg);
             return introMsg;
         }
         
         // Show intro popup after 3 seconds if not already shown recently
         setTimeout(() => {
-            console.log('ChatWidget: Checking if popup should be shown');
             const lastShown = localStorage.getItem('chat-widget-intro-shown-' + siteId);
             const now = Date.now();
             
-            console.log('ChatWidget: Last shown:', lastShown, 'Current time:', now);
-            
             // Show popup if never shown or if more than 1 hour has passed (for testing)
             if (!lastShown || (now - parseInt(lastShown)) > 3600000) {
-                console.log('ChatWidget: Creating intro popup');
                 // Create intro popup
                 const popup = document.createElement('div');
                 popup.style.cssText = `
@@ -506,7 +488,6 @@
                     <div style="margin-bottom: 12px; cursor: pointer;">${introMessage}</div>
                 `;
 
-                console.log('ChatWidget: Popup created with chat name:', chatName, 'and intro message:', introMessage);
 
                 // Make the entire popup clickable to open chat
                 popup.style.cursor = 'pointer';
@@ -514,31 +495,25 @@
                     // Prevent close button from triggering chat open
                     if (e.target.tagName === 'BUTTON') return;
 
-                    console.log('ChatWidget: Popup clicked, opening chat');
                     // Open chat and remove popup
                     document.getElementById('chat-widget-button-' + siteId).click();
                     popup.remove();
                 });
 
                 document.body.appendChild(popup);
-                console.log('ChatWidget: Popup added to page');
 
                 // Auto-dismiss after 10 seconds
                 setTimeout(() => {
                     if (popup.parentElement) {
-                        console.log('ChatWidget: Auto-dismissing popup after 10 seconds');
                         popup.remove();
                     }
                 }, 10000);
 
                 // Mark as shown with timestamp
                 localStorage.setItem('chat-widget-intro-shown-' + siteId, now.toString());
-                console.log('ChatWidget: Marked popup as shown in localStorage');
 
                 // Track popup shown
                 trackEvent('intro_popup_shown');
-            } else {
-                console.log('ChatWidget: Popup not shown - was shown recently or within cooldown period');
             }
         }, 3000);
     }
@@ -574,7 +549,6 @@
         },
         resetPopup: () => {
             localStorage.removeItem('chat-widget-intro-shown-' + siteId);
-            console.log('ChatWidget: Popup reset. Refresh the page to see it again.');
         }
     };
 
