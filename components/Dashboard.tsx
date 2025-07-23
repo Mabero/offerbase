@@ -1176,7 +1176,6 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         </>
                       ) : (
                         <>
-                          <Plus className="mr-2 h-4 w-4" />
                           Add Link
                         </>
                       )}
@@ -1197,7 +1196,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                                   href={link.url}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="text-sm text-blue-600 hover:text-blue-800 mt-2 inline-flex items-center"
+                                  className="text-sm hover:text-blue-800 mt-2 inline-flex items-center"
                                 >
                                   <ExternalLink className="h-3 w-3 mr-1" />
                                   View Link
@@ -1263,7 +1262,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         </>
                       ) : (
                         <>
-                          <Plus className="mr-2 h-4 w-4" />
+                          
                           Add Training Material
                         </>
                       )}

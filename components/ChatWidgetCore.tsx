@@ -76,7 +76,7 @@ const SendIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?
   </svg>
 );
 
-const CopyIcon = ({ size = 14, color = 'currentColor' }: { size?: number; color?: string }) => (
+const CopyIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
   <svg
     width={size}
     height={size}
@@ -92,7 +92,7 @@ const CopyIcon = ({ size = 14, color = 'currentColor' }: { size?: number; color?
   </svg>
 );
 
-const ThumbsUpIcon = ({ size = 14, color = 'currentColor' }: { size?: number; color?: string }) => (
+const ThumbsUpIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
   <svg
     width={size}
     height={size}
@@ -103,11 +103,11 @@ const ThumbsUpIcon = ({ size = 14, color = 'currentColor' }: { size?: number; co
     strokeLinecap="round"
     strokeLinejoin="round"
   >
-    <path d="M7 10v12l5-5 5 5V10a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2z"/>
+    <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
   </svg>
 );
 
-const ThumbsDownIcon = ({ size = 14, color = 'currentColor' }: { size?: number; color?: string }) => (
+const ThumbsDownIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
   <svg
     width={size}
     height={size}
@@ -118,11 +118,11 @@ const ThumbsDownIcon = ({ size = 14, color = 'currentColor' }: { size?: number; 
     strokeLinecap="round"
     strokeLinejoin="round"
   >
-    <path d="M17 14V2l-5 5-5-5v12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2z"/>
+    <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/>
   </svg>
 );
 
-const RetryIcon = ({ size = 14, color = 'currentColor' }: { size?: number; color?: string }) => (
+const RetryIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
   <svg
     width={size}
     height={size}
@@ -204,7 +204,7 @@ const MessageActions = ({
         onMouseLeave={(e) => Object.assign(e.currentTarget.style, { backgroundColor: 'transparent', color: '#6b7280' })}
         title={copied ? 'Copied!' : 'Copy message'}
       >
-        <CopyIcon size={14} color={copied ? '#10b981' : 'currentColor'} />
+        <CopyIcon size={16} color={copied ? '#10b981' : 'currentColor'} />
       </button>
       
       <button
@@ -214,7 +214,7 @@ const MessageActions = ({
         onMouseLeave={(e) => Object.assign(e.currentTarget.style, { backgroundColor: 'transparent', color: '#6b7280' })}
         title="Good response"
       >
-        <ThumbsUpIcon size={14} />
+        <ThumbsUpIcon size={16} />
       </button>
       
       <button
@@ -224,7 +224,7 @@ const MessageActions = ({
         onMouseLeave={(e) => Object.assign(e.currentTarget.style, { backgroundColor: 'transparent', color: '#6b7280' })}
         title="Poor response"
       >
-        <ThumbsDownIcon size={14} />
+        <ThumbsDownIcon size={16} />
       </button>
       
       <button
@@ -234,7 +234,7 @@ const MessageActions = ({
         onMouseLeave={(e) => Object.assign(e.currentTarget.style, { backgroundColor: 'transparent', color: '#6b7280' })}
         title="Retry message"
       >
-        <RetryIcon size={14} />
+        <RetryIcon size={16} />
       </button>
     </div>
   );
@@ -721,7 +721,6 @@ export function ChatWidgetCore({
 
   // Track if history has been loaded to prevent re-loading
   const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [hoveredMessageIndex, setHoveredMessageIndex] = useState<number | null>(null);
 
   // Restore chat history when sessionId exists
   useEffect(() => {
@@ -1040,7 +1039,7 @@ export function ChatWidgetCore({
     }
   };
 
-  const renderMessage = (message: Message, messageIndex: number) => {
+  const renderMessage = (message: Message) => {
     if (message.type === 'user') {
       return (
         <div style={styles.messageRowUser}>
@@ -1061,13 +1060,8 @@ export function ChatWidgetCore({
     // Bot message
     const botContent = message.content;
     if (botContent.type === 'links') {
-      const isHovered = hoveredMessageIndex === messageIndex;
-      
       return (
-        <div 
-          onMouseEnter={() => setHoveredMessageIndex(messageIndex)}
-          onMouseLeave={() => setHoveredMessageIndex(null)}
-        >
+        <div>
           <div style={styles.messageRow}>
             <Avatar
               src={chatSettings?.chat_icon_url}
@@ -1106,7 +1100,7 @@ export function ChatWidgetCore({
             onThumbsUp={() => handleThumbsUp(botContent.message)}
             onThumbsDown={() => handleThumbsDown(botContent.message)}
             onRetry={() => handleRetryMessage(botContent.message)}
-            isVisible={isHovered}
+            isVisible={true}
           />
         </div>
       );
@@ -1114,13 +1108,8 @@ export function ChatWidgetCore({
 
     // Simple link message
     if (botContent.type === 'simple_link') {
-      const isHovered = hoveredMessageIndex === messageIndex;
-      
       return (
-        <div
-          onMouseEnter={() => setHoveredMessageIndex(messageIndex)}
-          onMouseLeave={() => setHoveredMessageIndex(null)}
-        >
+        <div>
           <div style={styles.messageRow}>
             <Avatar
               src={chatSettings?.chat_icon_url}
@@ -1172,7 +1161,7 @@ export function ChatWidgetCore({
             onThumbsUp={() => handleThumbsUp(botContent.message)}
             onThumbsDown={() => handleThumbsDown(botContent.message)}
             onRetry={() => handleRetryMessage(botContent.message)}
-            isVisible={isHovered}
+            isVisible={true}
           />
         </div>
       );
@@ -1180,13 +1169,9 @@ export function ChatWidgetCore({
 
     // Regular message
     const messageContent = botContent?.message || 'Sorry, I could not understand the response.';
-    const isHovered = hoveredMessageIndex === messageIndex;
     
     return (
-      <div
-        onMouseEnter={() => setHoveredMessageIndex(messageIndex)}
-        onMouseLeave={() => setHoveredMessageIndex(null)}
-      >
+      <div>
         <div style={styles.messageRow}>
           <Avatar
             src={chatSettings?.chat_icon_url}
@@ -1210,7 +1195,7 @@ export function ChatWidgetCore({
           onThumbsUp={() => handleThumbsUp(messageContent)}
           onThumbsDown={() => handleThumbsDown(messageContent)}
           onRetry={() => handleRetryMessage(messageContent)}
-          isVisible={isHovered}
+          isVisible={true}
         />
       </div>
     );
@@ -1279,7 +1264,7 @@ export function ChatWidgetCore({
         
         {messages.map((message, index) => (
           <div key={index}>
-            {renderMessage(message, index)}
+            {renderMessage(message)}
           </div>
         ))}
         
