@@ -553,7 +553,7 @@ export function ChatWidgetCore({
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isTyping]);
+  }, [messages, isTyping, isLoadingHistory]);
 
   // Track if history has been loaded to prevent re-loading
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -637,6 +637,11 @@ export function ChatWidgetCore({
 
           // Set restored messages, replacing any initial messages
           setMessages(restoredMessages);
+          
+          // Scroll to bottom after messages are set
+          setTimeout(() => {
+            scrollToBottom();
+          }, 100); // Small delay to ensure DOM has updated
         } else {
           console.log('ChatWidget: No previous messages found, starting fresh conversation');
         }
