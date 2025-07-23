@@ -76,7 +76,7 @@ const SendIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?
   </svg>
 );
 
-const CopyIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
+const CopyIcon = ({ size = 14, color = 'currentColor' }: { size?: number; color?: string }) => (
   <svg
     width={size}
     height={size}
@@ -92,7 +92,7 @@ const CopyIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?
   </svg>
 );
 
-const ThumbsUpIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
+const ThumbsUpIcon = ({ size = 14, color = 'currentColor' }: { size?: number; color?: string }) => (
   <svg
     width={size}
     height={size}
@@ -107,7 +107,7 @@ const ThumbsUpIcon = ({ size = 16, color = 'currentColor' }: { size?: number; co
   </svg>
 );
 
-const ThumbsDownIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
+const ThumbsDownIcon = ({ size = 14, color = 'currentColor' }: { size?: number; color?: string }) => (
   <svg
     width={size}
     height={size}
@@ -122,7 +122,7 @@ const ThumbsDownIcon = ({ size = 16, color = 'currentColor' }: { size?: number; 
   </svg>
 );
 
-const RetryIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
+const RetryIcon = ({ size = 14, color = 'currentColor' }: { size?: number; color?: string }) => (
   <svg
     width={size}
     height={size}
@@ -518,7 +518,6 @@ export function ChatWidgetCore({
       padding: '12px 16px',
       maxWidth: '80%',
       boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-      marginBottom: '12px'
     },
     messageBubbleUser: {
       backgroundColor: chatSettings?.chat_color || '#000000',
@@ -826,6 +825,18 @@ export function ChatWidgetCore({
     onLinkClick?.(link);
   };
 
+  // Check if a message is an intro message that shouldn't have action buttons
+  const isIntroMessage = (message: BotMessage): boolean => {
+    if (message.content.type === 'message' && message.content.message) {
+      const content = message.content.message;
+      return content.includes('Hi! I am') || 
+             content.includes('How can I help') || 
+             content.includes('your assistant') ||
+             content === (introMessage || `Hi! I am ${chatSettings?.chat_name || 'Affi'}, your assistant. How can I help you today?`);
+    }
+    return false;
+  };
+
   // Handle typewriter completion
   const handleTypewriterComplete = (message: string) => {
     setIsTyping(false);
@@ -856,96 +867,112 @@ export function ChatWidgetCore({
 
   const handleRetryMessage = async (messageContent: string) => {
     console.log('Retry message:', messageContent);
+    
+    if (isLoading) return; // Prevent multiple simultaneous retries
+    
     // Get the last user message and resend it
     const lastUserMessage = messages.filter(msg => msg.type === 'user').pop();
-    if (lastUserMessage && !isLoading) {
-      const userMessage = lastUserMessage.content;
-      
-      // Remove the bot's response we want to retry
-      setMessages(prev => {
-        const lastBotIndex = prev.findLastIndex(msg => 
-          msg.type === 'bot' && 
-          (msg.content.type === 'message' ? msg.content.message === messageContent : false)
-        );
-        if (lastBotIndex !== -1) {
-          return prev.slice(0, lastBotIndex);
-        }
-        return prev;
-      });
-      
-      // Add the user message again and send
-      setMessages(prev => [...prev, { type: 'user', content: userMessage } as UserMessage]);
-      setIsLoading(true);
-      
-      onMessageSent?.(userMessage);
-
-      try {
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          'x-site-id': siteId
-        };
-        
-        if (session?.user?.id) {
-          headers['x-user-id'] = session.user.id;
-        }
-
-        // Build conversation history (excluding the retry message)
-        const conversationHistory = messages
-          .filter(msg => {
-            if (msg.type === 'bot' && msg.content.type === 'message') {
-              const content = msg.content.message;
-              if (content && typeof content === 'string') {
-                const isIntroMessage = content.includes('Hi! I am') || content.includes('How can I help');
-                const isRetryMessage = content === messageContent;
-                return !isIntroMessage && !isRetryMessage;
-              }
-            }
-            return true;
-          })
-          .map(msg => ({
-            role: msg.type === 'user' ? 'user' : 'assistant',
-            content: msg.type === 'user' ? msg.content : msg.content.message || ''
-          }))
-          .filter(msg => msg.content.trim().length > 0);
-        
-        const response = await fetch(`${apiUrl}/api/chat`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ 
-            message: userMessage,
-            siteId: siteId,
-            conversationHistory: conversationHistory,
-            sessionId: sessionId
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error('Network response was not ok');
-        }
-
-        const data = await response.json();
-        
-        setIsLoading(false);
-        
-        // If it's a simple text message, use typewriter effect
-        if (data.type === 'message' && typeof data.message === 'string') {
-          setTypingMessage(data.message);
-          setIsTyping(true);
-        } else {
-          // For links, simple links, or other complex content, add directly
-          setMessages(prev => [...prev, { type: 'bot', content: data } as BotMessage]);
-        }
-      } catch (error) {
-        console.error('Error retrying message:', error);
-        setIsLoading(false);
-        setMessages(prev => [...prev, {
-          type: 'bot',
-          content: {
-            type: 'message',
-            message: 'Sorry, I encountered an error while retrying. Please try again.'
+    if (!lastUserMessage) {
+      console.warn('No user message found to retry');
+      return;
+    }
+    
+    const userMessage = lastUserMessage.content;
+    
+    // Find and remove the bot's response we want to retry (compatible with older browsers)
+    setMessages(prev => {
+      let lastBotIndex = -1;
+      for (let i = prev.length - 1; i >= 0; i--) {
+        const msg = prev[i];
+        if (msg.type === 'bot') {
+          if (msg.content.type === 'message' && msg.content.message === messageContent) {
+            lastBotIndex = i;
+            break;
+          } else if (msg.content.type === 'links' && msg.content.message === messageContent) {
+            lastBotIndex = i;
+            break;
+          } else if (msg.content.type === 'simple_link' && msg.content.message === messageContent) {
+            lastBotIndex = i;
+            break;
           }
-        } as BotMessage]);
+        }
       }
+      
+      if (lastBotIndex !== -1) {
+        return prev.slice(0, lastBotIndex);
+      }
+      return prev;
+    });
+    
+    setIsLoading(true);
+    onMessageSent?.(userMessage);
+
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-site-id': siteId
+      };
+      
+      if (session?.user?.id) {
+        headers['x-user-id'] = session.user.id;
+      }
+
+      // Build conversation history for the retry (exclude the failed message)
+      const conversationHistory = messages
+        .filter(msg => {
+          if (msg.type === 'bot' && msg.content.type === 'message') {
+            const content = msg.content.message;
+            if (content && typeof content === 'string') {
+              const isIntroMessage = content.includes('Hi! I am') || content.includes('How can I help');
+              const isRetryMessage = content === messageContent;
+              return !isIntroMessage && !isRetryMessage;
+            }
+          }
+          return msg.type === 'user'; // Keep all user messages
+        })
+        .map(msg => ({
+          role: msg.type === 'user' ? 'user' : 'assistant',
+          content: msg.type === 'user' ? msg.content : (msg.content.message || '')
+        }))
+        .filter(msg => msg.content.trim().length > 0);
+      
+      const response = await fetch(`${apiUrl}/api/chat`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ 
+          message: userMessage,
+          siteId: siteId,
+          conversationHistory: conversationHistory,
+          sessionId: sessionId
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Network response was not ok');
+      }
+
+      const data = await response.json();
+      
+      setIsLoading(false);
+      
+      // If it's a simple text message, use typewriter effect
+      if (data.type === 'message' && typeof data.message === 'string') {
+        setTypingMessage(data.message);
+        setIsTyping(true);
+      } else {
+        // For links, simple links, or other complex content, add directly
+        setMessages(prev => [...prev, { type: 'bot', content: data } as BotMessage]);
+      }
+    } catch (error) {
+      console.error('Error retrying message:', error);
+      setIsLoading(false);
+      setMessages(prev => [...prev, {
+        type: 'bot',
+        content: {
+          type: 'message',
+          message: 'Sorry, I encountered an error while retrying. Please try again.'
+        }
+      } as BotMessage]);
     }
   };
 
@@ -1094,14 +1121,16 @@ export function ChatWidgetCore({
               </div>
             </div>
           </div>
-          <MessageActions
-            messageContent={botContent.message}
-            onCopy={() => handleCopyMessage(botContent.message)}
-            onThumbsUp={() => handleThumbsUp(botContent.message)}
-            onThumbsDown={() => handleThumbsDown(botContent.message)}
-            onRetry={() => handleRetryMessage(botContent.message)}
-            isVisible={true}
-          />
+          {!isIntroMessage(message as BotMessage) && (
+            <MessageActions
+              messageContent={botContent.message}
+              onCopy={() => handleCopyMessage(botContent.message)}
+              onThumbsUp={() => handleThumbsUp(botContent.message)}
+              onThumbsDown={() => handleThumbsDown(botContent.message)}
+              onRetry={() => handleRetryMessage(botContent.message)}
+              isVisible={true}
+            />
+          )}
         </div>
       );
     }
@@ -1155,14 +1184,16 @@ export function ChatWidgetCore({
               </div>
             </div>
           </div>
-          <MessageActions
-            messageContent={botContent.message}
-            onCopy={() => handleCopyMessage(botContent.message)}
-            onThumbsUp={() => handleThumbsUp(botContent.message)}
-            onThumbsDown={() => handleThumbsDown(botContent.message)}
-            onRetry={() => handleRetryMessage(botContent.message)}
-            isVisible={true}
-          />
+          {!isIntroMessage(message as BotMessage) && (
+            <MessageActions
+              messageContent={botContent.message}
+              onCopy={() => handleCopyMessage(botContent.message)}
+              onThumbsUp={() => handleThumbsUp(botContent.message)}
+              onThumbsDown={() => handleThumbsDown(botContent.message)}
+              onRetry={() => handleRetryMessage(botContent.message)}
+              isVisible={true}
+            />
+          )}
         </div>
       );
     }
@@ -1189,14 +1220,16 @@ export function ChatWidgetCore({
             </p>
           </div>
         </div>
-        <MessageActions
-          messageContent={messageContent}
-          onCopy={() => handleCopyMessage(messageContent)}
-          onThumbsUp={() => handleThumbsUp(messageContent)}
-          onThumbsDown={() => handleThumbsDown(messageContent)}
-          onRetry={() => handleRetryMessage(messageContent)}
-          isVisible={true}
-        />
+        {!isIntroMessage(message as BotMessage) && (
+          <MessageActions
+            messageContent={messageContent}
+            onCopy={() => handleCopyMessage(messageContent)}
+            onThumbsUp={() => handleThumbsUp(messageContent)}
+            onThumbsDown={() => handleThumbsDown(messageContent)}
+            onRetry={() => handleRetryMessage(messageContent)}
+            isVisible={true}
+          />
+        )}
       </div>
     );
   };
