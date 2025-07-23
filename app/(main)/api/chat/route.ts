@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
     // Create or update chat session
     if (!chatSessionId) {
       // Create new session
+      console.log('Creating new chat session for siteId:', siteId);
       const { data: newSession, error: sessionError } = await supabase
         .from('chat_sessions')
         .insert([{
@@ -59,23 +60,58 @@ export async function POST(request: NextRequest) {
         .single();
       
       if (sessionError) {
-        console.warn('Failed to create chat session:', sessionError);
+        console.error('Failed to create chat session:', sessionError);
         // Continue without session tracking
       } else {
         chatSessionId = newSession.id;
         console.log('Created new chat session:', chatSessionId);
       }
     } else {
-      // Update existing session activity
-      const { error: updateError } = await supabase
+      // Verify session exists and update activity, or create new one if it doesn't exist
+      console.log('Attempting to update existing session:', chatSessionId);
+      const { data: existingSession, error: fetchError } = await supabase
         .from('chat_sessions')
-        .update({ 
-          last_activity_at: new Date().toISOString()
-        })
-        .eq('id', chatSessionId);
+        .select('id')
+        .eq('id', chatSessionId)
+        .single();
       
-      if (updateError) {
-        console.warn('Failed to update chat session:', updateError);
+      if (fetchError || !existingSession) {
+        console.log('Session not found, creating new session for sessionId:', chatSessionId);
+        // Session doesn't exist, create a new one
+        const { data: newSession, error: sessionError } = await supabase
+          .from('chat_sessions')
+          .insert([{
+            site_id: siteId,
+            user_session_id: userId || xUserId || 'anonymous_' + Date.now(),
+            user_agent: request.headers.get('user-agent'),
+            ip_address: request.headers.get('x-forwarded-for')?.split(',')[0] || 
+                       request.headers.get('x-real-ip') || 
+                       'unknown'
+          }])
+          .select('id')
+          .single();
+        
+        if (sessionError) {
+          console.error('Failed to create new chat session:', sessionError);
+        } else {
+          chatSessionId = newSession.id;
+          console.log('Created replacement chat session:', chatSessionId);
+        }
+      } else {
+        // Update existing session activity
+        console.log('Updating existing session activity:', chatSessionId);
+        const { error: updateError } = await supabase
+          .from('chat_sessions')
+          .update({ 
+            last_activity_at: new Date().toISOString()
+          })
+          .eq('id', chatSessionId);
+        
+        if (updateError) {
+          console.warn('Failed to update chat session:', updateError);
+        } else {
+          console.log('Successfully updated session activity');
+        }
       }
     }
     
