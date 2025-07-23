@@ -34,16 +34,24 @@
     // Fetch settings dynamically
     async function loadChatSettings() {
         try {
+            console.log('ChatWidget: Attempting to load settings from:', `${apiUrl}/api/widget-settings?siteId=${encodeURIComponent(siteId)}`);
             const response = await fetch(`${apiUrl}/api/widget-settings?siteId=${encodeURIComponent(siteId)}`);
+            
             if (response.ok) {
                 const settings = await response.json();
+                // Merge with defaults to ensure all required fields exist
                 chatSettings = { ...chatSettings, ...settings };
-                console.log('ChatWidget: Loaded settings from API', chatSettings);
+                console.log('ChatWidget: Successfully loaded settings from API', chatSettings);
+                return true; // Indicate success
             } else {
-                console.warn('ChatWidget: Failed to load settings, using defaults');
+                console.warn('ChatWidget: API responded with error status:', response.status, response.statusText);
+                console.warn('ChatWidget: Using default settings');
+                return false; // Indicate failure but continue with defaults
             }
         } catch (error) {
-            console.warn('ChatWidget: Error loading settings, using defaults', error);
+            console.warn('ChatWidget: Error loading settings (likely CORS or network issue):', error);
+            console.warn('ChatWidget: Using default settings');
+            return false; // Indicate failure but continue with defaults
         }
     }
 
@@ -147,10 +155,13 @@
 
     // Initialize widget
     async function initializeWidget() {
-        // Load settings first
-        await loadChatSettings();
+        // Load settings first (returns true/false indicating success)
+        const settingsLoaded = await loadChatSettings();
+        
+        console.log('ChatWidget: Settings loaded:', settingsLoaded ? 'from API' : 'using defaults');
+        console.log('ChatWidget: Final settings:', chatSettings);
 
-        // Update config with loaded settings
+        // Update config with loaded settings (either from API or defaults)
         config.settings = chatSettings;
 
         const { container, iframe } = createWidgetContainer();
@@ -286,16 +297,22 @@
     function setupAutoPopup() {
         // Helper function to get the appropriate intro message
         function getIntroMessage() {
-            return chatSettings.intro_message || 'Hello! How can I help you today?';
+            const introMsg = chatSettings.intro_message || 'Hello! How can I help you today?';
+            console.log('ChatWidget: Using intro message:', introMsg);
+            return introMsg;
         }
         
         // Show intro popup after 3 seconds if not already shown recently
         setTimeout(() => {
+            console.log('ChatWidget: Checking if popup should be shown');
             const lastShown = localStorage.getItem('chat-widget-intro-shown-' + siteId);
             const now = Date.now();
             
+            console.log('ChatWidget: Last shown:', lastShown, 'Current time:', now);
+            
             // Show popup if never shown or if more than 1 hour has passed (for testing)
             if (!lastShown || (now - parseInt(lastShown)) > 3600000) {
+                console.log('ChatWidget: Creating intro popup');
                 // Create intro popup
                 const popup = document.createElement('div');
                 popup.style.cssText = `
@@ -326,13 +343,18 @@
                 `;
                 document.head.appendChild(style);
 
+                const chatName = chatSettings.chat_name || 'Affi';
+                const introMessage = getIntroMessage();
+                
                 popup.innerHTML = `
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-                        <div style="font-weight: 600; color: #111827;">${chatSettings.chat_name || 'Affi'} 👋</div>
+                        <div style="font-weight: 600; color: #111827;">${chatName} 👋</div>
                         <button style="background: none; border: none; cursor: pointer; padding: 0; color: #6b7280; font-size: 16px;" onclick="this.parentElement.parentElement.remove();">×</button>
                     </div>
-                    <div style="margin-bottom: 12px; cursor: pointer;">${getIntroMessage()}</div>
+                    <div style="margin-bottom: 12px; cursor: pointer;">${introMessage}</div>
                 `;
+
+                console.log('ChatWidget: Popup created with chat name:', chatName, 'and intro message:', introMessage);
 
                 // Make the entire popup clickable to open chat
                 popup.style.cursor = 'pointer';
@@ -340,25 +362,31 @@
                     // Prevent close button from triggering chat open
                     if (e.target.tagName === 'BUTTON') return;
 
+                    console.log('ChatWidget: Popup clicked, opening chat');
                     // Open chat and remove popup
                     document.getElementById('chat-widget-button-' + siteId).click();
                     popup.remove();
                 });
 
                 document.body.appendChild(popup);
+                console.log('ChatWidget: Popup added to page');
 
                 // Auto-dismiss after 10 seconds
                 setTimeout(() => {
                     if (popup.parentElement) {
+                        console.log('ChatWidget: Auto-dismissing popup after 10 seconds');
                         popup.remove();
                     }
                 }, 10000);
 
                 // Mark as shown with timestamp
                 localStorage.setItem('chat-widget-intro-shown-' + siteId, now.toString());
+                console.log('ChatWidget: Marked popup as shown in localStorage');
 
                 // Track popup shown
                 trackEvent('intro_popup_shown');
+            } else {
+                console.log('ChatWidget: Popup not shown - was shown recently or within cooldown period');
             }
         }, 3000);
     }
