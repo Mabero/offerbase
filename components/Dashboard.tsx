@@ -113,6 +113,14 @@ interface ChatSession {
   last_activity_at: string;
 }
 
+interface ChatMessage {
+  id: string;
+  chat_session_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  created_at: string;
+}
+
 interface ChatStats {
   totalChats: number;
   totalMessages: number;
@@ -143,13 +151,13 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     input_placeholder: 'Type your message...',
     font_size: '14px'
   });
-  const [sites, setSites] = useState<Site[]>([]);
+  const [, setSites] = useState<Site[]>([]);
   const [selectedSite, setSelectedSite] = useState<Site | null>(null);
   const [introMessage, setIntroMessage] = useState('Hello! How can I help you today?');
   const [isSaving, setIsSaving] = useState(false);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
-  const [sessionMessages, setSessionMessages] = useState<any[]>([]);
+  const [sessionMessages, setSessionMessages] = useState<ChatMessage[]>([]);
   const [isLoadingSessionDetails, setIsLoadingSessionDetails] = useState(false);
   const [instructions, setInstructions] = useState(BASE_INSTRUCTIONS);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
@@ -159,13 +167,19 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     averageResponseTime: 0,
     satisfactionRate: 0
   });
-  const [isLoadingChatSettings, setIsLoadingChatSettings] = useState(false);
   const [isSupabaseConfiguredState, setIsSupabaseConfiguredState] = useState<boolean | null>(null);
-  const [isSiteDialogOpen, setIsSiteDialogOpen] = useState(false);
-  const [isLoadingSites, setIsLoadingSites] = useState(false);
+  const [, setIsLoadingSites] = useState(false);
+  const [, setIsLoadingChatSettings] = useState(false);
 
   // Refs for cleanup
   const isMountedRef = useRef(true);
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   
   // Content editor state
   const [isContentEditorOpen, setIsContentEditorOpen] = useState(false);
@@ -205,7 +219,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
           variant: "destructive"
         });
       }
-    } catch (error) {
+    } catch (_error) {
       toast({
         title: "Error",
         description: "Failed to load sites",
