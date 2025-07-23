@@ -79,7 +79,6 @@
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
             background: white;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-            overflow: hidden;
             display: none;
         `;
 
@@ -234,7 +233,6 @@
                     box-shadow: none;
                     background: white;
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-                    overflow: hidden;
                     display: ${isOpen ? 'block' : 'none'};
                 `;
 
@@ -252,7 +250,6 @@
                     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
                     background: white;
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-                    overflow: hidden;
                     display: ${isOpen ? 'block' : 'none'};
                 `;
 
