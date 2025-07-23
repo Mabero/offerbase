@@ -303,9 +303,13 @@ export function ChatWidgetCore({
   onWidgetOpen
 }: ChatWidgetCoreProps) {
   
-  // Initialize messages with intro message if available
+  // Initialize messages with intro message if available and no existing session
   const getInitialMessages = (): Message[] => {
-    if (introMessage && introMessage.trim()) {
+    // Check if there's an existing sessionId - if so, don't show intro message yet (wait for history)
+    const existingSessionId = typeof window !== 'undefined' ? 
+      localStorage.getItem(`chat_session_uuid_${siteId}`) : null;
+    
+    if (!existingSessionId && introMessage && introMessage.trim()) {
       return [{
         type: 'bot',
         content: {
@@ -518,6 +522,7 @@ export function ChatWidgetCore({
   const [messages, setMessages] = useState<Message[]>(getInitialMessages);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [typingMessage, setTypingMessage] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -549,6 +554,103 @@ export function ChatWidgetCore({
   useEffect(() => {
     scrollToBottom();
   }, [messages, isTyping]);
+
+  // Track if history has been loaded to prevent re-loading
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+
+  // Restore chat history when sessionId exists
+  useEffect(() => {
+    async function restoreChatHistory() {
+      if (!sessionId || historyLoaded) {
+        return; // No session or history already loaded
+      }
+
+      setIsLoadingHistory(true);
+      console.log('ChatWidget: Attempting to restore history for sessionId:', sessionId);
+
+      try {
+        const response = await fetch(`${apiUrl}/api/chat-sessions/${sessionId}/messages`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-site-id': siteId
+          }
+        });
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            console.log('ChatWidget: Session not found, starting fresh conversation');
+            // Clear invalid sessionId from localStorage
+            const storageKey = `chat_session_uuid_${siteId}`;
+            if (typeof window !== 'undefined') {
+              localStorage.removeItem(storageKey);
+            }
+            setSessionId(null);
+          } else {
+            console.warn('ChatWidget: Failed to fetch chat history:', response.status);
+          }
+          return;
+        }
+
+        const data = await response.json();
+        const chatMessages = data.messages || [];
+
+        if (chatMessages.length > 0) {
+          console.log('ChatWidget: Restored', chatMessages.length, 'messages from history');
+          
+          // Convert database messages to UI message format
+          const restoredMessages: Message[] = chatMessages.map((dbMessage: { role: string; content: string; created_at: string; id: string }) => {
+            if (dbMessage.role === 'user') {
+              return {
+                type: 'user',
+                content: dbMessage.content
+              } as UserMessage;
+            } else {
+              // Parse assistant message content - it might be JSON for complex responses
+              let messageContent: MessageContent;
+              try {
+                const parsed = JSON.parse(dbMessage.content);
+                if (parsed.type && parsed.message) {
+                  // It's a structured response
+                  messageContent = parsed;
+                } else {
+                  // It's a simple string that was JSON-stringified
+                  messageContent = {
+                    type: 'message',
+                    message: typeof parsed === 'string' ? parsed : dbMessage.content
+                  };
+                }
+              } catch {
+                // It's a plain text message
+                messageContent = {
+                  type: 'message',
+                  message: dbMessage.content
+                };
+              }
+
+              return {
+                type: 'bot',
+                content: messageContent
+              } as BotMessage;
+            }
+          });
+
+          // Set restored messages, replacing any initial messages
+          setMessages(restoredMessages);
+        } else {
+          console.log('ChatWidget: No previous messages found, starting fresh conversation');
+        }
+      } catch (error) {
+        console.error('ChatWidget: Error restoring chat history:', error);
+        // Continue with fresh conversation on error
+      } finally {
+        setIsLoadingHistory(false);
+        setHistoryLoaded(true); // Mark history as attempted/loaded
+      }
+    }
+
+    restoreChatHistory();
+  }, [sessionId, apiUrl, siteId, historyLoaded]); // Include historyLoaded in dependencies
 
   // Handle link clicks
   const handleLinkClick = (link: Link) => {
@@ -811,7 +913,27 @@ export function ChatWidgetCore({
 
       {/* Messages Area */}
       <div style={styles.messagesContainer}>
-        {messages.length === 0 && !isLoading && (
+        {isLoadingHistory && (
+          <div style={styles.messageRow}>
+            <Avatar
+              src={chatSettings?.chat_icon_url}
+              name={chatSettings?.chat_name}
+              style={styles.avatarSpacing}
+            />
+            <div
+              style={{
+                ...styles.messageBubbleBot,
+                fontSize: chatSettings?.font_size || '14px'
+              }}
+            >
+              <p style={styles.messageText}>
+                Restoring conversation...
+              </p>
+            </div>
+          </div>
+        )}
+        
+        {messages.length === 0 && !isLoading && !isLoadingHistory && (
           <div style={styles.messageRow}>
             <Avatar
               src={chatSettings?.chat_icon_url}
@@ -860,18 +982,18 @@ export function ChatWidgetCore({
             type="text"
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !isLoading && inputMessage.trim() && handleSendMessage()}
-            placeholder={chatSettings?.input_placeholder || 'Type your message...'}
+            onKeyDown={(e) => e.key === 'Enter' && !isLoading && !isLoadingHistory && inputMessage.trim() && handleSendMessage()}
+            placeholder={isLoadingHistory ? 'Loading conversation...' : (chatSettings?.input_placeholder || 'Type your message...')}
             style={styles.input}
-            disabled={isLoading}
+            disabled={isLoading || isLoadingHistory}
           />
           <button
             onClick={handleSendMessage}
-            disabled={isLoading || !inputMessage.trim()}
+            disabled={isLoading || isLoadingHistory || !inputMessage.trim()}
             style={{
               ...styles.sendButton,
-              opacity: (isLoading || !inputMessage.trim()) ? 0.5 : 1,
-              cursor: (isLoading || !inputMessage.trim()) ? 'not-allowed' : 'pointer'
+              opacity: (isLoading || isLoadingHistory || !inputMessage.trim()) ? 0.5 : 1,
+              cursor: (isLoading || isLoadingHistory || !inputMessage.trim()) ? 'not-allowed' : 'pointer'
             }}
             aria-label="Send message"
           >
