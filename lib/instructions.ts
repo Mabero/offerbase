@@ -19,25 +19,32 @@ IMPORTANT: You must respond in JSON format, but make your "message" field sound 
   "max_products": 1-3 (optional, defaults to 1)
 }
 
-WHEN TO SHOW PRODUCTS (be very conservative):
-- ONLY when the user explicitly asks "what do you recommend?" or "what's the best product?" or similar direct requests
-- ONLY when you actively recommend a specific product by name in your response
-- NEVER show products for: general questions, informational requests, troubleshooting, how-to questions, pricing questions, or casual conversation
-- DEFAULT TO NO PRODUCTS unless the user is clearly shopping for recommendations
+WHEN TO SHOW PRODUCTS:
+- When the user asks "what do you recommend?" or "what's the best product?" or similar direct requests
+- ALWAYS when you mention a specific product by name in your response (e.g., "Product X is great for..." should include Product X in specific_products)
+- When discussing features or benefits of a specific product
+- When comparing products or answering questions about specific products
+- When user asks about a specific product by name
+- NEVER show products for: general company information, troubleshooting unrelated to products, or completely off-topic questions
+- DEFAULT TO SHOWING PRODUCTS when discussing any specific product
 
-WHEN TO USE SIMPLE LINKS (be generous with these):
-- ANY time you mention "check the website", "visit the product page", "see current pricing", or "find more details"
-- For ALL pricing inquiries - always use show_simple_link: true
-- When directing users to get more information
+WHEN TO USE SIMPLE LINKS:
+- For pricing inquiries when you want to send them to check current pricing
+- When you mention "check the website", "visit the product page", or "find more details"
+- When directing users to get more information that you can't provide
 - When you can't answer fully and need to redirect them
 
 SIMPLE LINKS vs PRODUCT CARDS:
-- Use "show_simple_link": true for pricing inquiries, website references, or when directing to additional info
-- Use "show_products": true ONLY when actively recommending products they should consider buying
+- Use "show_simple_link": true for pricing inquiries or when directing to additional info about a product
+- Use "show_products": true when discussing, mentioning, or recommending specific products
+- You can use BOTH in the same response if appropriate (e.g., mention a product AND tell them to check pricing)
 - For simple links, include "link_text" (e.g., "Check current pricing", "See product details", "Visit product page")
-- Do NOT include "link_url" - the system handles URL matching automatically
+- IMPORTANT: When using simple links, ALWAYS include the specific product name in "specific_products" so the correct product link is used
 
-IMPORTANT: If you mention checking a website or getting pricing information, you MUST set "show_simple_link": true
+CRITICAL RULE: If you mention a specific product by name (e.g., "Product X", "ProductName"), you MUST:
+1. Set "show_products": true
+2. Include the exact product name in "specific_products": ["Product X"]
+3. If also directing to pricing/more info, ALSO set "show_simple_link": true with the same product in "specific_products"
 
 CONVERSATION GUIDELINES:
 - CRITICAL: Always respond in the EXACT same language the user wrote in (Norwegian if they write Norwegian, English if they write English, etc.)
@@ -124,12 +131,65 @@ User asks "Hvor mye koster dette?" (NORWEGIAN PRICING INQUIRY)
   "link_text": "Sjekk gjeldende pris"
 }`;
 
-export function buildSystemPrompt(customInstructions: string) {
+export function buildSystemPrompt(customInstructions: string, contextInfo?: {
+  hasRankings?: boolean;
+  hasWinner?: boolean;
+  hasComparisons?: boolean;
+  contentTypes?: string[];
+}) {
   let systemPrompt = BASE_INSTRUCTIONS;
+  
+  // Add context-aware instructions
+  if (contextInfo) {
+    systemPrompt += buildContextAwareInstructions(contextInfo);
+  }
   
   if (customInstructions && customInstructions.trim().length > 0) {
     systemPrompt += `\n\nAdditional Custom Instructions: ${customInstructions.trim()}`;
   }
   
   return systemPrompt;
+}
+
+/**
+ * Build context-aware instructions based on available training material data
+ */
+function buildContextAwareInstructions(contextInfo: {
+  hasRankings?: boolean;
+  hasWinner?: boolean;
+  hasComparisons?: boolean;
+  contentTypes?: string[];
+}): string {
+  let instructions = '\n\nCONTEXT-AWARE GUIDANCE:\n';
+  
+  if (contextInfo.hasRankings) {
+    instructions += `
+- RANKINGS AVAILABLE: The training materials contain ranking information. When users ask "which is best" or similar, prioritize the explicitly ranked items and mention their ranking positions.
+- Always check the "Structured Information" section for official rankings and use those rankings in your recommendations.`;
+  }
+  
+  if (contextInfo.hasWinner) {
+    instructions += `
+- WINNER IDENTIFIED: The training materials explicitly declare a "best choice" or "winner". When making recommendations, prioritize this winner and mention why it was chosen as the best.
+- Look for "Winner/Best Choice" in the structured information and use this as your primary recommendation.`;
+  }
+  
+  if (contextInfo.hasComparisons) {
+    instructions += `
+- COMPARISONS AVAILABLE: The training materials contain detailed comparisons. Use this comparative information to answer questions about differences between products.
+- When users ask comparative questions, reference the specific comparisons provided in the training materials.`;
+  }
+  
+  if (contextInfo.contentTypes?.includes('ranking')) {
+    instructions += `
+- RANKING CONTENT: You have access to ranking/top list content. When users ask for the "best" option, always refer to the official rankings provided.
+- State the ranking clearly (e.g., "According to our ranking, Product X is #1 because...")`;
+  }
+  
+  if (contextInfo.contentTypes?.includes('review')) {
+    instructions += `
+- REVIEW CONTENT: You have access to review content with ratings and verdicts. Use these expert opinions to support your recommendations.`;
+  }
+  
+  return instructions;
 } 

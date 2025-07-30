@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createSupabaseAdminClient } from '@/lib/supabase-server'
 import { scrapeUrl } from '@/lib/scraping'
+import { analyzeContentIntelligence } from '@/lib/ai/content-intelligence'
 
 export async function GET(request: NextRequest) {
   try {
@@ -135,21 +136,40 @@ async function scrapeContentForMaterial(materialId: string, url: string) {
     const scrapeResult = await scrapeUrl(url);
     
     if (scrapeResult.success) {
-      // Update training material with scraped content
+      // Analyze content intelligence
+      const title = scrapeResult.metadata?.title || url;
+      const content = scrapeResult.content || '';
+      const metadata = scrapeResult.metadata || {};
+      
+      const analysis = analyzeContentIntelligence(title, content, metadata);
+      
+      // Update training material with scraped content and intelligence analysis
       const { error: successUpdateError } = await supabase
         .from('training_materials')
         .update({
           content: scrapeResult.content,
-          content_type: scrapeResult.contentType,
+          content_type: analysis.contentType, // Use analyzed content type instead of generic scraper result
           metadata: scrapeResult.metadata,
+          structured_data: analysis.structuredData,
+          intent_keywords: analysis.intentKeywords,
+          primary_products: analysis.primaryProducts,
+          confidence_score: analysis.confidenceScore,
           scrape_status: 'success',
           last_scraped_at: new Date().toISOString(),
-          title: scrapeResult.metadata?.title || url, // Update title with scraped title if available
+          title: title,
         })
         .eq('id', materialId)
       
       if (successUpdateError) {
         console.error('Error updating material with success:', successUpdateError);
+      } else {
+        console.log(`Content intelligence analysis complete for material ${materialId}:`, {
+          contentType: analysis.contentType,
+          structuredDataFields: Object.keys(analysis.structuredData).length,
+          intentKeywords: analysis.intentKeywords.length,
+          primaryProducts: analysis.primaryProducts.length,
+          confidenceScore: analysis.confidenceScore
+        });
       }
     } else {
       // Update with error

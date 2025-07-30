@@ -13,7 +13,7 @@ export async function GET(
         status: 401,
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+          'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         }
       })
@@ -41,7 +41,7 @@ export async function GET(
         status: 404,
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+          'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         }
       })
@@ -60,7 +60,7 @@ export async function GET(
         status: 500,
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+          'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         }
       })
@@ -75,7 +75,7 @@ export async function GET(
     }, {
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       }
     })
@@ -85,7 +85,7 @@ export async function GET(
       status: 500,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       }
     })
@@ -120,7 +120,7 @@ export async function PUT(
         status: 500,
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+          'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         }
       })
@@ -129,7 +129,7 @@ export async function PUT(
     return NextResponse.json({ session }, {
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       }
     })
@@ -139,7 +139,90 @@ export async function PUT(
       status: 500,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      }
+    })
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ sessionId: string }> }
+) {
+  try {
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { 
+        status: 401,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }
+      })
+    }
+
+    const { sessionId } = await context.params
+    const supabase = createSupabaseAdminClient()
+    
+    // Verify the session belongs to the user before deleting
+    const { data: session, error: sessionError } = await supabase
+      .from('chat_sessions')
+      .select(`
+        id,
+        sites!inner (
+          id,
+          user_id
+        )
+      `)
+      .eq('id', sessionId)
+      .eq('sites.user_id', userId)
+      .single()
+
+    if (sessionError || !session) {
+      return NextResponse.json({ error: 'Session not found or unauthorized' }, { 
+        status: 404,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }
+      })
+    }
+
+    // Delete the chat session (messages will be deleted automatically due to CASCADE)
+    const { error: deleteError } = await supabase
+      .from('chat_sessions')
+      .delete()
+      .eq('id', sessionId)
+
+    if (deleteError) {
+      console.error('Error deleting chat session:', deleteError)
+      return NextResponse.json({ error: 'Failed to delete session' }, { 
+        status: 500,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }
+      })
+    }
+
+    return NextResponse.json({ success: true }, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      }
+    })
+  } catch (error) {
+    console.error('Error in DELETE /api/chat-sessions/[sessionId]:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { 
+      status: 500,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       }
     })
@@ -151,7 +234,7 @@ export async function OPTIONS() {
     status: 200,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     },
   });

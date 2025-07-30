@@ -50,11 +50,26 @@ function ChatWidget({
   const [internalIntroMessage, setInternalIntroMessage] = useState(initialIntroMessage || '');
   const [chatSettings, setChatSettings] = useState(initialChatSettings);
   const [introMessage, setIntroMessage] = useState(initialIntroMessage);
+  const [isMobile, setIsMobile] = useState(false);
 
-  // Responsive values - adjust for embedded mode
-  const chatWidth = isEmbedded ? '100%' : '440px';
-  const chatHeight = isEmbedded ? '100%' : '700px';
-  const chatBottom = isEmbedded ? '0' : '100px';
+  // Check if mobile on mount and window resize
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    // Initial check
+    checkMobile();
+    
+    // Add resize listener
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Responsive values - adjust for embedded mode and mobile
+  const chatWidth = isEmbedded ? '100%' : (isMobile ? 'calc(100% - 32px)' : '440px');
+  const chatHeight = isEmbedded ? '100%' : (isMobile ? 'calc(100vh - 120px)' : '700px');
+  const chatBottom = isEmbedded ? '0' : (isMobile ? '80px' : '100px');
   const chatRight = isEmbedded ? '0' : '16px';
   const buttonBottom = '16px';
   const buttonRight = '16px';
@@ -182,6 +197,13 @@ function ChatWidget({
     color: chatSettings?.chat_bubble_icon_color || '#fff',
   };
 
+  // Mobile-specific styles
+  const mobileStyles: React.CSSProperties = {
+    maxWidth: '400px',
+    maxHeight: '600px',
+    left: '16px', // Add left constraint for mobile
+  };
+
   const chatContainerStyles: React.CSSProperties = {
     position: 'fixed',
     zIndex: 1300,
@@ -197,6 +219,7 @@ function ChatWidget({
     right: chatRight,
     width: chatWidth,
     height: chatHeight,
+    ...(isMobile && !isEmbedded ? mobileStyles : {}),
   };
 
   const embeddedStyles: React.CSSProperties = {

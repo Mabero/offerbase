@@ -250,17 +250,19 @@ const TypingIndicator = ({ chatSettings, styles }: {
       name={chatSettings?.chat_name}
       style={styles.avatarSpacing}
     />
-    <div
-      style={{
-        ...styles.messageBubbleBot,
-        fontSize: chatSettings?.font_size || '14px',
-        padding: '16px 20px'
-      }}
-    >
-      <div style={styles.typingContainer}>
-        <div style={{...styles.typingDot, ...styles.typingDot1}}></div>
-        <div style={{...styles.typingDot, ...styles.typingDot2}}></div>
-        <div style={{...styles.typingDot, ...styles.typingDot3}}></div>
+    <div style={{ maxWidth: '80%' }}>
+      <div
+        style={{
+          ...styles.messageBubbleBot,
+          fontSize: chatSettings?.font_size || '14px',
+          padding: '16px 20px'
+        }}
+      >
+        <div style={styles.typingContainer}>
+          <div style={{...styles.typingDot, ...styles.typingDot1}}></div>
+          <div style={{...styles.typingDot, ...styles.typingDot2}}></div>
+          <div style={{...styles.typingDot, ...styles.typingDot3}}></div>
+        </div>
       </div>
     </div>
   </div>
@@ -324,16 +326,18 @@ const TypewriterMessage = ({
         name={chatSettings?.chat_name}
         style={styles.avatarSpacing}
       />
-      <div
-        style={{
-          ...styles.messageBubbleBot,
-          fontSize: chatSettings?.font_size || '14px'
-        }}
-      >
-        <p style={styles.messageText}>
-          {displayedText}
-          {isTyping && <span style={styles.typingCursor}>|</span>}
-        </p>
+      <div style={{ maxWidth: '80%' }}>
+        <div
+          style={{
+            ...styles.messageBubbleBot,
+            fontSize: chatSettings?.font_size || '14px'
+          }}
+        >
+          <p style={styles.messageText}>
+            {displayedText}
+            {isTyping && <span style={styles.typingCursor}>|</span>}
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -516,7 +520,6 @@ export function ChatWidgetCore({
       border: '1px solid rgba(255, 255, 255, 0.3)',
       borderRadius: '16px',
       padding: '12px 16px',
-      maxWidth: '80%',
       boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
     },
     messageBubbleUser: {
@@ -527,7 +530,8 @@ export function ChatWidgetCore({
       padding: '12px 16px',
       maxWidth: '80%',
       boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-      marginBottom: '12px'
+      marginBottom: '12px',
+      marginTop: '15px'
     },
     messageText: {
       color: '#1f2937',
@@ -645,10 +649,11 @@ export function ChatWidgetCore({
       display: 'inline-block',
       padding: '8px 16px',
       borderRadius: '8px',
-      fontWeight: '600',
+      fontWeight: '500',
+      fontSize: '12px',
       cursor: 'pointer',
       transition: 'all 0.2s ease',
-      border: 'none'
+      border: 'none',
     },
     linkButtonHover: {
       transform: 'translateY(-1px)',
@@ -767,18 +772,58 @@ export function ChatWidgetCore({
               let messageContent: MessageContent;
               try {
                 const parsed = JSON.parse(dbMessage.content);
-                if (parsed.type && parsed.message) {
-                  // It's a structured response
-                  messageContent = parsed;
-                } else {
+                // Check if it's a structured response with type and message
+                if (parsed && typeof parsed === 'object' && parsed.type && parsed.message) {
+                  // It's a structured response (message, links, simple_link)
+                  messageContent = {
+                    type: parsed.type,
+                    message: parsed.message,
+                    ...(parsed.links && Array.isArray(parsed.links) && { links: parsed.links }),
+                    ...(parsed.simple_link && typeof parsed.simple_link === 'object' && { simple_link: parsed.simple_link })
+                  };
+                  // Debug log for complex content restoration
+                  if (parsed.type === 'links' && parsed.links && Array.isArray(parsed.links)) {
+                    console.log('Restored links message:', { type: parsed.type, linksCount: parsed.links.length, links: parsed.links });
+                  }
+                  if (parsed.type === 'simple_link' && parsed.simple_link) {
+                    console.log('Restored simple_link message:', { type: parsed.type, simple_link: parsed.simple_link });
+                  }
+                } else if (typeof parsed === 'string') {
                   // It's a simple string that was JSON-stringified
                   messageContent = {
                     type: 'message',
-                    message: typeof parsed === 'string' ? parsed : dbMessage.content
+                    message: parsed
+                  };
+                } else if (parsed && typeof parsed === 'object' && !parsed.type && !parsed.message) {
+                  // Check if it's an old format structured response (direct message with links)
+                  if (parsed.links && Array.isArray(parsed.links)) {
+                    messageContent = {
+                      type: 'links',
+                      message: parsed.message || 'Here are some relevant products:',
+                      links: parsed.links
+                    };
+                  } else if (parsed.simple_link && typeof parsed.simple_link === 'object') {
+                    messageContent = {
+                      type: 'simple_link', 
+                      message: parsed.message || 'Here\'s a relevant link:',
+                      simple_link: parsed.simple_link
+                    };
+                  } else {
+                    // Fallback to original content
+                    messageContent = {
+                      type: 'message',
+                      message: dbMessage.content
+                    };
+                  }
+                } else {
+                  // Fallback to original content
+                  messageContent = {
+                    type: 'message',
+                    message: dbMessage.content
                   };
                 }
               } catch {
-                // It's a plain text message
+                // It's a plain text message (not JSON)
                 messageContent = {
                   type: 'message',
                   message: dbMessage.content
@@ -843,15 +888,15 @@ export function ChatWidgetCore({
   };
 
   // Handle message actions
-  const handleCopyMessage = (messageContent: string) => {
+  const handleCopyMessage = () => {
     // Message copied - no action needed
   };
 
-  const handleThumbsUp = (messageContent: string) => {
+  const handleThumbsUp = () => {
     // TODO: Send feedback to backend
   };
 
-  const handleThumbsDown = (messageContent: string) => {
+  const handleThumbsDown = () => {
     // TODO: Send feedback to backend
   };
 
@@ -908,7 +953,7 @@ export function ChatWidgetCore({
       // Build conversation history for the retry (exclude the failed message)
       const conversationHistory = messages
         .filter(msg => {
-          if (msg.type === 'bot' && msg.content.type === 'message') {
+          if (msg.type === 'bot') {
             const content = msg.content.message;
             if (content && typeof content === 'string') {
               const isIntroMessage = content.includes('Hi! I am') || content.includes('How can I help');
@@ -941,14 +986,20 @@ export function ChatWidgetCore({
 
       const data = await response.json();
       
+      // Debug logging
+      console.log('AI Retry Response data:', { type: data.type, hasLinks: !!data.links, hasSimpleLink: !!data.simple_link, message: data.message });
+      
       setIsLoading(false);
       
-      // If it's a simple text message, use typewriter effect
+      // Use typing animation for all response types
       if (data.type === 'message' && typeof data.message === 'string') {
+        // Simple text message - use typewriter effect
         setTypingMessage(data.message);
         setIsTyping(true);
       } else {
-        // For links, simple links, or other complex content, add directly
+        // For complex content (links, simple_link), add the structured response directly without typing animation
+        // to avoid duplicate messages
+        console.log('Adding structured retry response:', data);
         setMessages(prev => [...prev, { type: 'bot', content: data } as BotMessage]);
       }
     } catch (error) {
@@ -988,7 +1039,7 @@ export function ChatWidgetCore({
       // Build conversation history
       const conversationHistory = messages
         .filter(msg => {
-          if (msg.type === 'bot' && msg.content.type === 'message') {
+          if (msg.type === 'bot') {
             const content = msg.content.message;
             if (content && typeof content === 'string') {
               const isIntroMessage = content.includes('Hi! I am') || content.includes('How can I help');
@@ -1020,6 +1071,9 @@ export function ChatWidgetCore({
 
       const data = await response.json();
       
+      // Debug logging
+      console.log('AI Response data:', { type: data.type, hasLinks: !!data.links, hasSimpleLink: !!data.simple_link, message: data.message });
+      
       // Update sessionId if server returned a new one (UUID format)
       if (data.sessionId) {
         const storageKey = `chat_session_uuid_${siteId}`;
@@ -1032,12 +1086,15 @@ export function ChatWidgetCore({
       
       setIsLoading(false);
       
-      // If it's a simple text message, use typewriter effect
+      // Use typing animation for all response types
       if (data.type === 'message' && typeof data.message === 'string') {
+        // Simple text message - use typewriter effect
         setTypingMessage(data.message);
         setIsTyping(true);
       } else {
-        // For links, simple links, or other complex content, add directly
+        // For complex content (links, simple_link), add the structured response directly without typing animation
+        // to avoid duplicate messages
+        console.log('Adding structured response:', data);
         setMessages(prev => [...prev, { type: 'bot', content: data } as BotMessage]);
       }
     } catch (error) {
@@ -1071,121 +1128,8 @@ export function ChatWidgetCore({
       );
     }
 
-    // Bot message
+    // Bot message - consistent structure for all types
     const botContent = message.content;
-    if (botContent.type === 'links') {
-      return (
-        <div>
-          <div style={styles.messageRow}>
-            <Avatar
-              src={chatSettings?.chat_icon_url}
-              name={chatSettings?.chat_name}
-              style={styles.avatarSpacing}
-            />
-            <div style={{ maxWidth: '80%' }}>
-              <div
-                style={{
-                  ...styles.messageBubbleBot,
-                  fontSize: chatSettings?.font_size || '14px',
-                  marginBottom: '12px'
-                }}
-              >
-                <p style={{...styles.messageText, marginBottom: '12px'}}>
-                  {botContent.message}
-                </p>
-              </div>
-              
-              <div style={styles.linksContainer}>
-                {botContent.links?.map((link, index) => (
-                  <LinkCard 
-                    key={index} 
-                    link={link} 
-                    chatSettings={chatSettings} 
-                    styles={styles} 
-                    onLinkClick={handleLinkClick}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-          {!isIntroMessage(message as BotMessage) && (
-            <MessageActions
-              messageContent={botContent.message}
-              onCopy={() => handleCopyMessage(botContent.message)}
-              onThumbsUp={() => handleThumbsUp(botContent.message)}
-              onThumbsDown={() => handleThumbsDown(botContent.message)}
-              onRetry={() => handleRetryMessage(botContent.message)}
-              isVisible={true}
-            />
-          )}
-        </div>
-      );
-    }
-
-    // Simple link message
-    if (botContent.type === 'simple_link') {
-      return (
-        <div>
-          <div style={styles.messageRow}>
-            <Avatar
-              src={chatSettings?.chat_icon_url}
-              name={chatSettings?.chat_name}
-              style={styles.avatarSpacing}
-            />
-            <div style={{ maxWidth: '80%' }}>
-              <div
-                style={{
-                  ...styles.messageBubbleBot,
-                  fontSize: chatSettings?.font_size || '14px'
-                }}
-              >
-                <p style={styles.messageText}>
-                  {botContent.message}
-                </p>
-                
-                {botContent.simple_link && (
-                  <a
-                    href={botContent.simple_link.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => handleLinkClick({ 
-                      name: botContent.simple_link!.text, 
-                      url: botContent.simple_link!.url, 
-                      description: '',
-                      button_text: '',
-                      image_url: ''
-                    })}
-                    style={{
-                      display: 'inline-block',
-                      color: chatSettings?.chat_color || '#007bff',
-                      textDecoration: 'underline',
-                      fontSize: chatSettings?.font_size || '14px',
-                      cursor: 'pointer',
-                      padding: '4px 0',
-                      marginTop: '8px'
-                    }}
-                  >
-                    {botContent.simple_link.text}
-                  </a>
-                )}
-              </div>
-            </div>
-          </div>
-          {!isIntroMessage(message as BotMessage) && (
-            <MessageActions
-              messageContent={botContent.message}
-              onCopy={() => handleCopyMessage(botContent.message)}
-              onThumbsUp={() => handleThumbsUp(botContent.message)}
-              onThumbsDown={() => handleThumbsDown(botContent.message)}
-              onRetry={() => handleRetryMessage(botContent.message)}
-              isVisible={true}
-            />
-          )}
-        </div>
-      );
-    }
-
-    // Regular message
     const messageContent = botContent?.message || 'Sorry, I could not understand the response.';
     
     return (
@@ -1196,23 +1140,68 @@ export function ChatWidgetCore({
             name={chatSettings?.chat_name}
             style={styles.avatarSpacing}
           />
-          <div
-            style={{
-              ...styles.messageBubbleBot,
-              fontSize: chatSettings?.font_size || '14px'
-            }}
-          >
-            <p style={styles.messageText}>
-              {messageContent}
-            </p>
+          <div style={{ maxWidth: '80%' }}>
+            <div
+              style={{
+                ...styles.messageBubbleBot,
+                fontSize: chatSettings?.font_size || '14px',
+                ...(botContent.type === 'links' ? { marginBottom: '12px' } : {})
+              }}
+            >
+              <p style={styles.messageText}>
+                {messageContent}
+              </p>
+              
+              {/* Simple link inside message bubble */}
+              {botContent.type === 'simple_link' && botContent.simple_link && (
+                <a
+                  href={botContent.simple_link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => handleLinkClick({ 
+                    name: botContent.simple_link!.text, 
+                    url: botContent.simple_link!.url, 
+                    description: '',
+                    button_text: '',
+                    image_url: ''
+                  })}
+                  style={{
+                    display: 'inline-block',
+                    color: chatSettings?.chat_color || '#007bff',
+                    textDecoration: 'underline',
+                    fontSize: chatSettings?.font_size || '14px',
+                    cursor: 'pointer',
+                    padding: '4px 0',
+                    marginTop: '8px'
+                  }}
+                >
+                  {botContent.simple_link.text}
+                </a>
+              )}
+            </div>
+            
+            {/* Product boxes outside message bubble */}
+            {botContent.type === 'links' && botContent.links && (
+              <div style={styles.linksContainer}>
+                {botContent.links.map((link, index) => (
+                  <LinkCard 
+                    key={index} 
+                    link={link} 
+                    chatSettings={chatSettings} 
+                    styles={styles} 
+                    onLinkClick={handleLinkClick}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
         {!isIntroMessage(message as BotMessage) && (
           <MessageActions
             messageContent={messageContent}
-            onCopy={() => handleCopyMessage(messageContent)}
-            onThumbsUp={() => handleThumbsUp(messageContent)}
-            onThumbsDown={() => handleThumbsDown(messageContent)}
+            onCopy={() => handleCopyMessage()}
+            onThumbsUp={() => handleThumbsUp()}
+            onThumbsDown={() => handleThumbsDown()}
             onRetry={() => handleRetryMessage(messageContent)}
             isVisible={true}
           />

@@ -23,6 +23,9 @@ export interface AffiliateLink {
   url: string
   title: string
   description?: string
+  product_id?: string
+  aliases?: string[]
+  image_url?: string
   site_id: string
   created_at: string
   updated_at: string
@@ -32,6 +35,13 @@ export interface TrainingMaterial {
   id: string
   url: string
   title: string
+  content?: string | null
+  summary?: string | null
+  key_points?: string[]
+  summarized_at?: string | null
+  scrape_status?: 'pending' | 'processing' | 'success' | 'failed'
+  error_message?: string | null
+  metadata?: Record<string, unknown>
   site_id: string
   created_at: string
   updated_at: string

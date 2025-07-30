@@ -4,6 +4,11 @@ import OpenAI from 'openai';
 import { createSupabaseAdminClient } from '@/lib/supabase-server';
 import { buildSystemPrompt } from '@/lib/instructions';
 import { StructuredAIResponse, AIResponseParseResult } from '@/types/training';
+import { detectLanguage, enforceLanguageInMessage, addLanguageToSystemPrompt } from '@/lib/ai/language';
+import { selectRelevantContext, buildOptimizedContext } from '@/lib/ai/context';
+import { findMostRelevantProduct } from '@/lib/ai/conversation';
+import { findBestProductMatches } from '@/lib/ai/product-matching';
+import { validateAIResponse } from '@/lib/ai/response-validator';
 
 export async function POST(request: NextRequest) {
   try {
@@ -117,8 +122,8 @@ export async function POST(request: NextRequest) {
             content: message
           }]);
         
-        // Log assistant response
-        const responseMessage = typeof response.message === 'string' ? response.message : JSON.stringify(response);
+        // Log assistant response - always store the complete structured response
+        const responseMessage = JSON.stringify(response);
         await supabase
           .from('chat_messages')
           .insert([{
@@ -183,6 +188,10 @@ async function generateChatResponse(message: string, conversationHistory: { role
       return getFallbackResponse(message);
     }
 
+    // Detect language from user message
+    const detectedLanguage = detectLanguage(message);
+    console.log(`Detected language: ${detectedLanguage.name} (${detectedLanguage.code}) with confidence ${detectedLanguage.confidence}`);
+
     // Initialize OpenAI client inside the function to avoid build-time errors
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
@@ -190,18 +199,21 @@ async function generateChatResponse(message: string, conversationHistory: { role
 
     const supabase = createSupabaseAdminClient();
     
-    // Fetch training materials for this site
+    // Select relevant training materials based on the query with conversation history
+    const relevantContext = await selectRelevantContext(message, siteId, 7, conversationHistory);
+    const trainingContext = buildOptimizedContext(relevantContext);
+    
+    // Fetch all training materials for product matching (lightweight query)
     const { data: trainingMaterials } = await supabase
       .from('training_materials')
-      .select('title, content, metadata')
+      .select('title, metadata')
       .eq('site_id', siteId)
-      .eq('scrape_status', 'success')
-      .not('content', 'is', null);
+      .eq('scrape_status', 'success');
     
     // Fetch affiliate links for this site
     const { data: affiliateLinks } = await supabase
       .from('affiliate_links')
-      .select('url, title, description')
+      .select('id, url, title, description, product_id, aliases, image_url, site_id, created_at, updated_at')
       .eq('site_id', siteId);
     
     // Fetch chat settings for custom instructions
@@ -210,19 +222,6 @@ async function generateChatResponse(message: string, conversationHistory: { role
       .select('instructions')
       .eq('site_id', siteId)
       .single();
-    
-    // Build training context
-    let trainingContext = '';
-    if (trainingMaterials && trainingMaterials.length > 0) {
-      trainingContext = '\n\nTraining Materials Context:\n';
-      trainingMaterials.forEach((material, index) => {
-        if (material.content) {
-          // Limit content length to avoid token limits
-          const truncatedContent = material.content.substring(0, 2000);
-          trainingContext += `\n${index + 1}. ${material.title}:\n${truncatedContent}${material.content.length > 2000 ? '...' : ''}\n`;
-        }
-      });
-    }
     
     // Build affiliate links context
     let affiliateContext = '';
@@ -233,8 +232,12 @@ async function generateChatResponse(message: string, conversationHistory: { role
       });
     }
     
-    // Build system prompt
-    const systemPrompt = buildSystemPrompt(chatSettings?.instructions || '');
+    // Build system prompt with language enforcement
+    let systemPrompt = buildSystemPrompt(chatSettings?.instructions || '');
+    systemPrompt = addLanguageToSystemPrompt(systemPrompt, detectedLanguage);
+    
+    // Enforce language in user message
+    const languageEnforcedMessage = enforceLanguageInMessage(message, detectedLanguage);
 
     // Build the conversation messages for OpenAI
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -248,13 +251,13 @@ async function generateChatResponse(message: string, conversationHistory: { role
       })),
       {
         role: 'user',
-        content: message
+        content: languageEnforcedMessage
       }
     ];
 
     // Call OpenAI API with response_format for structured JSON
     const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo-1106',
+      model: 'gpt-4o-mini',
       messages: messages,
       max_tokens: 500,
       temperature: 0.7,
@@ -275,40 +278,113 @@ async function generateChatResponse(message: string, conversationHistory: { role
       return getFallbackResponseFromText(rawResponse, affiliateLinks || []);
     }
 
-    const structuredResponse = parseResult.structured!;
+    // Validate and sanitize the AI response
+    const validationResult = validateAIResponse(parseResult.structured!, affiliateLinks || []);
+    
+    if (!validationResult.isValid) {
+      console.error('❌ AI Response Validation Failed:', validationResult.errors);
+      return getFallbackResponseFromText(rawResponse, affiliateLinks || []);
+    }
+
+    if (validationResult.warnings.length > 0) {
+      console.warn('⚠️ AI Response Warnings:', validationResult.warnings);
+    }
+
+    const structuredResponse = validationResult.sanitizedResponse!;
     
     // If AI decided to show products, return with links
     if (structuredResponse.show_products && affiliateLinks && affiliateLinks.length > 0) {
       let linksToShow = [...affiliateLinks];
       
-      // If AI specified specific products, try to match them
+      // If AI specified specific products, use smart matching service
       if (structuredResponse.specific_products && structuredResponse.specific_products.length > 0) {
-        const matchedLinks = [];
-        const unmatchedLinks = [];
+        console.log('🎯 Product Box Matching - AI specified products:', structuredResponse.specific_products);
         
-        for (const link of affiliateLinks) {
-          const isMatched = structuredResponse.specific_products.some(productName => 
-            link.title.toLowerCase().includes(productName.toLowerCase()) ||
-            productName.toLowerCase().includes(link.title.toLowerCase())
+        const productMatches = findBestProductMatches(
+          structuredResponse.specific_products,
+          affiliateLinks,
+          {
+            maxResults: structuredResponse.max_products || 3,
+            minConfidence: 0.5, // Higher confidence for product boxes
+            conversationContext: {
+              currentMessage: message,
+              history: conversationHistory
+            }
+          }
+        );
+        
+        if (productMatches.length > 0) {
+          linksToShow = productMatches.map(match => match.product);
+          console.log(`✅ Product Box Matching - Showing ${linksToShow.length} matched products`);
+        } else {
+          console.log('❌ Product Box Matching - No exact matches, trying contextual fallback...');
+          
+          // Use contextual matching as fallback when no specific matches found
+          const contextualMatches = findBestProductMatches(
+            [], // Empty specific products array
+            affiliateLinks,
+            {
+              maxResults: Math.min(structuredResponse.max_products || 1, 2), // Limit fallback results
+              minConfidence: 0.3, // Lower confidence for fallback
+              conversationContext: {
+                currentMessage: message,
+                history: conversationHistory
+              }
+            }
           );
           
-          if (isMatched) {
-            matchedLinks.push(link);
+          if (contextualMatches.length > 0) {
+            linksToShow = contextualMatches.map(match => match.product);
+            console.log(`🔄 Product Box Matching - Using contextual fallback: ${linksToShow.length} products`);
           } else {
-            unmatchedLinks.push(link);
+            console.log('❌ Product Box Matching - No contextual matches found, showing first available product');
+            // Final fallback: show first product to avoid empty response when AI explicitly requested products
+            linksToShow = affiliateLinks.slice(0, 1);
           }
         }
+      } else {
+        console.log('🎯 Product Box Matching - No specific products mentioned, using contextual matching');
         
-        // Prioritize matched products, then add unmatched if needed
-        linksToShow = [...matchedLinks, ...unmatchedLinks];
+        // When no specific products mentioned, use contextual matching
+        const contextualMatches = findBestProductMatches(
+          [], // Empty specific products array
+          affiliateLinks,
+          {
+            maxResults: Math.min(structuredResponse.max_products || 1, 2),
+            minConfidence: 0.3,
+            conversationContext: {
+              currentMessage: message,
+              history: conversationHistory
+            }
+          }
+        );
+        
+        if (contextualMatches.length > 0) {
+          linksToShow = contextualMatches.map(match => match.product);
+          console.log(`✅ Product Box Matching - Contextual matches: ${linksToShow.length} products`);
+        } else {
+          // Show first product as final fallback when AI explicitly requested products
+          linksToShow = affiliateLinks.slice(0, Math.min(structuredResponse.max_products || 1, 2));
+          console.log(`🔄 Product Box Matching - Final fallback: showing first ${linksToShow.length} products`);
+        }
+      }
+      
+      // If no products to show, return a simple message instead of empty links
+      if (linksToShow.length === 0) {
+        return {
+          type: 'message',
+          message: structuredResponse.message
+        };
       }
       
       // Limit to max_products or default to 1
       const maxProducts = structuredResponse.max_products || 1;
       const links = linksToShow.slice(0, maxProducts).map(link => {
-        // Try to extract image from training materials - only use if available
-        let imageUrl = '';
-        if (trainingMaterials) {
+        // Use the image_url from affiliate link first
+        let imageUrl = link.image_url || '';
+        
+        // Fallback to training materials if no image_url
+        if (!imageUrl && trainingMaterials) {
           const relatedMaterial = trainingMaterials.find(m => 
             m.title?.toLowerCase().includes(link.title.toLowerCase()) ||
             link.title.toLowerCase().includes(m.title?.toLowerCase() || '')
@@ -337,6 +413,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
     // If AI decided to show simple link, return with simple link
     if (structuredResponse.show_simple_link) {
       let linkUrl = structuredResponse.link_url;
+      let selectedLink = null;
       
       // If link_url is a placeholder or example URL, try to find actual product URL
       if ((!linkUrl || 
@@ -345,22 +422,43 @@ async function generateChatResponse(message: string, conversationHistory: { role
            linkUrl.length === 0) && 
           affiliateLinks && affiliateLinks.length > 0) {
         
-        // Try to find the most relevant affiliate link
-        // Look for product mentioned in the conversation or use first available
-        linkUrl = affiliateLinks[0].url;
-        
-        // If AI mentioned specific products, try to match them
+        // First, try to match AI's specific products using smart matching service
         if (structuredResponse.specific_products && structuredResponse.specific_products.length > 0) {
-          for (const link of affiliateLinks) {
-            const isMatched = structuredResponse.specific_products.some(productName => 
-              link.title.toLowerCase().includes(productName.toLowerCase()) ||
-              productName.toLowerCase().includes(link.title.toLowerCase())
-            );
-            if (isMatched) {
-              linkUrl = link.url;
-              break;
+          console.log('🔗 Simple Link Matching - AI specified products:', structuredResponse.specific_products);
+          
+          const productMatches = findBestProductMatches(
+            structuredResponse.specific_products,
+            affiliateLinks,
+            {
+              maxResults: 1, // Only need one link for simple link
+              minConfidence: 0.4, // Lower confidence for simple links (more flexible)
+              conversationContext: {
+                currentMessage: message,
+                history: conversationHistory
+              }
             }
+          );
+          
+          if (productMatches.length > 0) {
+            selectedLink = productMatches[0].product;
+            linkUrl = selectedLink.url;
+            console.log(`✅ Simple Link Matching - Selected: ${selectedLink.title} (confidence: ${productMatches[0].confidence})`);
+          } else {
+            console.log('❌ Simple Link Matching - No matches found above confidence threshold');
           }
+        }
+        
+        // If no match from AI's specific products, use conversation context
+        if (!selectedLink) {
+          selectedLink = findMostRelevantProduct(message, conversationHistory, affiliateLinks);
+          if (selectedLink) {
+            linkUrl = selectedLink.url;
+          }
+        }
+        
+        // Final fallback to first product
+        if (!linkUrl) {
+          linkUrl = affiliateLinks[0].url;
         }
       }
       
