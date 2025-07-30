@@ -12,6 +12,20 @@ interface ValidationResult {
   warnings: string[];
 }
 
+interface AIResponse {
+  message?: string;
+  specific_products?: string[] | string;
+  links?: Array<{
+    url: string;
+    name: string;
+    description: string;
+    image_url?: string;
+    button_text?: string;
+  }>;
+  // Make it compatible with StructuredAIResponse
+  [key: string]: unknown;
+}
+
 interface AffiliateLink {
   id: string;
   url: string;
@@ -38,7 +52,7 @@ export class AIResponseValidator {
   /**
    * Validate and sanitize an AI response
    */
-  validate(response: any): ValidationResult {
+  validate(response: AIResponse): ValidationResult {
     const errors: string[] = [];
     const warnings: string[] = [];
     
@@ -70,7 +84,7 @@ export class AIResponseValidator {
       } else {
         // Remove empty/invalid entries
         response.specific_products = response.specific_products
-          .filter((product: any) => product && typeof product === 'string' && product.trim().length > 0)
+          .filter((product: unknown) => product && typeof product === 'string' && product.trim().length > 0)
           .map((product: string) => product.trim());
       }
     }
@@ -137,7 +151,7 @@ export class AIResponseValidator {
   /**
    * Validate that mentioned products actually exist in the affiliate links
    */
-  private validateProductReferences(response: any, warnings: string[]): void {
+  private validateProductReferences(response: AIResponse, warnings: string[]): void {
     if (!response.specific_products || !Array.isArray(response.specific_products)) {
       return;
     }
@@ -238,7 +252,7 @@ export class AIResponseValidator {
  * Convenience function to validate AI responses
  */
 export function validateAIResponse(
-  response: any, 
+  response: AIResponse, 
   affiliateLinks: AffiliateLink[] = []
 ): ValidationResult {
   const validator = new AIResponseValidator(affiliateLinks);
