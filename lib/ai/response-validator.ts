@@ -90,8 +90,8 @@ export class AIResponseValidator {
     }
 
     // Validate max_products
-    if (response.max_products !== undefined) {
-      const maxProducts = parseInt(response.max_products);
+    if (response.max_products !== undefined && response.max_products !== null) {
+      const maxProducts = parseInt(String(response.max_products));
       if (isNaN(maxProducts) || maxProducts < 1 || maxProducts > 10) {
         warnings.push('max_products should be between 1-10, defaulting to 1');
         response.max_products = 1;
@@ -122,13 +122,13 @@ export class AIResponseValidator {
     // Create sanitized response
     const sanitizedResponse: StructuredAIResponse = {
       message: response.message || '',
-      show_products: response.show_products || false,
-      show_simple_link: response.show_simple_link || false,
-      link_text: response.link_text || undefined,
-      link_url: response.link_url || undefined,
-      specific_products: response.specific_products || undefined,
-      max_products: response.max_products || undefined,
-      product_context: response.product_context || undefined
+      show_products: Boolean(response.show_products),
+      show_simple_link: Boolean(response.show_simple_link),
+      link_text: (typeof response.link_text === 'string') ? response.link_text : undefined,
+      link_url: (typeof response.link_url === 'string') ? response.link_url : undefined,
+      specific_products: Array.isArray(response.specific_products) ? response.specific_products : undefined,
+      max_products: (typeof response.max_products === 'number') ? response.max_products : undefined,
+      product_context: (typeof response.product_context === 'string') ? response.product_context : undefined
     };
 
     console.log('🔍 Response Validation:', {
@@ -206,7 +206,7 @@ export class AIResponseValidator {
   /**
    * Sanitize the message content
    */
-  private sanitizeMessage(message: string): string {
+  private sanitizeMessage(message: string | undefined): string {
     if (!message || typeof message !== 'string') {
       return '';
     }
