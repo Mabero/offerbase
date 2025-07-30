@@ -154,7 +154,7 @@ function detectContentType(title: string, content: string): ContentType {
   const maxScore = Math.max(...Object.values(scores));
   if (maxScore < 2) return 'general';
 
-  return Object.entries(scores).reduce((a, b) => scores[a[0]] > scores[b[0]] ? a : b)[0] as ContentType;
+  return Object.entries(scores).reduce((a, b) => scores[a[0] as keyof typeof scores] > scores[b[0] as keyof typeof scores] ? a : b)[0] as ContentType;
 }
 
 /**

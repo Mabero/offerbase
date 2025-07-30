@@ -28,6 +28,8 @@ export interface TrainingMetadata {
   contentLength?: number;
   language?: string;
   siteName?: string;
+  // Index signature for compatibility with Record<string, unknown>
+  [key: string]: unknown;
 }
 
 export interface ProductInfo {

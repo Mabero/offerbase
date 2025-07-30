@@ -70,8 +70,8 @@ export class AIResponseValidator {
     if (typeof response.show_products !== 'boolean') {
       // Try to infer from other fields
       response.show_products = Boolean(
-        response.specific_products?.length > 0 ||
-        (response.links && Array.isArray(response.links))
+        (response.specific_products && response.specific_products.length > 0) ||
+        ('links' in response && response.links && Array.isArray(response.links))
       );
       warnings.push('show_products field missing, inferred from other fields');
     }
