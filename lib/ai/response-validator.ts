@@ -52,7 +52,7 @@ export class AIResponseValidator {
   /**
    * Validate and sanitize an AI response
    */
-  validate(response: AIResponse): ValidationResult {
+  validate(response: AIResponse | StructuredAIResponse): ValidationResult {
     const errors: string[] = [];
     const warnings: string[] = [];
     
@@ -151,7 +151,7 @@ export class AIResponseValidator {
   /**
    * Validate that mentioned products actually exist in the affiliate links
    */
-  private validateProductReferences(response: AIResponse, warnings: string[]): void {
+  private validateProductReferences(response: AIResponse | StructuredAIResponse, warnings: string[]): void {
     if (!response.specific_products || !Array.isArray(response.specific_products)) {
       return;
     }
@@ -252,7 +252,7 @@ export class AIResponseValidator {
  * Convenience function to validate AI responses
  */
 export function validateAIResponse(
-  response: AIResponse, 
+  response: AIResponse | StructuredAIResponse, 
   affiliateLinks: AffiliateLink[] = []
 ): ValidationResult {
   const validator = new AIResponseValidator(affiliateLinks);
