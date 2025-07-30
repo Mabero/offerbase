@@ -10,6 +10,7 @@
     // Configuration
     const script = document.currentScript;
     const siteId = script.getAttribute('data-site-id');
+    const widgetType = script.getAttribute('data-widget-type') || 'floating';
     const apiUrl = script.src.replace('/widget.js', '');
 
     if (!siteId) {
@@ -60,8 +61,8 @@
         embedded: false
     };
 
-    // Create widget container
-    function createWidgetContainer() {
+    // Create widget container (floating version)
+    function createFloatingWidgetContainer() {
         const container = document.createElement('div');
         container.id = 'chat-widget-' + siteId;
         container.style.cssText = `
@@ -92,6 +93,44 @@
 
         container.appendChild(iframe);
         document.body.appendChild(container);
+
+        return { container, iframe };
+    }
+
+    // Create widget container (inline version)
+    function createInlineWidgetContainer() {
+        const container = document.createElement('div');
+        container.id = 'chat-widget-' + siteId;
+        container.style.cssText = `
+            position: relative;
+            width: 100%;
+            height: 500px;
+            z-index: 1;
+            border: 1px solid #e5e7eb;
+            border-radius: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            background: white;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            display: block;
+            margin: 20px 0;
+        `;
+
+        // Create iframe
+        const iframe = document.createElement('iframe');
+        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&embedded=true`;
+        iframe.style.cssText = `
+            width: 100%;
+            height: 100%;
+            border: none;
+            border-radius: 20px;
+        `;
+        iframe.title = 'Chat Widget';
+
+        container.appendChild(iframe);
+        
+        // For inline widgets, append to the script's parent element or body
+        const insertionPoint = script.parentElement || document.body;
+        insertionPoint.appendChild(container);
 
         return { container, iframe };
     }
@@ -152,13 +191,31 @@
     // Initialize widget
     async function initializeWidget() {
         // Load settings first (returns true/false indicating success)
-        const settingsLoaded = await loadChatSettings();
+        await loadChatSettings();
         
 
         // Update config with loaded settings (either from API or defaults)
         config.settings = chatSettings;
 
-        const { container, iframe } = createWidgetContainer();
+        // Track session start
+        trackEvent('session_start', {
+            initial_page_url: window.location.href,
+            referrer: document.referrer,
+            viewport_width: window.innerWidth,
+            viewport_height: window.innerHeight
+        });
+
+        // Handle different widget types
+        if (widgetType === 'inline') {
+            initializeInlineWidget();
+        } else {
+            initializeFloatingWidget();
+        }
+    }
+
+    // Initialize floating widget
+    function initializeFloatingWidget() {
+        const { container, iframe } = createFloatingWidgetContainer();
         const button = createChatButton();
 
         let isOpen = false;
@@ -176,7 +233,10 @@
                 `;
 
                 // Track widget open
-                trackEvent('widget_open');
+                trackEvent('widget_open', {
+                    opened_at: new Date().toISOString(),
+                    is_mobile: window.innerWidth < 768
+                });
             } else {
                 container.style.display = 'none';
                 button.innerHTML = `
@@ -208,6 +268,9 @@
         window.addEventListener('message', (event) => {
             if (event.data.type === 'WIDGET_READY') {
                 // Widget ready - no action needed
+            } else if (event.data.type === 'ANALYTICS_EVENT') {
+                // Handle analytics events from the iframe
+                trackEvent(event.data.eventType, event.data.data);
             }
         });
 
@@ -258,6 +321,29 @@
 
     }
 
+    // Initialize inline widget
+    function initializeInlineWidget() {
+        const { container, iframe } = createInlineWidgetContainer();
+        
+        // No button needed for inline widgets - they're always visible
+        
+        // Listen for messages from iframe
+        window.addEventListener('message', (event) => {
+            if (event.data.type === 'WIDGET_READY') {
+                // Widget ready - no action needed
+            } else if (event.data.type === 'ANALYTICS_EVENT') {
+                // Handle analytics events from the iframe
+                trackEvent(event.data.eventType, event.data.data);
+            }
+        });
+
+        // Track inline widget loaded
+        trackEvent('inline_widget_loaded', {
+            container_height: container.style.height,
+            insertion_method: 'parent_element'
+        });
+    }
+
 
     // Analytics batching system for scalability
     const analyticsQueue = [];
@@ -266,12 +352,25 @@
     let batchTimer = null;
     let isProcessingBatch = false;
     
+    let sessionId = null;
+    
     function trackEvent(eventType, details = {}) {
+        // Generate session ID on first event
+        if (!sessionId) {
+            sessionId = 'session_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 9);
+        }
+        
         const event = {
             event_type: eventType,
             site_id: siteId,
             user_id: null,
-            details: details,
+            details: {
+                ...details,
+                widget_type: widgetType,
+                session_id: sessionId,
+                page_url: window.location.href,
+                page_title: document.title
+            },
             timestamp: new Date().toISOString(),
             url: window.location.href,
             user_agent: navigator.userAgent
@@ -420,6 +519,14 @@
     
     // Process any remaining events when page is about to unload
     window.addEventListener('beforeunload', () => {
+        // Track session end
+        if (sessionId) {
+            trackEvent('session_end', {
+                session_duration: Date.now() - parseInt(sessionId.split('_')[1], 36),
+                final_page_url: window.location.href
+            });
+        }
+        
         if (analyticsQueue.length > 0) {
             // Use sendBeacon for more reliable delivery on page unload
             if (navigator.sendBeacon) {
@@ -522,11 +629,17 @@
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', async () => {
             await initializeWidget();
-            setupAutoPopup();
+            // Only show auto popup for floating widgets
+            if (widgetType === 'floating') {
+                setupAutoPopup();
+            }
         });
     } else {
         initializeWidget().then(() => {
-            setupAutoPopup();
+            // Only show auto popup for floating widgets
+            if (widgetType === 'floating') {
+                setupAutoPopup();
+            }
         });
     }
 

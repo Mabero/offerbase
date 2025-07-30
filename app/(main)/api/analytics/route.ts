@@ -203,12 +203,23 @@ export async function GET(request: NextRequest) {
       console.error('Error fetching chat sessions:', sessionsError);
     }
 
-    // Calculate metrics
+    // Calculate metrics with widget type breakdown
     const widgetOpens = events?.filter(e => e.event_type === 'widget_open').length || 0;
     const linkClicks = events?.filter(e => e.event_type === 'link_click').length || 0;
+    const offerImpressions = events?.filter(e => e.event_type === 'offer_impression').length || 0;
+    const sessionStarts = events?.filter(e => e.event_type === 'session_start').length || 0;
     const totalMessages = sessions?.reduce((sum, session) => sum + (session.message_count || 0), 0) || 0;
     const uniqueUsers = new Set(events?.map(e => e.user_session_id)).size || 0;
     const totalSessions = sessions?.length || 0;
+
+    // Widget type breakdown
+    const floatingWidgetEvents = events?.filter(e => e.event_data?.widget_type === 'floating') || [];
+    const inlineWidgetEvents = events?.filter(e => e.event_data?.widget_type === 'inline') || [];
+    
+    const floatingOpens = floatingWidgetEvents.filter(e => e.event_type === 'widget_open').length;
+    const inlineOpens = inlineWidgetEvents.filter(e => e.event_type === 'widget_open').length;
+    const floatingClicks = floatingWidgetEvents.filter(e => e.event_type === 'link_click').length;
+    const inlineClicks = inlineWidgetEvents.filter(e => e.event_type === 'link_click').length;
     
     // Calculate average session duration
     const sessionsWithDuration = sessions?.filter(s => s.ended_at) || [];
@@ -226,11 +237,27 @@ export async function GET(request: NextRequest) {
         total_widget_opens: widgetOpens,
         total_messages: totalMessages,
         total_link_clicks: linkClicks,
+        total_offer_impressions: offerImpressions,
+        total_session_starts: sessionStarts,
         unique_users: uniqueUsers,
         total_sessions: totalSessions,
         average_session_duration: Math.round(averageSessionDuration),
         bounce_rate: totalSessions > 0 ? (sessionsWithDuration.filter(s => s.message_count === 0).length / totalSessions) : 0,
-        conversion_rate: totalSessions > 0 ? (linkClicks / totalSessions) : 0
+        conversion_rate: totalSessions > 0 ? (linkClicks / totalSessions) : 0,
+        impression_to_click_rate: offerImpressions > 0 ? (linkClicks / offerImpressions) : 0,
+        // Widget type breakdown
+        widget_breakdown: {
+          floating: {
+            opens: floatingOpens,
+            clicks: floatingClicks,
+            conversion_rate: floatingOpens > 0 ? (floatingClicks / floatingOpens) : 0
+          },
+          inline: {
+            opens: inlineOpens,
+            clicks: inlineClicks,
+            conversion_rate: inlineOpens > 0 ? (inlineClicks / inlineOpens) : 0
+          }
+        }
       },
       recent_events: events?.slice(0, 10) || []
     };

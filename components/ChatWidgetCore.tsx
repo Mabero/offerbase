@@ -389,6 +389,46 @@ const Avatar = ({ src, name, style = {} }: { src?: string; name?: string; style?
   );
 };
 
+// LinksContainer component to handle offer impression tracking
+const LinksContainer = ({ links, chatSettings, styles, onLinkClick }: {
+  links: Link[];
+  chatSettings: ChatSettings;
+  styles: Record<string, React.CSSProperties>;
+  onLinkClick?: (link: Link) => void;
+}) => {
+  // Track offer impressions when links are rendered
+  useEffect(() => {
+    if (window.parent !== window) {
+      links.forEach((link, index) => {
+        window.parent.postMessage({
+          type: 'ANALYTICS_EVENT',
+          eventType: 'offer_impression',
+          data: {
+            link_url: link.url,
+            link_name: link.name,
+            link_position: index,
+            total_offers: links.length
+          }
+        }, '*');
+      });
+    }
+  }, [links]);
+
+  return (
+    <div style={styles.linksContainer}>
+      {links.map((link, index) => (
+        <LinkCard 
+          key={index} 
+          link={link} 
+          chatSettings={chatSettings} 
+          styles={styles} 
+          onLinkClick={onLinkClick}
+        />
+      ))}
+    </div>
+  );
+};
+
 // LinkCard component
 const LinkCard = ({ link, chatSettings, styles, onLinkClick }: {
   link: Link;
@@ -860,6 +900,20 @@ export function ChatWidgetCore({
   // Handle link clicks
   const handleLinkClick = (link: Link) => {
     onLinkClick?.(link);
+    
+    // Send analytics event to parent window for tracking
+    if (window.parent !== window) {
+      window.parent.postMessage({
+        type: 'ANALYTICS_EVENT',
+        eventType: 'link_click',
+        data: {
+          link_url: link.url,
+          link_name: link.name,
+          link_description: link.description,
+          button_text: link.button_text || 'Learn more'
+        }
+      }, '*');
+    }
   };
 
   // Check if a message is an intro message that shouldn't have action buttons
@@ -1182,17 +1236,12 @@ export function ChatWidgetCore({
             
             {/* Product boxes outside message bubble */}
             {botContent.type === 'links' && botContent.links && (
-              <div style={styles.linksContainer}>
-                {botContent.links.map((link, index) => (
-                  <LinkCard 
-                    key={index} 
-                    link={link} 
-                    chatSettings={chatSettings} 
-                    styles={styles} 
-                    onLinkClick={handleLinkClick}
-                  />
-                ))}
-              </div>
+              <LinksContainer
+                links={botContent.links}
+                chatSettings={chatSettings}
+                styles={styles}
+                onLinkClick={handleLinkClick}
+              />
             )}
           </div>
         </div>

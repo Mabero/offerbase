@@ -43,7 +43,7 @@ export async function summarizeTrainingMaterial(
   // Include structured data context if available
   const structuredDataContext = Object.keys(contentAnalysis.structuredData).length > 0 
     ? `\n\nPre-analyzed structured data: ${JSON.stringify(contentAnalysis.structuredData, null, 2)}`
-    : '';`;
+    : '';
 
   const userPrompt = `Title: ${title}
 

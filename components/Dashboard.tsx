@@ -12,7 +12,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -33,7 +32,9 @@ import {
   Eye,
   EyeOff,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  Copy,
+  Check
 } from 'lucide-react';
 
 import { supabase } from '../lib/supabaseClient';
@@ -47,9 +48,8 @@ const drawerWidth = 240;
 const navItems = [
   { label: 'Offer Links', icon: ExternalLink },
   { label: 'Training Materials', icon: FileText },
-  { label: 'Chat Settings', icon: SettingsIcon },
+  { label: 'Widgets', icon: SettingsIcon },
   { label: 'Instructions', icon: Info },
-  { label: 'Embed Widget', icon: Code },
   { label: 'Analytics', icon: BarChart3 },
   { label: 'Chat Logs', icon: MessageCircle },
 ];
@@ -128,6 +128,13 @@ interface ChatStats {
   totalMessages: number;
   averageResponseTime: number;
   satisfactionRate: number;
+  totalOfferImpressions?: number;
+  totalLinkClicks?: number;
+  conversionRate?: number;
+  widgetBreakdown?: {
+    floating: { opens: number; clicks: number; conversion_rate: number };
+    inline: { opens: number; clicks: number; conversion_rate: number };
+  };
 }
 
 function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: DashboardProps) {
@@ -164,6 +171,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   const [isLoadingSessionDetails, setIsLoadingSessionDetails] = useState(false);
   const [instructions, setInstructions] = useState(BASE_INSTRUCTIONS);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [chatStats, setChatStats] = useState<ChatStats>({
     totalChats: 0,
     totalMessages: 0,
@@ -381,6 +389,26 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Copy embed code to clipboard
+  const handleCopyCode = async (code: string, type: string) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopiedCode(type);
+      toast({
+        title: "Copied!",
+        description: "Embed code copied to clipboard",
+      });
+      // Reset copied state after 2 seconds
+      setTimeout(() => setCopiedCode(null), 2000);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to copy to clipboard",
+        variant: "destructive"
+      });
     }
   };
 
@@ -961,7 +989,11 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         totalChats: data.metrics.total_sessions || 0,
         totalMessages: data.metrics.total_messages || 0,
         averageResponseTime: data.metrics.average_session_duration || 0,
-        satisfactionRate: Math.round((1 - (data.metrics.bounce_rate || 0)) * 100)
+        satisfactionRate: Math.round((1 - (data.metrics.bounce_rate || 0)) * 100),
+        totalOfferImpressions: data.metrics.total_offer_impressions || 0,
+        totalLinkClicks: data.metrics.total_link_clicks || 0,
+        conversionRate: Math.round((data.metrics.conversion_rate || 0) * 10) / 10,
+        widgetBreakdown: data.metrics.widget_breakdown
       });
     } catch (error) {
       console.error('Error fetching analytics:', error);
@@ -1511,10 +1543,10 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                 </div>
               )}
 
-              {/* Chat Settings Tab */}
+              {/* Widgets Tab */}
               {selectedTab === 2 && (
                 <div className="space-y-6">
-                  <h2 className="text-xl font-semibold text-gray-900 mb-6">Chat Settings</h2>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-6">Widget Settings</h2>
                   <div className="space-y-4">
                     <div>
                       <Label htmlFor="chat-name">Chat Name</Label>
@@ -1580,6 +1612,84 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                       )}
                     </Button>
                   </div>
+                  
+                  {/* Widget Types Section */}
+                  
+                  <div className="mt-8">
+                    <h3 className="text-xl font-semibold text-gray-900 mt-10 mb-4">Widget Types</h3>
+                    <p className="text-sm text-gray-600 mb-6">
+                      Use the same settings with different widget types. You can deploy both widgets on your site simultaneously.
+                    </p>
+                    
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Floating Chat Widget */}
+                      <div className="bg-gray-50 p-4 rounded-lg">
+                        <h4 className="font-semibold text-gray-900 mb-2">Floating Chat Widget</h4>
+                        <p className="text-sm text-gray-600 mb-3">
+                          Traditional floating chat button that appears in the bottom right corner. Perfect for general website support.
+                        </p>
+                        <Label className="text-sm font-medium">Embed Code</Label>
+                        <div 
+                          onClick={() => handleCopyCode(`<script src="${API_URL}/widget.js" data-site-id="${selectedSite?.id || 'your-site-id'}"></script>`, 'floating')}
+                          className="mt-2 bg-white border border-gray-300 rounded-md p-3 font-mono text-xs cursor-pointer hover:bg-gray-50 transition-colors relative group"
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1 pr-8 break-all">
+                              {`<script src="${API_URL}/widget.js" data-site-id="${selectedSite?.id || 'your-site-id'}"></script>`}
+                            </div>
+                            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {copiedCode === 'floating' ? (
+                                <Check className="h-4 w-4 text-green-600" />
+                              ) : (
+                                <Copy className="h-4 w-4 text-gray-400" />
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">Click to copy</p>
+                      </div>
+                      
+                      {/* Inline Article Widget */}
+                      <div className="bg-gray-50 p-4 rounded-lg">
+                        <h4 className="font-semibold text-gray-900 mb-2">Inline Article Widget</h4>
+                        <p className="text-sm text-gray-600 mb-3">
+                          Chat box that appears inline with your content. Place this code where you want the widget to appear in articles or blog posts.
+                        </p>
+                        <Label className="text-sm font-medium">Embed Code</Label>
+                        <div 
+                          onClick={() => handleCopyCode(`<script src="${API_URL}/widget.js" data-site-id="${selectedSite?.id || 'your-site-id'}" data-widget-type="inline"></script>`, 'inline')}
+                          className="mt-2 bg-white border border-gray-300 rounded-md p-3 font-mono text-xs cursor-pointer hover:bg-gray-50 transition-colors relative group"
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1 pr-8 break-all">
+                              {`<script src="${API_URL}/widget.js" data-site-id="${selectedSite?.id || 'your-site-id'}" data-widget-type="inline"></script>`}
+                            </div>
+                            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {copiedCode === 'inline' ? (
+                                <Check className="h-4 w-4 text-green-600" />
+                              ) : (
+                                <Copy className="h-4 w-4 text-gray-400" />
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">Click to copy</p>
+                      </div>
+                    </div>
+                    
+                    <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                      <div className="flex">
+                        <Info className="h-5 w-5 text-blue-400 mt-0.5 mr-2" />
+                        <div>
+                          <h5 className="text-sm font-medium text-blue-900">Pro Tip</h5>
+                          <p className="text-sm text-blue-700 mt-1">
+                            You can use both widget types on the same website! The floating widget provides general support, 
+                            while inline widgets offer contextual help within your content.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1617,37 +1727,17 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                 </div>
               )}
 
-              {/* Embed Widget Tab */}
-              {selectedTab === 4 && (
-                <div className="space-y-6">
-                  <h2 className="text-xl font-semibold text-gray-900 mb-6">Embed Widget</h2>
-                  <div className="space-y-4">
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <Label htmlFor="embed-code">Embed Code</Label>
-                      <Textarea
-                        id="embed-code"
-                        value={`<script src="${API_URL}/widget.js" data-site-id="${selectedSite?.id || 'your-site-id'}"></script>`}
-                        rows={3}
-                        className="mt-2 bg-white border-gray-300 font-mono text-sm"
-                        readOnly
-                      />
-                      <p className="text-sm text-gray-600 mt-2">
-                        Copy and paste this code into your website&apos;s HTML to embed the chat widget. The widget will automatically load your latest settings.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* Analytics Tab */}
-              {selectedTab === 5 && (
+              {selectedTab === 4 && (
                 <div className="space-y-6">
                   <h2 className="text-xl font-semibold text-gray-900 mb-6">Analytics</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Overview Metrics */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                     <Card>
                       <CardContent className="p-4">
                         <div className="text-2xl font-bold text-gray-900">{chatStats.totalChats}</div>
-                        <div className="text-sm text-gray-600">Total Chats</div>
+                        <div className="text-sm text-gray-600">Total Sessions</div>
                       </CardContent>
                     </Card>
                     <Card>
@@ -1658,22 +1748,91 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                     </Card>
                     <Card>
                       <CardContent className="p-4">
+                        <div className="text-2xl font-bold text-gray-900">{chatStats.totalLinkClicks || 0}</div>
+                        <div className="text-sm text-gray-600">Link Clicks</div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="p-4">
+                        <div className="text-2xl font-bold text-gray-900">{chatStats.conversionRate || 0}%</div>
+                        <div className="text-sm text-gray-600">Conversion Rate</div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Conversion Metrics */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                    <Card>
+                      <CardContent className="p-4">
+                        <div className="text-2xl font-bold text-gray-900">{chatStats.totalOfferImpressions || 0}</div>
+                        <div className="text-sm text-gray-600">Offer Impressions</div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="p-4">
                         <div className="text-2xl font-bold text-gray-900">{chatStats.averageResponseTime}s</div>
-                        <div className="text-sm text-gray-600">Avg Response Time</div>
+                        <div className="text-sm text-gray-600">Avg Session Duration</div>
                       </CardContent>
                     </Card>
                     <Card>
                       <CardContent className="p-4">
                         <div className="text-2xl font-bold text-gray-900">{chatStats.satisfactionRate}%</div>
-                        <div className="text-sm text-gray-600">Satisfaction Rate</div>
+                        <div className="text-sm text-gray-600">Engagement Rate</div>
                       </CardContent>
                     </Card>
                   </div>
+
+                  {/* Widget Type Breakdown */}
+                  {chatStats.widgetBreakdown && (
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold text-gray-900">Widget Performance</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <Card>
+                          <CardContent className="p-6">
+                            <h4 className="text-base font-medium text-gray-900 mb-4">Floating Widget</h4>
+                            <div className="space-y-3">
+                              <div className="flex justify-between">
+                                <span className="text-sm text-gray-600">Opens</span>
+                                <span className="font-medium">{chatStats.widgetBreakdown.floating?.opens || 0}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-sm text-gray-600">Clicks</span>
+                                <span className="font-medium">{chatStats.widgetBreakdown.floating?.clicks || 0}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-sm text-gray-600">Conversion Rate</span>
+                                <span className="font-medium">{chatStats.widgetBreakdown.floating?.conversion_rate || 0}%</span>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardContent className="p-6">
+                            <h4 className="text-base font-medium text-gray-900 mb-4">Inline Widget</h4>
+                            <div className="space-y-3">
+                              <div className="flex justify-between">
+                                <span className="text-sm text-gray-600">Opens</span>
+                                <span className="font-medium">{chatStats.widgetBreakdown.inline?.opens || 0}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-sm text-gray-600">Clicks</span>
+                                <span className="font-medium">{chatStats.widgetBreakdown.inline?.clicks || 0}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-sm text-gray-600">Conversion Rate</span>
+                                <span className="font-medium">{chatStats.widgetBreakdown.inline?.conversion_rate || 0}%</span>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Chat Logs Tab */}
-              {selectedTab === 6 && (
+              {selectedTab === 5 && (
                 <div className="space-y-6">
                   <h2 className="text-xl font-semibold text-gray-900 mb-6">Chat Logs</h2>
                   <div className="space-y-4">
