@@ -734,6 +734,7 @@ export function ChatWidgetCore({
   const [typingMessage, setTypingMessage] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [sessionId, setSessionId] = useState<string | null>(() => {
     // Clean up old session format and try to get existing session UUID from localStorage (backend-generated)
     const oldStorageKey = `chat_session_${siteId}`;
@@ -754,7 +755,10 @@ export function ChatWidgetCore({
   });
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Scroll the messages container instead of the entire page
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
   };
 
   useEffect(() => {
@@ -1279,7 +1283,7 @@ export function ChatWidgetCore({
       </div>
 
       {/* Messages Area */}
-      <div style={styles.messagesContainer}>
+      <div ref={messagesContainerRef} style={styles.messagesContainer}>
         {isLoadingHistory && (
           <div style={{
             display: 'flex',
