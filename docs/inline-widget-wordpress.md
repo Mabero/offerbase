@@ -18,7 +18,7 @@ If WordPress strips the script tag or it doesn't render properly, use this appro
 
 ```html
 <!-- Container for the widget -->
-<div data-chat-widget-inline style="min-height: 500px;"></div>
+<div data-chat-widget-inline style="min-height: 600px;"></div>
 
 <!-- Script at the end -->
 <script 
@@ -38,7 +38,7 @@ function inline_chat_widget_shortcode($atts) {
         'site_id' => '',
     ), $atts);
     
-    return '<div data-chat-widget-inline style="min-height: 500px;"></div>
+    return '<div data-chat-widget-inline style="min-height: 600px;"></div>
             <script src="https://your-domain.com/widget.js" 
                     data-site-id="' . esc_attr($atts['site_id']) . '" 
                     data-widget-type="inline"></script>';

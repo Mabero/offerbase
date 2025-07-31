@@ -601,9 +601,10 @@ export function ChatWidgetCore({
       border: '1px solid #d1d5db',
       borderRadius: '24px',
       outline: 'none',
-      fontSize: chatSettings?.font_size || '14px',
+      fontSize: '16px', // Fixed at 16px to prevent mobile zoom
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif',
-      backgroundColor: 'white'
+      backgroundColor: 'white',
+      touchAction: 'manipulation' // Prevents double-tap zoom on mobile
     },
     sendButton: {
       position: 'absolute',

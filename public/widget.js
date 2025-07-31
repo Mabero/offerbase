@@ -134,7 +134,7 @@
         container.style.cssText = `
             position: relative;
             width: 100%;
-            height: 500px;
+            height: 600px;
             z-index: 1;
             border: 1px solid #e5e7eb;
             border-radius: 8px;
