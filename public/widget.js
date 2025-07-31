@@ -132,21 +132,19 @@
         container.appendChild(iframe);
         
         // WordPress and other CMSs might strip script tags, so we need to be more careful
-        // First try to insert after the script element
-        if (script && script.parentElement) {
-            console.log('ChatWidget: Inserting after script element');
+        // First check if there's a placeholder container that was specifically created for this widget
+        const placeholder = document.querySelector('[data-chat-widget-inline]');
+        if (placeholder) {
+            console.log('ChatWidget: Found placeholder element, using it');
+            placeholder.appendChild(container);
+        } else if (script && script.parentElement) {
+            // If no placeholder, try to insert after the script element
+            console.log('ChatWidget: No placeholder found, inserting after script element');
             script.parentElement.insertBefore(container, script.nextSibling);
         } else {
-            // If that fails, try to find a container div that might have been created for this purpose
-            const placeholder = document.querySelector('[data-chat-widget-inline]');
-            if (placeholder) {
-                console.log('ChatWidget: Found placeholder element');
-                placeholder.appendChild(container);
-            } else {
-                // Last resort: append to body
-                console.log('ChatWidget: Appending to body as fallback');
-                document.body.appendChild(container);
-            }
+            // Last resort: append to body
+            console.log('ChatWidget: No placeholder or script parent, appending to body as fallback');
+            document.body.appendChild(container);
         }
 
         return { container, iframe };
