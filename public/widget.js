@@ -13,6 +13,12 @@
     const widgetType = script.getAttribute('data-widget-type') || 'floating';
     const apiUrl = script.src.replace('/widget.js', '');
 
+    // Debug attributes
+    console.log('ChatWidget: Script attributes debug:');
+    console.log('  - data-site-id:', script.getAttribute('data-site-id'));
+    console.log('  - data-widget-type:', script.getAttribute('data-widget-type'));
+    console.log('  - all attributes:', Array.from(script.attributes).map(attr => `${attr.name}="${attr.value}"`));
+
     if (!siteId) {
         console.error('ChatWidget: data-site-id attribute is required');
         return;
