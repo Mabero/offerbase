@@ -13,14 +13,35 @@
     let widgetType = script.getAttribute('data-widget-type') || 'floating';
     const apiUrl = script.src.replace('/widget.js', '');
 
-    // WordPress workaround: Check if there's a placeholder container nearby
-    // If so, assume this should be an inline widget
-    if (widgetType === 'floating') {
+    // Function to detect container with retries
+    function detectWidgetContainer(attempts = 3) {
+        console.log(`ChatWidget: Attempting container detection (attempt ${4 - attempts})`);
         const placeholder = document.querySelector('[data-chat-widget-inline]');
+        
         if (placeholder) {
             console.log('ChatWidget: Found placeholder container, switching to inline mode');
-            widgetType = 'inline';
+            return 'inline';
+        } else if (attempts > 1) {
+            console.log('ChatWidget: Container not found, retrying...');
+            return new Promise(resolve => {
+                setTimeout(() => {
+                    resolve(detectWidgetContainer(attempts - 1));
+                }, 50);
+            });
+        } else {
+            console.log('ChatWidget: No container found after retries, using floating mode');
+            return 'floating';
         }
+    }
+
+    // WordPress workaround: Check if there's a placeholder container nearby
+    // If so, assume this should be an inline widget
+    async function determineWidgetType() {
+        if (widgetType === 'floating') {
+            const detectedType = await detectWidgetContainer();
+            return detectedType;
+        }
+        return widgetType;
     }
 
     if (!siteId) {
@@ -216,7 +237,10 @@
     // Initialize widget
     async function initializeWidget() {
         console.log('ChatWidget: Starting initialization');
-        console.log('ChatWidget: Widget type:', widgetType);
+        
+        // Determine the actual widget type (may detect inline from container)
+        const finalWidgetType = await determineWidgetType();
+        console.log('ChatWidget: Final widget type:', finalWidgetType);
         console.log('ChatWidget: Site ID:', siteId);
         
         // Load settings first (returns true/false indicating success)
@@ -235,13 +259,15 @@
         });
 
         // Handle different widget types
-        if (widgetType === 'inline') {
+        if (finalWidgetType === 'inline') {
             console.log('ChatWidget: Initializing as inline widget');
             initializeInlineWidget();
         } else {
             console.log('ChatWidget: Initializing as floating widget');
             initializeFloatingWidget();
         }
+        
+        return finalWidgetType;
     }
 
     // Initialize floating widget
@@ -666,16 +692,16 @@
     // Initialize when DOM is ready
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', async () => {
-            await initializeWidget();
+            const finalType = await initializeWidget();
             // Only show auto popup for floating widgets
-            if (widgetType === 'floating') {
+            if (finalType === 'floating') {
                 setupAutoPopup();
             }
         });
     } else {
-        initializeWidget().then(() => {
+        initializeWidget().then((finalType) => {
             // Only show auto popup for floating widgets
-            if (widgetType === 'floating') {
+            if (finalType === 'floating') {
                 setupAutoPopup();
             }
         });
