@@ -346,19 +346,19 @@
             const isSmallMobile = screenWidth < 480;
             
             if (isMobile) {
-                const margins = isSmallMobile ? '8px' : '16px';
-                const topMargin = isSmallMobile ? '60px' : '80px';
+                const sideMargins = isSmallMobile ? '8px' : '16px';
+                const topMargin = '20px';
+                const bottomMargin = '92px'; // 52px button height + 20px margin + 20px padding
                 const borderRadius = isSmallMobile ? '12px' : '16px';
                 
                 container.style.cssText = `
                     position: fixed;
-                    bottom: ${margins};
-                    right: ${margins};
-                    left: ${margins};
                     top: ${topMargin};
-                    width: calc(100% - ${parseInt(margins) * 2}px);
-                    height: calc(100% - ${parseInt(topMargin) + parseInt(margins)}px);
-                    max-height: 600px;
+                    bottom: ${bottomMargin};
+                    right: ${sideMargins};
+                    left: ${sideMargins};
+                    width: calc(100% - ${parseInt(sideMargins) * 2}px);
+                    height: calc(100vh - ${parseInt(topMargin) + parseInt(bottomMargin)}px);
                     z-index: 1000;
                     border: none;
                     border-radius: ${borderRadius};
@@ -395,26 +395,29 @@
         
         function handleViewportChange() {
             const currentHeight = window.innerHeight;
+            const currentWidth = window.innerWidth;
             const heightDifference = initialViewportHeight - currentHeight;
             
             // On mobile, if viewport shrinks by more than 150px, assume keyboard is visible
-            if (window.innerWidth < 768 && heightDifference > 150) {
+            if (currentWidth < 768 && heightDifference > 150) {
                 if (!keyboardVisible) {
                     keyboardVisible = true;
                     // Adjust container height when keyboard appears
                     if (isOpen) {
+                        const sideMargins = currentWidth < 480 ? '8px' : '16px';
+                        const borderRadius = currentWidth < 480 ? '12px' : '16px';
+                        
                         container.style.cssText = `
                             position: fixed;
-                            bottom: 16px;
-                            right: 16px;
-                            left: 16px;
                             top: 20px;
-                            width: calc(100% - 32px);
-                            height: calc(100vh - 36px);
-                            max-height: ${currentHeight - 36}px;
+                            bottom: 92px;
+                            right: ${sideMargins};
+                            left: ${sideMargins};
+                            width: calc(100% - ${parseInt(sideMargins) * 2}px);
+                            height: calc(${currentHeight}px - 112px);
                             z-index: 1000;
                             border: none;
-                            border-radius: 16px;
+                            border-radius: ${borderRadius};
                             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
                             background: white;
                             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
