@@ -140,8 +140,8 @@
             height: 500px;
             z-index: 1;
             border: 1px solid #e5e7eb;
-            border-radius: 20px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            box-shadow: none;
             background: white;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
             display: block;
@@ -155,7 +155,7 @@
             width: 100%;
             height: 100%;
             border: none;
-            border-radius: 20px;
+            border-radius: 8px;
         `;
         iframe.title = 'Chat Widget';
         iframe.allow = 'clipboard-write';
