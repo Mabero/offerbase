@@ -1678,7 +1678,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         {/* WordPress Help */}
                         <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
                           <p className="text-yellow-800 font-medium mb-1">WordPress Users:</p>
-                          <p className="text-yellow-700">Use the HTML block or Custom HTML widget. If the widget doesn't appear, try this alternative:</p>
+                          <p className="text-yellow-700">Use the HTML block or Custom HTML widget. If the widget doesn&apos;t appear, try this alternative:</p>
                           <div 
                             onClick={() => handleCopyCode(`<!-- Chat Widget Container -->
 <div data-chat-widget-inline style="min-height: 500px;"></div>
