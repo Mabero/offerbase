@@ -1,11 +1,13 @@
 (function () {
     'use strict';
 
-    // Prevent multiple instances
-    if (window.ChatWidgetLoaded) {
-        return;
+    // Initialize widget registry for multi-widget support
+    if (!window.ChatWidgets) {
+        window.ChatWidgets = {
+            floating: new Set(),
+            inline: new Set()
+        };
     }
-    window.ChatWidgetLoaded = true;
 
     // Configuration
     const script = document.currentScript;
@@ -242,6 +244,17 @@
         const finalWidgetType = await determineWidgetType();
         console.log('ChatWidget: Final widget type:', finalWidgetType);
         console.log('ChatWidget: Site ID:', siteId);
+        
+        // Prevent duplicate widgets of same type for same site
+        const widgetKey = `${siteId}-${finalWidgetType}`;
+        if (window.ChatWidgets[finalWidgetType].has(widgetKey)) {
+            console.log(`ChatWidget: ${finalWidgetType} widget already exists for site ${siteId}, skipping initialization`);
+            return finalWidgetType;
+        }
+        
+        // Register this widget instance
+        window.ChatWidgets[finalWidgetType].add(widgetKey);
+        console.log(`ChatWidget: Registered ${finalWidgetType} widget for site ${siteId}`);
         
         // Load settings first (returns true/false indicating success)
         await loadChatSettings();
