@@ -15,33 +15,28 @@
     let widgetType = script.getAttribute('data-widget-type') || 'floating';
     const apiUrl = script.src.replace('/widget.js', '');
 
-    // Function to detect container with retries
-    function detectWidgetContainer(attempts = 3) {
-        console.log(`ChatWidget: Attempting container detection (attempt ${4 - attempts})`);
-        const placeholder = document.querySelector('[data-chat-widget-inline]');
-        
-        if (placeholder) {
-            console.log('ChatWidget: Found placeholder container, switching to inline mode');
-            return 'inline';
-        } else if (attempts > 1) {
-            console.log('ChatWidget: Container not found, retrying...');
-            return new Promise(resolve => {
-                setTimeout(() => {
-                    resolve(detectWidgetContainer(attempts - 1));
-                }, 50);
-            });
-        } else {
-            console.log('ChatWidget: No container found after retries, using floating mode');
-            return 'floating';
-        }
-    }
 
     // WordPress workaround: Check if there's a placeholder container nearby
     // If so, assume this should be an inline widget
     async function determineWidgetType() {
         if (widgetType === 'floating') {
-            const detectedType = await detectWidgetContainer();
-            return detectedType;
+            // Only check for container if this script is actually near one
+            // Check if this script element is close to a placeholder container
+            const placeholder = document.querySelector('[data-chat-widget-inline]');
+            if (placeholder && script && script.parentElement) {
+                // Check if the script is within the same section as the placeholder
+                const scriptContainer = script.parentElement;
+                const placeholderContainer = placeholder.parentElement;
+                
+                // If they share a common ancestor within a reasonable distance, assume inline
+                if (scriptContainer === placeholderContainer || 
+                    scriptContainer.contains(placeholder) || 
+                    placeholderContainer.contains(script)) {
+                    console.log('ChatWidget: Script is near placeholder container, switching to inline mode');
+                    return 'inline';
+                }
+            }
+            console.log('ChatWidget: No nearby container found, staying in floating mode');
         }
         return widgetType;
     }
