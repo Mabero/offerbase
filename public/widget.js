@@ -339,27 +339,36 @@
             }
         });
 
-        // Responsive behavior
+        // Responsive behavior with better mobile breakpoints
         function updateResponsiveStyles() {
-            if (window.innerWidth < 768) {
+            const screenWidth = window.innerWidth;
+            const isMobile = screenWidth < 768;
+            const isSmallMobile = screenWidth < 480;
+            
+            if (isMobile) {
+                const margins = isSmallMobile ? '8px' : '16px';
+                const topMargin = isSmallMobile ? '60px' : '80px';
+                const borderRadius = isSmallMobile ? '12px' : '16px';
+                
                 container.style.cssText = `
                     position: fixed;
-                    bottom: 0;
-                    right: 0;
-                    left: 0;
-                    top: 0;
-                    width: 100%;
-                    height: 100%;
+                    bottom: ${margins};
+                    right: ${margins};
+                    left: ${margins};
+                    top: ${topMargin};
+                    width: calc(100% - ${parseInt(margins) * 2}px);
+                    height: calc(100% - ${parseInt(topMargin) + parseInt(margins)}px);
+                    max-height: 600px;
                     z-index: 1000;
                     border: none;
-                    border-radius: 0;
-                    box-shadow: none;
+                    border-radius: ${borderRadius};
+                    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
                     background: white;
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
                     display: ${isOpen ? 'block' : 'none'};
                 `;
 
-                iframe.style.borderRadius = '0';
+                iframe.style.borderRadius = borderRadius;
             } else {
                 container.style.cssText = `
                     position: fixed;
@@ -380,8 +389,60 @@
             }
         }
 
-        // Update on resize
-        window.addEventListener('resize', updateResponsiveStyles);
+        // Mobile keyboard detection and handling
+        let initialViewportHeight = window.innerHeight;
+        let keyboardVisible = false;
+        
+        function handleViewportChange() {
+            const currentHeight = window.innerHeight;
+            const heightDifference = initialViewportHeight - currentHeight;
+            
+            // On mobile, if viewport shrinks by more than 150px, assume keyboard is visible
+            if (window.innerWidth < 768 && heightDifference > 150) {
+                if (!keyboardVisible) {
+                    keyboardVisible = true;
+                    // Adjust container height when keyboard appears
+                    if (isOpen) {
+                        container.style.cssText = `
+                            position: fixed;
+                            bottom: 16px;
+                            right: 16px;
+                            left: 16px;
+                            top: 20px;
+                            width: calc(100% - 32px);
+                            height: calc(100vh - 36px);
+                            max-height: ${currentHeight - 36}px;
+                            z-index: 1000;
+                            border: none;
+                            border-radius: 16px;
+                            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+                            background: white;
+                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+                            display: block;
+                        `;
+                    }
+                }
+            } else if (keyboardVisible && heightDifference < 50) {
+                keyboardVisible = false;
+                // Reset to normal layout when keyboard hides
+                updateResponsiveStyles();
+            }
+        }
+        
+        // Update on resize and viewport changes
+        window.addEventListener('resize', () => {
+            updateResponsiveStyles();
+            handleViewportChange();
+        });
+        
+        // Listen for viewport changes (mobile keyboard)
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => {
+                initialViewportHeight = window.innerHeight;
+                updateResponsiveStyles();
+            }, 500);
+        });
+        
         updateResponsiveStyles();
 
     }

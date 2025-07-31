@@ -734,6 +734,7 @@ export function ChatWidgetCore({
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [typingMessage, setTypingMessage] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
+  const [isInputFocused, setIsInputFocused] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [sessionId, setSessionId] = useState<string | null>(() => {
@@ -755,7 +756,13 @@ export function ChatWidgetCore({
     return null;
   });
 
-  const scrollToBottom = () => {
+  const scrollToBottom = (force = false) => {
+    // On mobile, don't auto-scroll when input is focused unless forced
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    if (isMobile && isInputFocused && !force) {
+      return;
+    }
+    
     // Scroll the messages container instead of the entire page
     if (messagesContainerRef.current) {
       messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
@@ -1083,6 +1090,9 @@ export function ChatWidgetCore({
     setMessages(prev => [...prev, { type: 'user', content: userMessage } as UserMessage]);
     setIsLoading(true);
     
+    // Force scroll to bottom when sending a message
+    setTimeout(() => scrollToBottom(true), 100);
+    
     onMessageSent?.(userMessage);
 
     try {
@@ -1352,6 +1362,12 @@ export function ChatWidgetCore({
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !isLoading && !isLoadingHistory && inputMessage.trim() && handleSendMessage()}
+            onFocus={() => setIsInputFocused(true)}
+            onBlur={() => setIsInputFocused(false)}
+            inputMode="text"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="sentences"
             placeholder={isLoadingHistory ? 'Loading conversation...' : (chatSettings?.input_placeholder || 'Type your message...')}
             style={styles.input}
             disabled={isLoading || isLoadingHistory}
