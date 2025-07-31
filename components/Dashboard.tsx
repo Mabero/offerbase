@@ -1678,16 +1678,16 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         {/* WordPress Help */}
                         <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
                           <p className="text-yellow-800 font-medium mb-1">WordPress Users:</p>
-                          <p className="text-yellow-700">Use the HTML block or Custom HTML widget. If the widget doesn&apos;t appear, try this alternative:</p>
+                          <p className="text-yellow-700">WordPress strips the data-widget-type attribute. Use this container method instead:</p>
                           <div 
                             onClick={() => handleCopyCode(`<!-- Chat Widget Container -->
 <div data-chat-widget-inline style="min-height: 500px;"></div>
-<script src="${API_URL}/widget.js" data-site-id="${selectedSite?.id || 'your-site-id'}" data-widget-type="inline"></script>`, 'inline-wp')}
+<script src="${API_URL}/widget.js" data-site-id="${selectedSite?.id || 'your-site-id'}"></script>`, 'inline-wp')}
                             className="mt-2 bg-white border border-yellow-300 rounded p-2 font-mono cursor-pointer hover:bg-yellow-50 transition-colors relative group"
                           >
                             <div className="flex justify-between items-start">
                               <div className="flex-1 pr-8 break-all text-[10px]">
-                                {`<!-- Chat Widget Container -->\n<div data-chat-widget-inline style="min-height: 500px;"></div>\n<script src="${API_URL}/widget.js" data-site-id="${selectedSite?.id || 'your-site-id'}" data-widget-type="inline"></script>`}
+                                {`<!-- Chat Widget Container -->\n<div data-chat-widget-inline style="min-height: 500px;"></div>\n<script src="${API_URL}/widget.js" data-site-id="${selectedSite?.id || 'your-site-id'}"></script>`}
                               </div>
                               <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 {copiedCode === 'inline-wp' ? (
@@ -1698,6 +1698,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                               </div>
                             </div>
                           </div>
+                          <p className="text-yellow-700 mt-1 text-[10px]">The widget detects the container and automatically switches to inline mode.</p>
                         </div>
                       </div>
                     </div>

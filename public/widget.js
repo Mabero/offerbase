@@ -10,14 +10,18 @@
     // Configuration
     const script = document.currentScript;
     const siteId = script.getAttribute('data-site-id');
-    const widgetType = script.getAttribute('data-widget-type') || 'floating';
+    let widgetType = script.getAttribute('data-widget-type') || 'floating';
     const apiUrl = script.src.replace('/widget.js', '');
 
-    // Debug attributes
-    console.log('ChatWidget: Script attributes debug:');
-    console.log('  - data-site-id:', script.getAttribute('data-site-id'));
-    console.log('  - data-widget-type:', script.getAttribute('data-widget-type'));
-    console.log('  - all attributes:', Array.from(script.attributes).map(attr => `${attr.name}="${attr.value}"`));
+    // WordPress workaround: Check if there's a placeholder container nearby
+    // If so, assume this should be an inline widget
+    if (widgetType === 'floating') {
+        const placeholder = document.querySelector('[data-chat-widget-inline]');
+        if (placeholder) {
+            console.log('ChatWidget: Found placeholder container, switching to inline mode');
+            widgetType = 'inline';
+        }
+    }
 
     if (!siteId) {
         console.error('ChatWidget: data-site-id attribute is required');
