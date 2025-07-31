@@ -76,6 +76,21 @@ const SendIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?
   </svg>
 );
 
+const CloseIcon = ({ size = 24, color = 'currentColor' }: { size?: number; color?: string }) => (
+  <svg 
+    width={size} 
+    height={size} 
+    viewBox="0 0 24 24" 
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M18 6L6 18M6 6l12 12" />
+  </svg>
+);
+
 const CopyIcon = ({ size = 14, color = 'currentColor' }: { size?: number; color?: string }) => (
   <svg
     width={size}
@@ -544,6 +559,7 @@ export function ChatWidgetCore({
       padding: '16px',
       display: 'flex',
       alignItems: 'center',
+      justifyContent: 'space-between',
       borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
       backgroundColor: chatSettings?.chat_color || '#000000',
       color: chatSettings?.chat_name_color || '#ffffff'
@@ -1278,19 +1294,52 @@ export function ChatWidgetCore({
     <div style={styles.container}>
       {/* Chat Header */}
       <div style={styles.header}>
-        <Avatar
-          src={chatSettings?.chat_icon_url}
-          name={chatSettings?.chat_name}
-          style={styles.avatarSpacing}
-        />
-        <p style={{
-          ...styles.messageText,
-          fontWeight: '600',
-          color: chatSettings?.chat_bubble_icon_color || '#ffffff',
-          margin: '0'
-        }}>
-          {chatSettings?.chat_name || 'Affi'}
-        </p>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <Avatar
+            src={chatSettings?.chat_icon_url}
+            name={chatSettings?.chat_name}
+            style={styles.avatarSpacing}
+          />
+          <p style={{
+            ...styles.messageText,
+            fontWeight: '600',
+            color: chatSettings?.chat_bubble_icon_color || '#ffffff',
+            margin: '0'
+          }}>
+            {chatSettings?.chat_name || 'Affi'}
+          </p>
+        </div>
+        {isEmbedded && (
+          <button
+            onClick={() => {
+              // Send close message to parent window
+              if (window.parent !== window) {
+                window.parent.postMessage({ type: 'CLOSE_WIDGET' }, '*');
+              }
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: chatSettings?.chat_name_color || '#ffffff',
+              cursor: 'pointer',
+              padding: '8px',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+            aria-label="Close chat"
+          >
+            <CloseIcon size={24} />
+          </button>
+        )}
       </div>
 
       {/* Messages Area */}
