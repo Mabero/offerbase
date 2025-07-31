@@ -14,7 +14,8 @@
       "WebFetch(domain:docs.clerk.dev)",
       "Bash(npm run dev:*)",
       "Bash(pkill:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "mcp__ide__getDiagnostics"
     ],
     "deny": []
   }

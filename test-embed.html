@@ -37,26 +37,36 @@
         <h1>Chat Widget Embed Test</h1>
         <p>This page tests the chat widget embed functionality with custom site settings.</p>
         
-        <h2>Test 1: Default Settings</h2>
-        <p>Testing with default black chat widget settings.</p>
+        <h2>Test 1: Floating Widget (Default)</h2>
+        <p>Testing floating chat widget that appears in bottom right corner.</p>
         <div class="embed-code">
-            Default embed code with basic settings would go here.
+            &lt;script src="http://localhost:3000/widget.js" data-site-id="your-site-id"&gt;&lt;/script&gt;
         </div>
     </div>
 
     <div class="test-section">
-        <h2>Test 2: Custom Blue Widget</h2>
-        <p>This tests a blue-themed chat widget with custom name and message.</p>
+        <h2>Test 2: Inline Article Widget</h2>
+        <p>This tests an inline chat widget that appears directly in the content flow. The widget should appear below this paragraph:</p>
         <div class="embed-code">
-            Blue theme embed code would go here.
+            &lt;script src="http://localhost:3000/widget.js" data-site-id="your-site-id" data-widget-type="inline"&gt;&lt;/script&gt;
         </div>
+        <p>The inline widget should be embedded here when you paste the actual embed code.</p>
     </div>
 
     <div class="test-section">
-        <h2>Test 3: Red Widget with Custom Icon</h2>
-        <p>This tests a red-themed widget with custom branding.</p>
+        <h2>Test 3: Multiple Inline Widgets</h2>
+        <p>Testing multiple inline widgets on the same page to ensure they work properly.</p>
         <div class="embed-code">
-            Red theme embed code would go here.
+            &lt;script src="http://localhost:3000/widget.js" data-site-id="your-site-id-2" data-widget-type="inline"&gt;&lt;/script&gt;
+        </div>
+        <p>Second inline widget should appear here with different site settings.</p>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 4: Backward Compatibility</h2>
+        <p>Testing that existing embed codes without data-widget-type still work as floating widgets.</p>
+        <div class="embed-code">
+            &lt;script src="http://localhost:3000/widget.js" data-site-id="your-old-site-id"&gt;&lt;/script&gt;
         </div>
     </div>
 
@@ -64,30 +74,42 @@
         <h2>Instructions</h2>
         <ol>
             <li>Go to the Dashboard and create different sites</li>
-            <li>Customize each site's chat settings (colors, name, intro message)</li>
-            <li>Copy the embed code for each site</li>
-            <li>Replace the embed code placeholders above with real codes</li>
-            <li>Open this page in a browser to test the widgets</li>
-            <li>Verify that each widget shows the correct:
+            <li>For each site, set:
                 <ul>
-                    <li>Chat button color</li>
-                    <li>Chat name in header</li>
-                    <li>Intro message</li>
-                    <li>Input placeholder text</li>
-                    <li>Font size (if different)</li>
+                    <li>Widget Type (Floating or Inline)</li>
+                    <li>Colors, name, intro message</li>
                 </ul>
             </li>
+            <li>Copy the embed code for each site from the Embed Widget tab</li>
+            <li>Replace the embed code placeholders above with real codes</li>
+            <li>Open this page in a browser to test the widgets</li>
+            <li>Verify widget behavior based on type (see Expected Behavior)</li>
         </ol>
     </div>
 
     <div class="test-section">
         <h2>Expected Behavior</h2>
+        <h3>Floating Widgets:</h3>
         <ul>
-            <li>Each widget should display with its site-specific styling</li>
-            <li>Chat button colors should match the site's chat_color</li>
-            <li>Widget headers should show the custom chat_name</li>
-            <li>First message should be the custom intro_message</li>
-            <li>Input placeholder should be customized</li>
+            <li>Should appear as a chat button in bottom right corner</li>
+            <li>Click to open/close the chat interface</li>
+            <li>Should show auto-popup intro message after 3 seconds</li>
+            <li>Should be responsive on mobile devices</li>
+        </ul>
+        
+        <h3>Inline Widgets:</h3>
+        <ul>
+            <li>Should appear as a chat box inline with the content</li>
+            <li>Always visible (no button needed)</li>
+            <li>Should have clean borders and shadow</li>
+            <li>No auto-popup (since it's always visible)</li>
+        </ul>
+        
+        <h3>Both Widget Types:</h3>
+        <ul>
+            <li>Should display site-specific styling (colors, name)</li>
+            <li>Should show custom intro message</li>
+            <li>Should have customized input placeholder</li>
             <li>Chat should work and send messages to the correct site</li>
         </ul>
     </div>

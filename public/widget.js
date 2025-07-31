@@ -99,8 +99,10 @@
 
     // Create widget container (inline version)
     function createInlineWidgetContainer() {
+        console.log('ChatWidget: Creating inline widget container');
+        
         const container = document.createElement('div');
-        container.id = 'chat-widget-' + siteId;
+        container.id = 'chat-widget-inline-' + siteId;
         container.style.cssText = `
             position: relative;
             width: 100%;
@@ -125,12 +127,27 @@
             border-radius: 20px;
         `;
         iframe.title = 'Chat Widget';
+        iframe.allow = 'clipboard-write';
 
         container.appendChild(iframe);
         
-        // For inline widgets, append to the script's parent element or body
-        const insertionPoint = script.parentElement || document.body;
-        insertionPoint.appendChild(container);
+        // WordPress and other CMSs might strip script tags, so we need to be more careful
+        // First try to insert after the script element
+        if (script && script.parentElement) {
+            console.log('ChatWidget: Inserting after script element');
+            script.parentElement.insertBefore(container, script.nextSibling);
+        } else {
+            // If that fails, try to find a container div that might have been created for this purpose
+            const placeholder = document.querySelector('[data-chat-widget-inline]');
+            if (placeholder) {
+                console.log('ChatWidget: Found placeholder element');
+                placeholder.appendChild(container);
+            } else {
+                // Last resort: append to body
+                console.log('ChatWidget: Appending to body as fallback');
+                document.body.appendChild(container);
+            }
+        }
 
         return { container, iframe };
     }
@@ -190,6 +207,10 @@
 
     // Initialize widget
     async function initializeWidget() {
+        console.log('ChatWidget: Starting initialization');
+        console.log('ChatWidget: Widget type:', widgetType);
+        console.log('ChatWidget: Site ID:', siteId);
+        
         // Load settings first (returns true/false indicating success)
         await loadChatSettings();
         
@@ -207,8 +228,10 @@
 
         // Handle different widget types
         if (widgetType === 'inline') {
+            console.log('ChatWidget: Initializing as inline widget');
             initializeInlineWidget();
         } else {
+            console.log('ChatWidget: Initializing as floating widget');
             initializeFloatingWidget();
         }
     }
@@ -323,14 +346,21 @@
 
     // Initialize inline widget
     function initializeInlineWidget() {
+        console.log('ChatWidget: Initializing inline widget');
+        console.log('ChatWidget: Script element:', script);
+        console.log('ChatWidget: Parent element:', script.parentElement);
+        
         const { container, iframe } = createInlineWidgetContainer();
+        
+        console.log('ChatWidget: Container created:', container);
+        console.log('ChatWidget: Container parent:', container.parentElement);
         
         // No button needed for inline widgets - they're always visible
         
         // Listen for messages from iframe
         window.addEventListener('message', (event) => {
             if (event.data.type === 'WIDGET_READY') {
-                // Widget ready - no action needed
+                console.log('ChatWidget: Inline widget ready');
             } else if (event.data.type === 'ANALYTICS_EVENT') {
                 // Handle analytics events from the iframe
                 trackEvent(event.data.eventType, event.data.data);
