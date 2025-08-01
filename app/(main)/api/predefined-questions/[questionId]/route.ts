@@ -154,7 +154,7 @@ export async function PUT(
     }
 
     // Handle URL rules updates if provided
-    let urlRules = [];
+    let urlRules: any[] = [];
     if (url_rules) {
       try {
         // Get existing rules

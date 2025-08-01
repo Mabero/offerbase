@@ -4,7 +4,7 @@ import OpenAI from 'openai';
 import { createSupabaseAdminClient } from '@/lib/supabase-server';
 import { buildSystemPrompt } from '@/lib/instructions';
 import { StructuredAIResponse, AIResponseParseResult } from '@/types/training';
-import { detectLanguage, enforceLanguageInMessage, addLanguageToSystemPrompt } from '@/lib/ai/language';
+import { detectLanguageWithContext, enforceLanguageInMessage, addLanguageToSystemPrompt } from '@/lib/ai/language';
 import { selectRelevantContext, buildOptimizedContext } from '@/lib/ai/context';
 import { findMostRelevantProduct } from '@/lib/ai/conversation';
 import { findBestProductMatches } from '@/lib/ai/product-matching';
@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Generate AI response using OpenAI
-    const response = await generateChatResponse(message, conversationHistory, siteId);
+    const response = await generateChatResponse(message, conversationHistory, siteId, chatSessionId);
     
     // Log chat messages if session tracking is available
     if (chatSessionId && supabase) {
@@ -181,23 +181,51 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function generateChatResponse(message: string, conversationHistory: { role: string; content: string }[], siteId: string) {
+async function generateChatResponse(message: string, conversationHistory: { role: string; content: string }[], siteId: string, sessionId?: string) {
   try {
     // Check if OpenAI API key is configured
     if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'your_openai_api_key_here') {
       return getFallbackResponse(message);
     }
 
-    // Detect language from user message
-    const detectedLanguage = detectLanguage(message);
+    const supabase = createSupabaseAdminClient();
+
+    // Try to get cached language from session if available
+    let sessionLanguage = null;
+    if (sessionId) {
+      const { data: session } = await supabase
+        .from('chat_sessions')
+        .select('detected_language, language_confidence')
+        .eq('id', sessionId)
+        .single();
+      
+      if (session?.detected_language) {
+        sessionLanguage = {
+          code: session.detected_language,
+          confidence: session.language_confidence || 0.8
+        };
+      }
+    }
+
+    // Detect language from user message, using session cache for consistency
+    const detectedLanguage = detectLanguageWithContext(message, conversationHistory, sessionLanguage);
     console.log(`Detected language: ${detectedLanguage.name} (${detectedLanguage.code}) with confidence ${detectedLanguage.confidence}`);
+    
+    // Update session with language info if we have a session
+    if (sessionId && detectedLanguage.confidence > 0.7) {
+      await supabase
+        .from('chat_sessions')
+        .update({
+          detected_language: detectedLanguage.code,
+          language_confidence: detectedLanguage.confidence
+        })
+        .eq('id', sessionId);
+    }
 
     // Initialize OpenAI client inside the function to avoid build-time errors
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
-
-    const supabase = createSupabaseAdminClient();
     
     // Select relevant training materials based on the query with conversation history
     const relevantContext = await selectRelevantContext(message, siteId, 7, conversationHistory);
