@@ -209,7 +209,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
     // Fetch affiliate links for this site
     const { data: affiliateLinks } = await supabase
       .from('affiliate_links')
-      .select('id, url, title, description, product_id, aliases, image_url, site_id, created_at, updated_at')
+      .select('id, url, title, description, product_id, aliases, image_url, button_text, site_id, created_at, updated_at')
       .eq('site_id', siteId);
     
     // Fetch chat settings for custom instructions and preferred language
@@ -398,7 +398,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
           name: link.title,
           description: link.description || 'Click to learn more',
           url: link.url,
-          button_text: 'View Product',
+          button_text: link.button_text || 'View Product',
           image_url: imageUrl
         };
       });
@@ -543,7 +543,7 @@ function getFallbackResponseFromText(text: string, affiliateLinks: { title: stri
       name: link.title,
       description: link.description || 'Click to learn more',
       url: link.url,
-      button_text: 'View Product',
+      button_text: link.button_text || 'View Product',
       image_url: '' // No placeholder - let component handle missing images
     }));
     

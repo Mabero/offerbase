@@ -80,6 +80,7 @@ interface AffiliateLink {
   title: string;
   description: string;
   image_url?: string;
+  button_text?: string;
   site_id: string;
   created_at: string;
 }
@@ -156,6 +157,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     title: '',
     description: '',
     image_url: '',
+    button_text: '',
   });
   const [chatSettings, setChatSettings] = useState<ChatSettings>({
     chat_name: 'Affi',
@@ -367,7 +369,8 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
             url: newLink.url,
             title: newLink.title,
             description: newLink.description,
-            image_url: newLink.image_url
+            image_url: newLink.image_url,
+            button_text: newLink.button_text
           }),
           credentials: 'include',
         });
@@ -381,7 +384,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         }
       }
       
-      setNewLink({ url: '', title: '', description: '', image_url: '' });
+      setNewLink({ url: '', title: '', description: '', image_url: '', button_text: '' });
       
       toast({
         title: "Success",
@@ -449,7 +452,8 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
             url: editingLink.url,
             title: editingLink.title,
             description: editingLink.description,
-            image_url: editingLink.image_url
+            image_url: editingLink.image_url,
+            button_text: editingLink.button_text
           }),
           credentials: 'include',
         });
@@ -1327,6 +1331,19 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         Add an image URL to display a product image in the chat. Leave empty if no image is needed.
                       </p>
                     </div>
+                    <div>
+                      <Label htmlFor="button_text">Button Text (optional)</Label>
+                      <Input
+                        id="button_text"
+                        value={newLink.button_text}
+                        onChange={(e) => setNewLink({ ...newLink, button_text: e.target.value })}
+                        placeholder="View Product"
+                        className="bg-white/80 border-gray-300 focus:border-gray-500"
+                      />
+                      <p className="text-sm text-gray-600 mt-1">
+                        Customize the call-to-action button text. Leave empty to use default "View Product".
+                      </p>
+                    </div>
                     <Button
                       onClick={() => handleAddLink()}
                       disabled={isSaving}
@@ -2118,6 +2135,19 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                 />
                 <p className="text-sm text-gray-600 mt-1">
                   Add an image URL to display a product image in the chat. Leave empty if no image is needed.
+                </p>
+              </div>
+              <div>
+                <Label htmlFor="edit-button-text">Button Text (optional)</Label>
+                <Input
+                  id="edit-button-text"
+                  value={editingLink.button_text || ''}
+                  onChange={(e) => setEditingLink({ ...editingLink, button_text: e.target.value })}
+                  placeholder="View Product"
+                  className="bg-white/80 border-gray-300 focus:border-gray-500"
+                />
+                <p className="text-sm text-gray-600 mt-1">
+                  Customize the call-to-action button text. Leave empty to use default "View Product".
                 </p>
               </div>
             </div>

@@ -125,7 +125,7 @@ export function detectLanguage(text: string, preferredLanguage?: string | null):
   const confidence = Math.min(cleanedText.length / 20, 1) * 0.9;
   
   // If confidence is low and we have a preferred language, use it instead
-  if (confidence < 0.6 && preferredLanguage) {
+  if (confidence < 0.99 && preferredLanguage) {
     const fallbackLanguageName = languageNames[preferredLanguage] || 'Unknown';
     return {
       code: preferredLanguage,

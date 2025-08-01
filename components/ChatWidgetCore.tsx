@@ -290,12 +290,14 @@ const TypewriterMessage = ({
   message, 
   chatSettings, 
   styles, 
-  onComplete 
+  onComplete,
+  onScroll
 }: { 
   message: string;
   chatSettings: ChatSettings;
   styles: Record<string, React.CSSProperties>;
   onComplete: () => void;
+  onScroll?: () => void;
 }) => {
   const [displayedText, setDisplayedText] = useState('');
   const [isTyping, setIsTyping] = useState(true);
@@ -313,7 +315,12 @@ const TypewriterMessage = ({
       
       if (index < message.length) {
         const char = message[index];
-        setDisplayedText(prev => prev + char);
+        setDisplayedText(prev => {
+          const newText = prev + char;
+          // Trigger scroll after state update
+          setTimeout(() => onScroll?.(), 0);
+          return newText;
+        });
         index++;
         
         // Add slight pause after punctuation for more natural feel
@@ -335,7 +342,7 @@ const TypewriterMessage = ({
         clearTimeout(timeoutId);
       }
     };
-  }, [message, onComplete]);
+  }, [message, onComplete, onScroll]);
 
   return (
     <div style={styles.messageRow}>
@@ -580,7 +587,7 @@ export function ChatWidgetCore({
       border: '1px solid rgba(255, 255, 255, 0.3)',
       borderRadius: '16px',
       padding: '12px 16px',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
     },
     messageBubbleUser: {
       backgroundColor: chatSettings?.chat_color || '#000000',
@@ -589,7 +596,7 @@ export function ChatWidgetCore({
       borderRadius: '16px',
       padding: '12px 16px',
       maxWidth: '80%',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
       marginBottom: '12px',
       marginTop: '15px'
     },
@@ -697,13 +704,13 @@ export function ChatWidgetCore({
       fontWeight: '700',
       color: '#1f2937',
       lineHeight: '1.3',
-      marginBottom: '8px',
+      marginBottom: '2px',
       margin: '0 0 8px 0'
     },
     linkDescription: {
       color: '#6b7280',
       lineHeight: '1.5',
-      marginBottom: '16px',
+      marginBottom: '12px',
       margin: '0 0 16px 0'
     },
     linkButton: {
@@ -984,6 +991,9 @@ export function ChatWidgetCore({
 
   // State to hold structured content that should replace the typing message
   const [pendingStructuredContent, setPendingStructuredContent] = useState<MessageContent | null>(null);
+  
+  // Track processed responses to prevent duplicates
+  const [processedResponses, setProcessedResponses] = useState<Set<string>>(new Set());
 
   // Handle typewriter completion
   const handleTypewriterComplete = (message: string) => {
@@ -1003,10 +1013,37 @@ export function ChatWidgetCore({
     
     // Clear pending content
     setPendingStructuredContent(null);
+    
+    // Clean up old processed responses to prevent memory growth (keep last 10)
+    setProcessedResponses(prev => {
+      const responses = Array.from(prev);
+      if (responses.length > 10) {
+        return new Set(responses.slice(-10));
+      }
+      return prev;
+    });
   };
 
   // Centralized function to process AI responses with typing animation
   const processAIResponse = (data: MessageContent) => {
+    // Create a unique ID for this response to prevent duplicates
+    const responseId = JSON.stringify({
+      type: data.type,
+      message: data.message,
+      hasLinks: !!data.links,
+      hasSimpleLink: !!data.simple_link,
+      timestamp: Date.now()
+    });
+    
+    // Check if we've already processed this response
+    if (processedResponses.has(responseId)) {
+      console.warn('Duplicate response detected, skipping:', responseId);
+      return;
+    }
+    
+    // Mark this response as processed
+    setProcessedResponses(prev => new Set([...prev, responseId]));
+    
     // Extract the main message text for typing animation
     const messageText = data.message || 'Sorry, I could not understand the response.';
     
@@ -1581,6 +1618,7 @@ export function ChatWidgetCore({
             chatSettings={chatSettings}
             styles={styles}
             onComplete={() => handleTypewriterComplete(typingMessage)}
+            onScroll={() => scrollToBottom()}
           />
         )}
         

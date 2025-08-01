@@ -13,7 +13,7 @@ export async function PUT(
     }
 
     const { linkId } = await context.params
-    const { url, title, description, image_url } = await request.json()
+    const { url, title, description, image_url, button_text } = await request.json()
 
     if (!url || !title) {
       return NextResponse.json({ error: 'URL and title are required' }, { status: 400 })
@@ -47,10 +47,11 @@ export async function PUT(
         title: title.trim(),
         description: description?.trim() || '',
         image_url: image_url?.trim() || null,
+        button_text: button_text?.trim() || 'View Product',
         updated_at: new Date().toISOString()
       })
       .eq('id', linkId)
-      .select('id, url, title, description, image_url, created_at, updated_at')
+      .select('id, url, title, description, image_url, button_text, created_at, updated_at')
       .single()
 
     if (error) {
