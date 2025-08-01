@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createSupabaseAdminClient } from '@/lib/supabase-server'
+import { cache, getCacheKey } from '@/lib/cache'
 
 export async function GET(request: NextRequest) {
   try {
@@ -96,6 +97,10 @@ export async function POST(request: NextRequest) {
       console.error('Error creating affiliate link:', error)
       return NextResponse.json({ error: 'Failed to create affiliate link' }, { status: 500 })
     }
+
+    // Invalidate cache for affiliate links
+    await cache.del(getCacheKey(siteId, 'affiliate_links'));
+    console.log(`🗑️ Cache invalidated for affiliate links: ${siteId}`);
 
     return NextResponse.json({ link }, { status: 201 })
   } catch (error) {

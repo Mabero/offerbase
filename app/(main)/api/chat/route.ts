@@ -9,6 +9,7 @@ import { selectRelevantContext, buildOptimizedContext } from '@/lib/ai/context';
 import { findMostRelevantProduct } from '@/lib/ai/conversation';
 import { findBestProductMatches } from '@/lib/ai/product-matching';
 import { validateAIResponse } from '@/lib/ai/response-validator';
+import { getCachedData, getCacheKey, CACHE_TTL } from '@/lib/cache';
 
 export async function POST(request: NextRequest) {
   try {
@@ -182,6 +183,20 @@ export async function POST(request: NextRequest) {
 }
 
 async function generateChatResponse(message: string, conversationHistory: { role: string; content: string }[], siteId: string, sessionId?: string) {
+  // PERFORMANCE MONITORING: Track response time
+  const startTime = Date.now();
+  const perfLog = {
+    siteId,
+    messageLength: message.length,
+    historyLength: conversationHistory.length,
+    startTime,
+    dbQueryTime: 0,
+    aiResponseTime: 0,
+    totalTime: 0,
+    cacheHitCount: 0,
+    cacheMissCount: 0
+  };
+
   try {
     // Check if OpenAI API key is configured
     if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'your_openai_api_key_here') {
@@ -195,29 +210,65 @@ async function generateChatResponse(message: string, conversationHistory: { role
       apiKey: process.env.OPENAI_API_KEY,
     });
     
-    // Select relevant training materials based on the query with conversation history
-    const relevantContext = await selectRelevantContext(message, siteId, 7, conversationHistory);
+    // PERFORMANCE OPTIMIZATION: Run all database queries in parallel with caching
+    const dbStartTime = Date.now();
+    const [
+      relevantContext,
+      trainingMaterials,
+      affiliateLinks,
+      chatSettings
+    ] = await Promise.all([
+      // Select relevant training materials based on the query with conversation history
+      // NOTE: Context selection is query-specific, so we don't cache this
+      selectRelevantContext(message, siteId, 7, conversationHistory),
+      
+      // Fetch all training materials for product matching (cached)
+      getCachedData(
+        getCacheKey(siteId, 'training_materials'),
+        async () => {
+          const { data } = await supabase
+            .from('training_materials')
+            .select('title, metadata')
+            .eq('site_id', siteId)
+            .eq('scrape_status', 'success');
+          return data || [];
+        },
+        CACHE_TTL.TRAINING_MATERIALS
+      ),
+      
+      // Fetch affiliate links for this site (cached)
+      getCachedData(
+        getCacheKey(siteId, 'affiliate_links'),
+        async () => {
+          const { data } = await supabase
+            .from('affiliate_links')
+            .select('id, url, title, description, product_id, aliases, image_url, button_text, site_id, created_at, updated_at')
+            .eq('site_id', siteId);
+          return data || [];
+        },
+        CACHE_TTL.AFFILIATE_LINKS
+      ),
+      
+      // Fetch chat settings for custom instructions and preferred language (cached)
+      getCachedData(
+        getCacheKey(siteId, 'chat_settings'),
+        async () => {
+          const { data } = await supabase
+            .from('chat_settings')
+            .select('instructions, preferred_language')
+            .eq('site_id', siteId)
+            .single();
+          return data;
+        },
+        CACHE_TTL.CHAT_SETTINGS
+      )
+    ]);
+
+    // Track database query performance
+    perfLog.dbQueryTime = Date.now() - dbStartTime;
+
+    // Build training context from the parallel query result
     const trainingContext = buildOptimizedContext(relevantContext);
-    
-    // Fetch all training materials for product matching (lightweight query)
-    const { data: trainingMaterials } = await supabase
-      .from('training_materials')
-      .select('title, metadata')
-      .eq('site_id', siteId)
-      .eq('scrape_status', 'success');
-    
-    // Fetch affiliate links for this site
-    const { data: affiliateLinks } = await supabase
-      .from('affiliate_links')
-      .select('id, url, title, description, product_id, aliases, image_url, button_text, site_id, created_at, updated_at')
-      .eq('site_id', siteId);
-    
-    // Fetch chat settings for custom instructions and preferred language
-    const { data: chatSettings } = await supabase
-      .from('chat_settings')
-      .select('instructions, preferred_language')
-      .eq('site_id', siteId)
-      .single();
 
     // Detect language from user message, using preferred language as fallback
     const detectedLanguage = detectLanguage(message, chatSettings?.preferred_language);
@@ -256,6 +307,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
     ];
 
     // Call OpenAI API with response_format for structured JSON
+    const aiStartTime = Date.now();
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: messages,
@@ -266,6 +318,9 @@ async function generateChatResponse(message: string, conversationHistory: { role
     });
 
     const rawResponse = completion.choices[0]?.message?.content;
+    
+    // Track AI response performance
+    perfLog.aiResponseTime = Date.now() - aiStartTime;
     
     if (!rawResponse) {
       throw new Error('No response from OpenAI');
@@ -473,13 +528,33 @@ async function generateChatResponse(message: string, conversationHistory: { role
     }
 
     // Return regular message response
-    return {
+    const response = {
       type: 'message',
       message: structuredResponse.message
     };
+
+    // Log final performance metrics
+    perfLog.totalTime = Date.now() - startTime;
+    const isSlowResponse = perfLog.totalTime > 2000; // Warn if over 2 seconds
+    
+    console.log(`${isSlowResponse ? '🐌' : '🚀'} Chat API Performance:`, {
+      siteId: perfLog.siteId,
+      totalTime: `${perfLog.totalTime}ms`,
+      dbQueryTime: `${perfLog.dbQueryTime}ms`,
+      aiResponseTime: `${perfLog.aiResponseTime}ms`,
+      messageLength: perfLog.messageLength,
+      historyLength: perfLog.historyLength,
+      efficiency: `${Math.round((perfLog.dbQueryTime + perfLog.aiResponseTime) / perfLog.totalTime * 100)}% active processing`,
+      ...(isSlowResponse && { warning: 'Response time over 2s - consider optimizing' })
+    });
+
+    return response;
     
   } catch (error) {
+    // Log error performance
+    perfLog.totalTime = Date.now() - startTime;
     console.error('OpenAI API error:', error);
+    console.log(`❌ Chat API Error Performance: ${perfLog.totalTime}ms (DB: ${perfLog.dbQueryTime}ms, AI: ${perfLog.aiResponseTime}ms)`);
     
     // Fallback to simple responses if OpenAI fails
     return getFallbackResponse(message);

@@ -33,11 +33,15 @@ export interface MessageContent {
 export interface UserMessage {
   type: 'user';
   content: string;
+  id: string;
+  timestamp: number;
 }
 
 export interface BotMessage {
   type: 'bot';
   content: MessageContent;
+  id: string;
+  timestamp: number;
 }
 
 export type Message = UserMessage | BotMessage;
@@ -62,6 +66,9 @@ export interface ChatWidgetCoreProps {
   onMessageSent?: (message: string) => void;
   onWidgetOpen?: () => void;
 }
+
+// Utility function to generate unique message IDs
+const generateMessageId = () => `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
 // Simple icon components using SVG (no external dependencies)
 const SendIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
@@ -1008,7 +1015,9 @@ export function ChatWidgetCore({
     
     setMessages(prev => [...prev, { 
       type: 'bot', 
-      content: finalContent
+      content: finalContent,
+      id: generateMessageId(),
+      timestamp: Date.now()
     } as BotMessage]);
     
     // Clear pending content
@@ -1185,7 +1194,12 @@ export function ChatWidgetCore({
 
     const userMessage = inputMessage;
     setInputMessage('');
-    setMessages(prev => [...prev, { type: 'user', content: userMessage } as UserMessage]);
+    setMessages(prev => [...prev, { 
+      type: 'user', 
+      content: userMessage,
+      id: generateMessageId(),
+      timestamp: Date.now()
+    } as UserMessage]);
     setIsLoading(true);
     
     // Force scroll to bottom when sending a message
@@ -1253,7 +1267,9 @@ export function ChatWidgetCore({
         content: {
           type: 'message',
           message: 'Sorry, I encountered an error. Please try again.'
-        }
+        },
+        id: generateMessageId(),
+        timestamp: Date.now()
       } as BotMessage]);
     }
   };
@@ -1340,7 +1356,9 @@ export function ChatWidgetCore({
         content: {
           type: 'message',
           message: 'Sorry, I encountered an error. Please try again.'
-        }
+        },
+        id: generateMessageId(),
+        timestamp: Date.now()
       } as BotMessage]);
     }
   };
@@ -1351,7 +1369,12 @@ export function ChatWidgetCore({
     setPredefinedQuestions([]);
     
     // Add user message
-    setMessages(prev => [...prev, { type: 'user', content: question.question } as UserMessage]);
+    setMessages(prev => [...prev, { 
+      type: 'user', 
+      content: question.question,
+      id: generateMessageId(),
+      timestamp: Date.now()
+    } as UserMessage]);
     
     if (question.answer && question.answer.trim()) {
       // Has predefined answer - show it with typing animation
@@ -1602,8 +1625,8 @@ export function ChatWidgetCore({
           </div>
         )}
         
-        {messages.map((message, index) => (
-          <div key={index}>
+        {messages.map((message) => (
+          <div key={message.id}>
             {renderMessage(message)}
           </div>
         ))}

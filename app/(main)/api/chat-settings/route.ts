@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createSupabaseAdminClient } from '@/lib/supabase-server'
+import { cache, getCacheKey } from '@/lib/cache'
 
 export async function GET(request: NextRequest) {
   try {
@@ -157,6 +158,10 @@ export async function PUT(request: NextRequest) {
 
       result = newSettings
     }
+
+    // Invalidate cache for chat settings
+    await cache.del(getCacheKey(siteId, 'chat_settings'));
+    console.log(`🗑️ Cache invalidated for chat settings: ${siteId}`);
 
     return NextResponse.json({ settings: result })
     

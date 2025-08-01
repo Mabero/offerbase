@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createSupabaseAdminClient } from '@/lib/supabase-server'
+import { cache, getCacheKey } from '@/lib/cache'
 
 export async function PUT(
   request: NextRequest,
@@ -59,6 +60,12 @@ export async function PUT(
       return NextResponse.json({ error: 'Failed to update affiliate link' }, { status: 500 })
     }
 
+    // Invalidate cache for affiliate links
+    // We need to get the site_id from the link data
+    const siteId = updatedLink.site_id;
+    await cache.del(getCacheKey(siteId, 'affiliate_links'));
+    console.log(`🗑️ Cache invalidated for affiliate links: ${siteId}`);
+
     return NextResponse.json({ link: updatedLink })
   } catch (error) {
     console.error('Error in PUT /api/affiliate-links/[linkId]:', error)
@@ -97,6 +104,9 @@ export async function DELETE(
       return NextResponse.json({ error: 'Link not found or unauthorized' }, { status: 404 })
     }
 
+    // Get site_id before deletion for cache invalidation
+    const siteId = link.sites.id;
+
     // Delete the link
     const { error } = await supabase
       .from('affiliate_links')
@@ -107,6 +117,10 @@ export async function DELETE(
       console.error('Error deleting affiliate link:', error)
       return NextResponse.json({ error: 'Failed to delete affiliate link' }, { status: 500 })
     }
+
+    // Invalidate cache for affiliate links
+    await cache.del(getCacheKey(siteId, 'affiliate_links'));
+    console.log(`🗑️ Cache invalidated for affiliate links: ${siteId}`);
 
     return NextResponse.json({ message: 'Link deleted successfully' })
   } catch (error) {

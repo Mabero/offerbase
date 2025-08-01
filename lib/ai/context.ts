@@ -39,19 +39,51 @@ export async function selectRelevantContext(
   // Analyze the query intent
   const queryAnalysis = analyzeQueryIntent(query, conversationHistory);
   
-  // Fetch all training materials with enhanced fields
-  const { data: materials, error } = await supabase
-    .from('training_materials')
-    .select('id, title, content, summary, key_points, metadata, content_type, structured_data, intent_keywords, primary_products, confidence_score')
-    .eq('site_id', siteId)
-    .eq('scrape_status', 'success')
-    .or('content.not.is.null,summary.not.is.null');
+  // PERFORMANCE OPTIMIZATION: Pre-filter with database full-text search
+  // Extract key terms from query for database search
+  const searchTerms = query
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter(term => term.length > 2)
+    .slice(0, 5) // Limit to top 5 terms
+    .join(' & ');
 
-  if (error || !materials || materials.length === 0) {
+  let materials: TrainingMaterial[] = [];
+
+  if (searchTerms) {
+    // Try full-text search first (using our new FTS index)
+    const { data: ftsResults } = await supabase
+      .from('training_materials')
+      .select('id, title, content, summary, key_points, metadata, content_type, structured_data, intent_keywords, primary_products, confidence_score')
+      .eq('site_id', siteId)
+      .eq('scrape_status', 'success')
+      .textSearch('fts_content', searchTerms, { type: 'websearch' })
+      .limit(maxItems * 3) // Get more candidates for scoring
+      .order('confidence_score', { ascending: false, nullsLast: true });
+
+    materials = ftsResults || [];
+  }
+
+  // Fallback to recent materials if no FTS results (or FTS not available)
+  if (materials.length === 0) {
+    const { data: fallbackResults } = await supabase
+      .from('training_materials')
+      .select('id, title, content, summary, key_points, metadata, content_type, structured_data, intent_keywords, primary_products, confidence_score')
+      .eq('site_id', siteId)
+      .eq('scrape_status', 'success')
+      .or('content.not.is.null,summary.not.is.null')
+      .order('updated_at', { ascending: false })
+      .limit(maxItems * 2); // Reduced from loading ALL materials
+
+    materials = fallbackResults || [];
+  }
+
+  if (materials.length === 0) {
     return [];
   }
 
-  // Score and rank materials by enhanced relevance
+  // Score and rank the pre-filtered materials
   const scoredMaterials = materials.map(material => ({
     material,
     score: calculateEnhancedRelevance(query, material, queryAnalysis)
