@@ -4,7 +4,7 @@ import OpenAI from 'openai';
 import { createSupabaseAdminClient } from '@/lib/supabase-server';
 import { buildSystemPrompt } from '@/lib/instructions';
 import { StructuredAIResponse, AIResponseParseResult } from '@/types/training';
-import { detectLanguageWithContext, enforceLanguageInMessage, addLanguageToSystemPrompt } from '@/lib/ai/language';
+import { detectLanguage, enforceLanguageInMessage, addLanguageToSystemPrompt } from '@/lib/ai/language';
 import { selectRelevantContext, buildOptimizedContext } from '@/lib/ai/context';
 import { findMostRelevantProduct } from '@/lib/ai/conversation';
 import { findBestProductMatches } from '@/lib/ai/product-matching';
@@ -190,38 +190,6 @@ async function generateChatResponse(message: string, conversationHistory: { role
 
     const supabase = createSupabaseAdminClient();
 
-    // Try to get cached language from session if available
-    let sessionLanguage = null;
-    if (sessionId) {
-      const { data: session } = await supabase
-        .from('chat_sessions')
-        .select('detected_language, language_confidence')
-        .eq('id', sessionId)
-        .single();
-      
-      if (session?.detected_language) {
-        sessionLanguage = {
-          code: session.detected_language,
-          confidence: session.language_confidence || 0.8
-        };
-      }
-    }
-
-    // Detect language from user message, using session cache for consistency
-    const detectedLanguage = detectLanguageWithContext(message, conversationHistory, sessionLanguage);
-    console.log(`Detected language: ${detectedLanguage.name} (${detectedLanguage.code}) with confidence ${detectedLanguage.confidence}`);
-    
-    // Update session with language info if we have a session
-    if (sessionId && detectedLanguage.confidence > 0.7) {
-      await supabase
-        .from('chat_sessions')
-        .update({
-          detected_language: detectedLanguage.code,
-          language_confidence: detectedLanguage.confidence
-        })
-        .eq('id', sessionId);
-    }
-
     // Initialize OpenAI client inside the function to avoid build-time errors
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
@@ -244,12 +212,16 @@ async function generateChatResponse(message: string, conversationHistory: { role
       .select('id, url, title, description, product_id, aliases, image_url, site_id, created_at, updated_at')
       .eq('site_id', siteId);
     
-    // Fetch chat settings for custom instructions
+    // Fetch chat settings for custom instructions and preferred language
     const { data: chatSettings } = await supabase
       .from('chat_settings')
-      .select('instructions')
+      .select('instructions, preferred_language')
       .eq('site_id', siteId)
       .single();
+
+    // Detect language from user message, using preferred language as fallback
+    const detectedLanguage = detectLanguage(message, chatSettings?.preferred_language);
+    console.log(`Detected language: ${detectedLanguage.name} (${detectedLanguage.code}) with confidence ${detectedLanguage.confidence}${chatSettings?.preferred_language ? ` (preferred: ${chatSettings.preferred_language})` : ''}`);
     
     // Build affiliate links context
     let affiliateContext = '';

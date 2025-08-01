@@ -88,8 +88,15 @@ function ChatWidget({
 
   useEffect(() => {
     const handleOpenChat = () => setIsOpen(true);
+    const handleCloseChat = () => setIsOpen(false);
+    
     window.addEventListener('open-chat-widget', handleOpenChat);
-    return () => window.removeEventListener('open-chat-widget', handleOpenChat);
+    window.addEventListener('close-chat-widget', handleCloseChat);
+    
+    return () => {
+      window.removeEventListener('open-chat-widget', handleOpenChat);
+      window.removeEventListener('close-chat-widget', handleCloseChat);
+    };
   }, []);
 
   useEffect(() => {

@@ -1166,18 +1166,8 @@ export function ChatWidgetCore({
         headers['x-user-id'] = session.user.id;
       }
 
-      // Build conversation history
+      // Build conversation history (include all messages for better context)
       const conversationHistory = messages
-        .filter(msg => {
-          if (msg.type === 'bot') {
-            const content = msg.content.message;
-            if (content && typeof content === 'string') {
-              const isIntroMessage = content.includes('Hi! I am') || content.includes('How can I help');
-              return !isIntroMessage;
-            }
-          }
-          return true;
-        })
         .map(msg => ({
           role: msg.type === 'user' ? 'user' : 'assistant',
           content: msg.type === 'user' ? msg.content : msg.content.message || ''
@@ -1266,18 +1256,8 @@ export function ChatWidgetCore({
         headers['x-user-id'] = session.user.id;
       }
 
-      // Build conversation history
+      // Build conversation history (include all messages for better context)
       const conversationHistory = messages
-        .filter(msg => {
-          if (msg.type === 'bot') {
-            const content = msg.content.message;
-            if (content && typeof content === 'string') {
-              const isIntroMessage = content.includes('Hi! I am') || content.includes('How can I help');
-              return !isIntroMessage;
-            }
-          }
-          return true;
-        })
         .map(msg => ({
           role: msg.type === 'user' ? 'user' : 'assistant',
           content: msg.type === 'user' ? msg.content : msg.content.message || ''
@@ -1508,12 +1488,17 @@ export function ChatWidgetCore({
             {chatSettings?.chat_name || 'Affi'}
           </p>
         </div>
-        {isEmbedded && widgetType === 'floating' && (
+        {((isEmbedded && widgetType === 'floating') || (!isEmbedded)) && (
           <button
             onClick={() => {
-              // Send close message to parent window
-              if (window.parent !== window) {
-                window.parent.postMessage({ type: 'CLOSE_WIDGET' }, '*');
+              if (isEmbedded) {
+                // Send close message to parent window for embedded widgets
+                if (window.parent !== window) {
+                  window.parent.postMessage({ type: 'CLOSE_WIDGET' }, '*');
+                }
+              } else {
+                // For non-embedded widgets (dashboard), dispatch close event
+                window.dispatchEvent(new CustomEvent('close-chat-widget'));
               }
             }}
             style={{

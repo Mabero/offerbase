@@ -52,6 +52,7 @@ export async function GET(request: NextRequest) {
           font_size: '14px',
           intro_message: 'Hello! How can I help you today?',
           instructions: null,
+          preferred_language: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         }

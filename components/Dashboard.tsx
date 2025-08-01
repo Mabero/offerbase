@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import ColorPicker from "@/components/ColorPicker";
 import { 
@@ -40,6 +41,7 @@ import {
 
 import { supabase } from '../lib/supabaseClient';
 import { BASE_INSTRUCTIONS } from '../lib/instructions';
+import { PREFERRED_LANGUAGE_OPTIONS } from '@/lib/ai/language';
 import ChatWidget from './ChatWidget';
 import { SiteSelector } from './site-selector';
 import { TrainingContentEditor } from './TrainingContentEditor';
@@ -173,6 +175,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   const [sessionMessages, setSessionMessages] = useState<ChatMessage[]>([]);
   const [isLoadingSessionDetails, setIsLoadingSessionDetails] = useState(false);
   const [instructions, setInstructions] = useState(BASE_INSTRUCTIONS);
+  const [preferredLanguage, setPreferredLanguage] = useState<string | null>(null);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [chatStats, setChatStats] = useState<ChatStats>({
@@ -816,7 +819,8 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         body: JSON.stringify({
           siteId: selectedSite.id,
           ...chatSettings,
-          intro_message: introMessage
+          intro_message: introMessage,
+          preferred_language: preferredLanguage
         })
       });
 
@@ -1028,6 +1032,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         });
         setIntroMessage(data.settings.intro_message || 'Hello! How can I help you today?');
         setInstructions(data.settings.instructions || BASE_INSTRUCTIONS);
+        setPreferredLanguage(data.settings.preferred_language || null);
       }
     } catch (error) {
       console.error('Error fetching chat settings:', error);
@@ -1604,6 +1609,25 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         rows={3}
                         className="bg-white/80 border-gray-300 focus:border-gray-500"
                       />
+                    </div>
+                    <div>
+                      <Label htmlFor="preferred-language">Preferred Language</Label>
+                      <Select value={preferredLanguage || "auto"} onValueChange={(value) => setPreferredLanguage(value === "auto" ? null : value)}>
+                        <SelectTrigger className="bg-white/80 border-gray-300 focus:border-gray-500">
+                          <SelectValue placeholder="Auto-detect language" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">Auto-detect language</SelectItem>
+                          {PREFERRED_LANGUAGE_OPTIONS.map((lang) => (
+                            <SelectItem key={lang.code} value={lang.code}>
+                              {lang.flag} {lang.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Used as fallback when language detection is uncertain. Leave as &quot;Auto-detect&quot; to rely purely on automatic detection.
+                      </p>
                     </div>
                     <Button
                       onClick={handleSaveChatSettings}
