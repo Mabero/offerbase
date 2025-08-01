@@ -1,9 +1,10 @@
 import { franc } from 'franc';
 import * as tinyld from 'tinyld';
-import LanguageDetector from 'language-detector';
+// Remove problematic language-detector for now
+// import LanguageDetector from 'language-detector';
 
 // Initialize language-detector
-const lngDetector = new LanguageDetector();
+// const lngDetector = new LanguageDetector();
 
 // Language code mapping for better user experience
 const languageNames: Record<string, string> = {
@@ -106,23 +107,24 @@ const detectionMethods: DetectionMethod[] = [
       }
     }
   },
-  {
-    name: 'language-detector',
-    detect: (text: string) => {
-      try {
-        const results = lngDetector.detect(text, 1);
-        if (!results || results.length === 0) return null;
-        
-        const result = results[0];
-        const code = iso1ToIso3[result.iso6391] || result.iso6391;
-        // Language-detector provides confidence scores
-        const confidence = result.confidence || 0.5;
-        return { code, confidence };
-      } catch (error) {
-        return null;
-      }
-    }
-  }
+  // Temporarily removed due to build issues
+  // {
+  //   name: 'language-detector',
+  //   detect: (text: string) => {
+  //     try {
+  //       const results = lngDetector.detect(text, 1);
+  //       if (!results || results.length === 0) return null;
+  //       
+  //       const result = results[0];
+  //       const code = iso1ToIso3[result.iso6391] || result.iso6391;
+  //       // Language-detector provides confidence scores
+  //       const confidence = result.confidence || 0.5;
+  //       return { code, confidence };
+  //     } catch (error) {
+  //       return null;
+  //     }
+  //   }
+  // }
 ];
 
 // Normalize Norwegian variants to a single code

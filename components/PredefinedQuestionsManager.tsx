@@ -40,6 +40,7 @@ interface PredefinedQuestionsManagerProps {
 interface QuestionWithRules extends PredefinedQuestion {
   question_url_rules: Array<{
     id: string;
+    question_id: string;
     rule_type: UrlRuleType;
     pattern: string;
     is_active: boolean;
@@ -264,7 +265,7 @@ export function PredefinedQuestionsManager({ siteId }: PredefinedQuestionsManage
     setEditingQuestion(question);
     setFormData({
       question: question.question,
-      answer: question.answer,
+      answer: question.answer || '',
       priority: question.priority,
       is_site_wide: question.is_site_wide,
       is_active: question.is_active,
@@ -321,7 +322,7 @@ export function PredefinedQuestionsManager({ siteId }: PredefinedQuestionsManage
   // Filter questions based on search
   const filteredQuestions = questions.filter(question =>
     question.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    question.answer.toLowerCase().includes(searchQuery.toLowerCase())
+    (question.answer || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   // Load questions on component mount
@@ -405,9 +406,9 @@ export function PredefinedQuestionsManager({ siteId }: PredefinedQuestionsManage
                       )}
                     </div>
                     <CardDescription className="text-sm">
-                      {question.answer.length > 150 
+                      {question.answer && question.answer.length > 150 
                         ? `${question.answer.substring(0, 150)}...` 
-                        : question.answer}
+                        : question.answer || 'AI will handle this question naturally'}
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-2 ml-4">
@@ -637,8 +638,8 @@ export function PredefinedQuestionsManager({ siteId }: PredefinedQuestionsManage
               <div className="p-3 bg-gray-50 rounded-lg">
                 <div className="font-medium text-sm">{questionToDelete.question}</div>
                 <div className="text-xs text-gray-600 mt-1">
-                  {questionToDelete.answer.substring(0, 100)}
-                  {questionToDelete.answer.length > 100 && '...'}
+                  {(questionToDelete.answer || 'AI will handle naturally').substring(0, 100)}
+                  {(questionToDelete.answer || '').length > 100 && '...'}
                 </div>
               </div>
             </div>

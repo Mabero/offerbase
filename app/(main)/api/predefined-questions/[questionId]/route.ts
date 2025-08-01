@@ -154,7 +154,14 @@ export async function PUT(
     }
 
     // Handle URL rules updates if provided
-    let urlRules: any[] = [];
+    let urlRules: Array<{
+      id: string;
+      rule_type: string;
+      pattern: string;
+      is_active: boolean;
+      created_at: string;
+      updated_at: string;
+    }> = [];
     if (url_rules) {
       try {
         // Get existing rules

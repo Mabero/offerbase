@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
       .from('predefined_questions')
       .select(`
         id,
+        site_id,
         question,
         answer,
         priority,
@@ -54,6 +55,7 @@ export async function GET(request: NextRequest) {
         updated_at,
         question_url_rules (
           id,
+          question_id,
           rule_type,
           pattern,
           is_active,
@@ -185,7 +187,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Create URL rules if provided
-    let urlRules = [];
+    let urlRules: Array<{
+      id: string;
+      question_id: string;
+      rule_type: string;
+      pattern: string;
+      is_active: boolean;
+      created_at: string;
+      updated_at: string;
+    }> = [];
     if (url_rules.length > 0) {
       const rulesData = url_rules.map(rule => ({
         question_id: newQuestion.id,
@@ -197,7 +207,7 @@ export async function POST(request: NextRequest) {
       const { data: createdRules, error: rulesError } = await supabase
         .from('question_url_rules')
         .insert(rulesData)
-        .select('id, rule_type, pattern, is_active, created_at, updated_at');
+        .select('id, question_id, rule_type, pattern, is_active, created_at, updated_at');
 
       if (rulesError) {
         console.error('Error creating URL rules:', rulesError);

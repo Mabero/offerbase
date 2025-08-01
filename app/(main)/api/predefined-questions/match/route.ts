@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
       .from('predefined_questions')
       .select(`
         id,
+        site_id,
         question,
         answer,
         priority,
@@ -45,6 +46,7 @@ export async function GET(request: NextRequest) {
         updated_at,
         question_url_rules (
           id,
+          question_id,
           rule_type,
           pattern,
           is_active,
@@ -131,6 +133,7 @@ export async function POST(request: NextRequest) {
       .from('predefined_questions')
       .select(`
         id,
+        site_id,
         question,
         answer,
         priority,
@@ -140,6 +143,7 @@ export async function POST(request: NextRequest) {
         updated_at,
         question_url_rules (
           id,
+          question_id,
           rule_type,
           pattern,
           is_active,
