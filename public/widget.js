@@ -110,7 +110,7 @@
 
         // Create iframe
         const iframe = document.createElement('iframe');
-        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&embedded=true`;
+        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&embedded=true&widgetType=floating`;
         iframe.style.cssText = `
             width: 100%;
             height: 100%;
@@ -147,7 +147,7 @@
 
         // Create iframe
         const iframe = document.createElement('iframe');
-        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&embedded=true`;
+        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&embedded=true&widgetType=inline`;
         iframe.style.cssText = `
             width: 100%;
             height: 100%;
@@ -202,8 +202,8 @@
             font-size: 24px;
         `;
 
-        // Chat icon SVG
-        button.innerHTML = `
+        // Chat icon SVG (will be updated based on state)
+        const chatIconSVG = `
             <svg
                 width="28"
                 height="28"
@@ -215,6 +215,24 @@
                 />
             </svg>
         `;
+        
+        const closeIconSVG = `
+            <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+        `;
+        
+        button.innerHTML = chatIconSVG;
 
         // Hover effects
         button.addEventListener('mouseenter', () => {
@@ -291,9 +309,11 @@
 
             if (isOpen) {
                 container.style.display = 'block';
-                // Hide button on mobile when widget is open
+                // Update button icon to close on desktop, hide on mobile
                 if (window.innerWidth < 768) {
                     button.style.display = 'none';
+                } else {
+                    button.innerHTML = closeIconSVG;
                 }
 
                 // Track widget open
@@ -303,8 +323,9 @@
                 });
             } else {
                 container.style.display = 'none';
-                // Show button again when widget closes
+                // Show button again when widget closes and restore chat icon
                 button.style.display = 'flex';
+                button.innerHTML = chatIconSVG;
             }
         }
 
@@ -328,6 +349,12 @@
             } else if (event.data.type === 'CLOSE_WIDGET') {
                 // Close widget when requested from iframe
                 toggleWidget();
+            } else if (event.data.type === 'GET_PAGE_URL') {
+                // Send current page URL to iframe for predefined questions
+                iframe.contentWindow.postMessage({
+                    type: 'PAGE_URL_RESPONSE',
+                    url: window.location.href
+                }, '*');
             }
         });
 
@@ -356,6 +383,11 @@
                 `;
 
                 iframe.style.borderRadius = '0';
+                
+                // Hide button on mobile when widget is open
+                if (isOpen) {
+                    button.style.display = 'none';
+                }
             } else {
                 container.style.cssText = `
                     position: fixed;
@@ -373,6 +405,12 @@
                 `;
 
                 iframe.style.borderRadius = '20px';
+                
+                // Show button on desktop and update icon based on state
+                button.style.display = 'flex';
+                if (isOpen) {
+                    button.innerHTML = closeIconSVG;
+                }
             }
         }
 
@@ -454,6 +492,12 @@
             } else if (event.data.type === 'ANALYTICS_EVENT') {
                 // Handle analytics events from the iframe
                 trackEvent(event.data.eventType, event.data.data);
+            } else if (event.data.type === 'GET_PAGE_URL') {
+                // Send current page URL to iframe for predefined questions
+                iframe.contentWindow.postMessage({
+                    type: 'PAGE_URL_RESPONSE',
+                    url: window.location.href
+                }, '*');
             }
         });
 

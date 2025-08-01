@@ -34,7 +34,8 @@ import {
   Loader2,
   RefreshCw,
   Copy,
-  Check
+  Check,
+  HelpCircle
 } from 'lucide-react';
 
 import { supabase } from '../lib/supabaseClient';
@@ -42,12 +43,14 @@ import { BASE_INSTRUCTIONS } from '../lib/instructions';
 import ChatWidget from './ChatWidget';
 import { SiteSelector } from './site-selector';
 import { TrainingContentEditor } from './TrainingContentEditor';
+import { PredefinedQuestionsManager } from './PredefinedQuestionsManager';
 
 const drawerWidth = 240;
 
 const navItems = [
   { label: 'Offer Links', icon: ExternalLink },
   { label: 'Training Materials', icon: FileText },
+  { label: 'Predefined Questions', icon: HelpCircle },
   { label: 'Widgets', icon: SettingsIcon },
   { label: 'Instructions', icon: Info },
   { label: 'Analytics', icon: BarChart3 },
@@ -1543,8 +1546,13 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                 </div>
               )}
 
+              {/* Predefined Questions Tab */}
+              {selectedTab === 2 && selectedSite && (
+                <PredefinedQuestionsManager siteId={selectedSite.id} />
+              )}
+
               {/* Widgets Tab */}
-              {selectedTab === 2 && (
+              {selectedTab === 3 && (
                 <div className="space-y-6">
                   <h2 className="text-xl font-semibold text-gray-900 mb-6">Widget Settings</h2>
                   <div className="space-y-4">
@@ -1720,7 +1728,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
               )}
 
               {/* Instructions Tab */}
-              {selectedTab === 3 && (
+              {selectedTab === 4 && (
                 <div className="space-y-6">
                   <h2 className="text-xl font-semibold text-gray-900 mb-6">Instructions</h2>
                   <div className="space-y-4">
@@ -1755,7 +1763,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
 
 
               {/* Analytics Tab */}
-              {selectedTab === 4 && (
+              {selectedTab === 5 && (
                 <div className="space-y-6">
                   <h2 className="text-xl font-semibold text-gray-900 mb-6">Analytics</h2>
                   {/* Overview Metrics */}
@@ -1858,7 +1866,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
               )}
 
               {/* Chat Logs Tab */}
-              {selectedTab === 5 && (
+              {selectedTab === 6 && (
                 <div className="space-y-6">
                   <h2 className="text-xl font-semibold text-gray-900 mb-6">Chat Logs</h2>
                   <div className="space-y-4">

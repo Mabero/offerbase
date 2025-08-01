@@ -20,6 +20,7 @@ interface ChatWidgetProps {
   introMessage: string;
   apiUrl?: string;
   isEmbedded?: boolean;
+  widgetType?: 'floating' | 'inline';
 }
 
 // Custom Chat Icon Component (preserving the original design)
@@ -43,7 +44,8 @@ function ChatWidget({
   siteId, 
   introMessage: initialIntroMessage, 
   apiUrl = '', 
-  isEmbedded = false 
+  isEmbedded = false,
+  widgetType = 'floating'
 }: ChatWidgetProps) {
   
   const [isOpen, setIsOpen] = useState(isEmbedded); // Auto-open if embedded
@@ -258,6 +260,7 @@ function ChatWidget({
             introMessage={introMessage || internalIntroMessage}
             apiUrl={apiUrl}
             isEmbedded={isEmbedded}
+            widgetType={widgetType}
             onLinkClick={handleLinkClick}
             onMessageSent={handleMessageSent}
           />

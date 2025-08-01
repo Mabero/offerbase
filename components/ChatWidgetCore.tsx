@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { PredefinedQuestions } from './PredefinedQuestions';
+import { PredefinedQuestionButton } from '@/types/predefined-questions';
 
 // Types
 export interface ChatSettings {
@@ -55,6 +57,7 @@ export interface ChatWidgetCoreProps {
   introMessage?: string;
   apiUrl?: string;
   isEmbedded?: boolean;
+  widgetType?: 'floating' | 'inline';
   onLinkClick?: (link: Link) => void;
   onMessageSent?: (message: string) => void;
   onWidgetOpen?: () => void;
@@ -521,6 +524,7 @@ export function ChatWidgetCore({
   introMessage = '',
   apiUrl = '',
   isEmbedded = false,
+  widgetType = 'floating',
   onLinkClick,
   onMessageSent,
   onWidgetOpen
@@ -791,6 +795,10 @@ export function ChatWidgetCore({
 
   // Track if history has been loaded to prevent re-loading
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  
+  // Predefined questions state
+  const [predefinedQuestions, setPredefinedQuestions] = useState<PredefinedQuestionButton[]>([]);
+  const [pageUrl, setPageUrl] = useState<string>('');
 
   // Restore chat history when sessionId exists
   useEffect(() => {
@@ -905,12 +913,30 @@ export function ChatWidgetCore({
             }
           });
 
-          // Set restored messages, replacing any initial messages
-          setMessages(restoredMessages);
+          // Set messages, preserving intro message if it exists
+          setMessages(prevMessages => {
+            // Check if the first message in current messages is an intro message
+            const hasIntroMessage = prevMessages.length > 0 && 
+                                  prevMessages[0].type === 'bot' && 
+                                  prevMessages[0].content.type === 'message' &&
+                                  (prevMessages[0].content.message.includes('Hi! I am') || 
+                                   prevMessages[0].content.message.includes('How can I help') || 
+                                   prevMessages[0].content.message.includes('your assistant'));
+            
+            // If we have an intro message and restored messages, combine them
+            if (hasIntroMessage) {
+              return [prevMessages[0], ...restoredMessages];
+            } else {
+              // Otherwise just set the restored messages
+              return restoredMessages;
+            }
+          });
           
           // Scroll to bottom after messages are set
           setTimeout(() => {
-            scrollToBottom();
+            if (messagesContainerRef.current) {
+              messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+            }
           }, 100); // Small delay to ensure DOM has updated
         }
       } catch (error) {
@@ -923,7 +949,7 @@ export function ChatWidgetCore({
     }
 
     restoreChatHistory();
-  }, [sessionId, apiUrl, siteId, historyLoaded]); // Include historyLoaded in dependencies
+  }, [sessionId, apiUrl, siteId, historyLoaded]); // Only include necessary dependencies
 
   // Handle link clicks
   const handleLinkClick = (link: Link) => {
@@ -945,7 +971,7 @@ export function ChatWidgetCore({
   };
 
   // Check if a message is an intro message that shouldn't have action buttons
-  const isIntroMessage = (message: BotMessage): boolean => {
+  const isIntroMessage = useCallback((message: BotMessage): boolean => {
     if (message.content.type === 'message' && message.content.message) {
       const content = message.content.message;
       return content.includes('Hi! I am') || 
@@ -954,19 +980,47 @@ export function ChatWidgetCore({
              content === (introMessage || `Hi! I am ${chatSettings?.chat_name || 'Affi'}, your assistant. How can I help you today?`);
     }
     return false;
-  };
+  }, [introMessage, chatSettings?.chat_name]);
+
+  // State to hold structured content that should replace the typing message
+  const [pendingStructuredContent, setPendingStructuredContent] = useState<MessageContent | null>(null);
 
   // Handle typewriter completion
   const handleTypewriterComplete = (message: string) => {
     setIsTyping(false);
     setTypingMessage(null);
+    
+    // If there's pending structured content, use it; otherwise create simple message
+    const finalContent = pendingStructuredContent || { 
+      type: 'message', 
+      message: message 
+    };
+    
     setMessages(prev => [...prev, { 
       type: 'bot', 
-      content: { 
-        type: 'message', 
-        message: message 
-      } 
+      content: finalContent
     } as BotMessage]);
+    
+    // Clear pending content
+    setPendingStructuredContent(null);
+  };
+
+  // Centralized function to process AI responses with typing animation
+  const processAIResponse = (data: MessageContent) => {
+    // Extract the main message text for typing animation
+    const messageText = data.message || 'Sorry, I could not understand the response.';
+    
+    // Always show typing animation first
+    setTypingMessage(messageText);
+    setIsTyping(true);
+    
+    // If it's a complex response (links or simple_link), store the full structure
+    if (data.type === 'links' || data.type === 'simple_link') {
+      setPendingStructuredContent(data);
+    } else {
+      // For simple messages, clear any pending content
+      setPendingStructuredContent(null);
+    }
   };
 
   // Handle message actions
@@ -1074,16 +1128,7 @@ export function ChatWidgetCore({
       setIsLoading(false);
       
       // Use typing animation for all response types
-      if (data.type === 'message' && typeof data.message === 'string') {
-        // Simple text message - use typewriter effect
-        setTypingMessage(data.message);
-        setIsTyping(true);
-      } else {
-        // For complex content (links, simple_link), add the structured response directly without typing animation
-        // to avoid duplicate messages
-        console.log('Adding structured retry response:', data);
-        setMessages(prev => [...prev, { type: 'bot', content: data } as BotMessage]);
-      }
+      processAIResponse(data);
     } catch (error) {
       console.error('Error retrying message:', error);
       setIsLoading(false);
@@ -1172,16 +1217,7 @@ export function ChatWidgetCore({
       setIsLoading(false);
       
       // Use typing animation for all response types
-      if (data.type === 'message' && typeof data.message === 'string') {
-        // Simple text message - use typewriter effect
-        setTypingMessage(data.message);
-        setIsTyping(true);
-      } else {
-        // For complex content (links, simple_link), add the structured response directly without typing animation
-        // to avoid duplicate messages
-        console.log('Adding structured response:', data);
-        setMessages(prev => [...prev, { type: 'bot', content: data } as BotMessage]);
-      }
+      processAIResponse(data);
     } catch (error) {
       console.error('Error:', error);
       setIsLoading(false);
@@ -1194,6 +1230,169 @@ export function ChatWidgetCore({
       } as BotMessage]);
     }
   };
+
+  // Load predefined questions for current page URL
+  const loadPredefinedQuestions = useCallback(async (url: string) => {
+    try {
+      const response = await fetch(`${apiUrl}/api/predefined-questions/match?siteId=${siteId}&pageUrl=${encodeURIComponent(url)}&maxResults=4`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        setPredefinedQuestions(data.questions || []);
+      } else {
+        console.warn('Failed to load predefined questions:', response.status);
+        setPredefinedQuestions([]);
+      }
+    } catch (error) {
+      console.error('Error loading predefined questions:', error);
+      setPredefinedQuestions([]);
+    }
+  }, [apiUrl, siteId]);
+
+  // Send a message to AI (used for predefined questions without answers)
+  const sendMessageToAI = async (userMessage: string) => {
+    setIsLoading(true);
+    
+    // Force scroll to bottom when sending a message
+    setTimeout(() => scrollToBottom(true), 100);
+
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-site-id': siteId
+      };
+      
+      if (session?.user?.id) {
+        headers['x-user-id'] = session.user.id;
+      }
+
+      // Build conversation history
+      const conversationHistory = messages
+        .filter(msg => {
+          if (msg.type === 'bot') {
+            const content = msg.content.message;
+            if (content && typeof content === 'string') {
+              const isIntroMessage = content.includes('Hi! I am') || content.includes('How can I help');
+              return !isIntroMessage;
+            }
+          }
+          return true;
+        })
+        .map(msg => ({
+          role: msg.type === 'user' ? 'user' : 'assistant',
+          content: msg.type === 'user' ? msg.content : msg.content.message || ''
+        }))
+        .filter(msg => msg.content.trim().length > 0);
+      
+      const response = await fetch(`${apiUrl}/api/chat`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ 
+          message: userMessage,
+          siteId: siteId,
+          conversationHistory: conversationHistory,
+          sessionId: sessionId,
+          pageUrl: pageUrl // Include current page URL
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Network response was not ok');
+      }
+
+      const data = await response.json();
+      
+      // Update sessionId if server returned a new one
+      if (data.sessionId) {
+        const storageKey = `chat_session_uuid_${siteId}`;
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(storageKey, data.sessionId);
+        }
+        setSessionId(data.sessionId);
+      }
+      
+      setIsLoading(false);
+      
+      // Use typing animation for all response types
+      processAIResponse(data);
+    } catch (error) {
+      console.error('Error:', error);
+      setIsLoading(false);
+      setMessages(prev => [...prev, {
+        type: 'bot',
+        content: {
+          type: 'message',
+          message: 'Sorry, I encountered an error. Please try again.'
+        }
+      } as BotMessage]);
+    }
+  };
+
+  // Handle predefined question click
+  const handlePredefinedQuestionClick = (question: PredefinedQuestionButton) => {
+    // Clear predefined questions immediately when one is clicked
+    setPredefinedQuestions([]);
+    
+    // Add user message
+    setMessages(prev => [...prev, { type: 'user', content: question.question } as UserMessage]);
+    
+    if (question.answer && question.answer.trim()) {
+      // Has predefined answer - show it with typing animation
+      processAIResponse({
+        type: 'message',
+        message: question.answer
+      });
+      
+      // Scroll to bottom
+      setTimeout(() => scrollToBottom(true), 100);
+    } else {
+      // No predefined answer - send to AI
+      sendMessageToAI(question.question);
+    }
+    
+    // Notify parent
+    onMessageSent?.(question.question);
+  };
+
+  // Get current page URL
+  useEffect(() => {
+    const getCurrentPageUrl = () => {
+      if (typeof window === 'undefined') return;
+      
+      if (isEmbedded && window.parent !== window) {
+        // Widget is embedded, get parent URL
+        try {
+          window.parent.postMessage({ type: 'GET_PAGE_URL' }, '*');
+        } catch (error) {
+          // Fallback to current URL if postMessage fails
+          console.warn('Failed to get parent URL:', error);
+          setPageUrl(window.location.href);
+        }
+        
+        // Listen for URL response from parent
+        const handleMessage = (event: MessageEvent) => {
+          if (event.data.type === 'PAGE_URL_RESPONSE') {
+            setPageUrl(event.data.url);
+          }
+        };
+        
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+      } else {
+        // Direct access, use current URL
+        setPageUrl(window.location.href);
+      }
+    };
+    
+    getCurrentPageUrl();
+  }, [isEmbedded]);
+
+  // Load predefined questions when page URL changes
+  useEffect(() => {
+    if (pageUrl && siteId) {
+      loadPredefinedQuestions(pageUrl);
+    }
+  }, [pageUrl, siteId, loadPredefinedQuestions]);
 
   const renderMessage = (message: Message) => {
     if (message.type === 'user') {
@@ -1309,7 +1508,7 @@ export function ChatWidgetCore({
             {chatSettings?.chat_name || 'Affi'}
           </p>
         </div>
-        {isEmbedded && (
+        {isEmbedded && widgetType === 'floating' && (
           <button
             onClick={() => {
               // Send close message to parent window
@@ -1405,6 +1604,13 @@ export function ChatWidgetCore({
 
       {/* Input Area */}
       <div style={styles.inputContainer}>
+        {/* Predefined Questions */}
+        <PredefinedQuestions
+          questions={predefinedQuestions}
+          onQuestionClick={handlePredefinedQuestionClick}
+          chatSettings={chatSettings}
+          isVisible={predefinedQuestions.length > 0 && (messages.length === 0 || (messages.length === 1 && messages[0].type === 'bot'))}
+        />
         <div style={styles.inputWrapper}>
           <input
             type="text"

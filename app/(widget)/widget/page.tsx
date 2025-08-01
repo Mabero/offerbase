@@ -24,6 +24,7 @@ function WidgetContent() {
   const siteId = searchParams?.get('siteId') || 'demo-site';
   const apiUrl = searchParams?.get('apiUrl') ? decodeURIComponent(searchParams.get('apiUrl')!) : (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
   const embedded = searchParams?.get('embedded') === 'true';
+  const widgetType = searchParams?.get('widgetType') || 'floating';
 
   // Load settings dynamically
   useEffect(() => {
@@ -92,6 +93,7 @@ function WidgetContent() {
         introMessage={introMessage}
         apiUrl={apiUrl}
         isEmbedded={embedded}
+        widgetType={widgetType as 'floating' | 'inline'}
       />
     </div>
   );
