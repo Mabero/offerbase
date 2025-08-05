@@ -326,6 +326,35 @@ export function createOpenAIFallback() {
   };
 }
 
+// Utility function to create fallback ChatCompletion responses for OpenAI
+export function createOpenAIChatCompletionFallback() {
+  return async () => {
+    // Return a properly formatted ChatCompletion object when OpenAI is down
+    return {
+      id: 'fallback-' + Date.now(),
+      object: 'chat.completion' as const,
+      created: Math.floor(Date.now() / 1000),
+      model: 'gpt-4o-mini',
+      choices: [{
+        index: 0,
+        message: {
+          role: 'assistant' as const,
+          content: JSON.stringify({
+            type: 'message',
+            message: 'I apologize, but I\'m experiencing some technical difficulties right now. Please try again in a few moments, or contact support if the issue persists.'
+          })
+        },
+        finish_reason: 'stop' as const
+      }],
+      usage: {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0
+      }
+    };
+  };
+}
+
 // Utility function to create fallback responses for scraping
 export function createScrapingFallback(url: string) {
   return async () => {

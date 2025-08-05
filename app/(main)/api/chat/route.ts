@@ -12,7 +12,7 @@ import { validateAIResponse } from '@/lib/ai/response-validator';
 import { getCachedData, getCacheKey, CACHE_TTL } from '@/lib/cache';
 import { chatRequestSchema, validateRequest, sanitizeString, createValidationErrorResponse } from '@/lib/validation';
 import { rateLimiter, createRateLimitResponse } from '@/lib/rate-limiting';
-import { openAICircuitBreaker, createOpenAIFallback } from '@/lib/circuit-breaker';
+import { openAICircuitBreaker, createOpenAIChatCompletionFallback } from '@/lib/circuit-breaker';
 import { detectLanguageWithCaching } from '@/lib/session-language';
 import { handleAPIError, withRetry } from '@/lib/error-handling';
 
@@ -355,7 +355,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
           response_format: { type: "json_object" }
         });
       },
-      createOpenAIFallback()
+      createOpenAIChatCompletionFallback()
     );
 
     // Check if circuit breaker failed
