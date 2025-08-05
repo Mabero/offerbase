@@ -18,8 +18,7 @@ export const GET = createAPIRoute(
   {
     requireAuth: false, // Public endpoint for widget usage
     querySchema: matchQuerySchema,
-    allowedMethods: ['GET'],
-    rateLimitType: 'widget' // Lower rate limits for public endpoint
+    allowedMethods: ['GET']
   },
   async (context) => {
     const { query, supabase } = context;
