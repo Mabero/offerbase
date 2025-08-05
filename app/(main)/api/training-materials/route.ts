@@ -4,7 +4,7 @@ import { trainingMaterialCreateSchema, siteIdQuerySchema, sanitizeUrl } from '@/
 import { scrapeUrl } from '@/lib/scraping';
 import { analyzeContentIntelligence } from '@/lib/ai/content-intelligence';
 import { scrapingCircuitBreaker, createScrapingFallback } from '@/lib/circuit-breaker';
-import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { createSupabaseAdminClient } from '@/lib/supabase-server';
 
 // GET /api/training-materials - Fetch training materials for a site
 export const GET = createAPIRoute(
