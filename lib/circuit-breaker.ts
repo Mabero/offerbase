@@ -1,4 +1,5 @@
 import { cache } from './cache';
+import type { ChatCompletion } from 'openai/resources/chat/completions';
 
 // Circuit breaker configuration
 export const CIRCUIT_BREAKER_CONFIG = {
@@ -328,23 +329,24 @@ export function createOpenAIFallback() {
 
 // Utility function to create fallback ChatCompletion responses for OpenAI
 export function createOpenAIChatCompletionFallback() {
-  return async () => {
+  return async (): Promise<ChatCompletion> => {
     // Return a properly formatted ChatCompletion object when OpenAI is down
-    return {
+    const fallbackResponse: ChatCompletion = {
       id: 'fallback-' + Date.now(),
-      object: 'chat.completion' as const,
+      object: 'chat.completion',
       created: Math.floor(Date.now() / 1000),
       model: 'gpt-4o-mini',
       choices: [{
         index: 0,
         message: {
-          role: 'assistant' as const,
+          role: 'assistant',
           content: JSON.stringify({
             type: 'message',
             message: 'I apologize, but I\'m experiencing some technical difficulties right now. Please try again in a few moments, or contact support if the issue persists.'
-          })
+          }),
+          refusal: null
         },
-        finish_reason: 'stop' as const,
+        finish_reason: 'stop',
         logprobs: null
       }],
       usage: {
@@ -354,6 +356,8 @@ export function createOpenAIChatCompletionFallback() {
       },
       system_fingerprint: null
     };
+    
+    return fallbackResponse;
   };
 }
 
