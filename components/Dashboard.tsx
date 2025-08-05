@@ -1341,7 +1341,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         className="bg-white/80 border-gray-300 focus:border-gray-500"
                       />
                       <p className="text-sm text-gray-600 mt-1">
-                        Customize the call-to-action button text. Leave empty to use default "View Product".
+                        Customize the call-to-action button text. Leave empty to use default &quot;View Product&quot;.
                       </p>
                     </div>
                     <Button
@@ -2147,7 +2147,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                   className="bg-white/80 border-gray-300 focus:border-gray-500"
                 />
                 <p className="text-sm text-gray-600 mt-1">
-                  Customize the call-to-action button text. Leave empty to use default "View Product".
+                  Customize the call-to-action button text. Leave empty to use default &quot;View Product&quot;.
                 </p>
               </div>
             </div>
