@@ -304,7 +304,8 @@ async function generateChatResponse(message: string, conversationHistory: { role
     const detectedLanguage = {
       name: cachedLanguageResult.name,
       code: cachedLanguageResult.code,
-      confidence: cachedLanguageResult.confidence
+      confidence: cachedLanguageResult.confidence,
+      instruction: `You must respond in ${cachedLanguageResult.name}.`
     };
     
     console.log(`Language for session ${sessionId}: ${detectedLanguage.name} (${detectedLanguage.code}) confidence: ${detectedLanguage.confidence} [${cachedLanguageResult.messageCount} msgs]${chatSettings?.preferred_language ? ` (preferred: ${chatSettings.preferred_language})` : ''}`);
