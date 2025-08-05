@@ -11,6 +11,7 @@ interface AffiliateLink {
   product_id: string | null;
   aliases: string[] | null;
   image_url: string | null;
+  button_text: string | null;
   site_id: string;
   created_at: string;
   updated_at: string;

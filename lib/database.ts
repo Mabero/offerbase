@@ -26,6 +26,7 @@ export interface AffiliateLink {
   product_id?: string
   aliases?: string[]
   image_url?: string
+  button_text?: string
   site_id: string
   created_at: string
   updated_at: string
