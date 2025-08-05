@@ -1,110 +1,82 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
-import { createSupabaseAdminClient } from '@/lib/supabase-server'
-import { cache, getCacheKey } from '@/lib/cache'
+import { NextRequest } from 'next/server';
+import { createAPIRoute, createSuccessResponse, executeDBOperation, createOptionsHandler } from '@/lib/api-template';
+import { affiliateLinkSchema, siteIdQuerySchema, sanitizeUrl, validateRequest } from '@/lib/validation';
+import { getCacheKey, cache } from '@/lib/cache';
 
-export async function GET(request: NextRequest) {
-  try {
-    const { userId } = await auth()
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { searchParams } = new URL(request.url)
-    const siteId = searchParams.get('siteId')
-
-    if (!siteId) {
-      return NextResponse.json({ error: 'Site ID is required' }, { status: 400 })
-    }
-
-    const supabase = createSupabaseAdminClient()
+// GET /api/affiliate-links - Fetch affiliate links for a site
+export const GET = createAPIRoute(
+  {
+    requireAuth: true,
+    requireSiteOwnership: true,
+    querySchema: siteIdQuerySchema,
+    allowedMethods: ['GET']
+  },
+  async (context) => {
+    const { siteId, supabase } = context;
     
-    // First verify the site belongs to the user
-    const { data: site, error: siteError } = await supabase
-      .from('sites')
-      .select('id')
-      .eq('id', siteId)
-      .eq('user_id', userId)
-      .single()
+    // Fetch affiliate links with retry logic
+    const links = await executeDBOperation(
+      async () => {
+        const { data, error } = await supabase
+          .from('affiliate_links')
+          .select('id, url, title, description, image_url, button_text, created_at, updated_at')
+          .eq('site_id', siteId!)
+          .order('created_at', { ascending: false });
 
-    if (siteError || !site) {
-      return NextResponse.json({ error: 'Site not found or unauthorized' }, { status: 404 })
-    }
+        if (error) throw error;
+        return data || [];
+      },
+      { operation: 'fetchAffiliateLinks', siteId, userId: context.userId }
+    );
 
-    // Get affiliate links for this site
-    const { data: links, error } = await supabase
-      .from('affiliate_links')
-      .select('id, url, title, description, image_url, button_text, created_at, updated_at')
-      .eq('site_id', siteId)
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      console.error('Error fetching affiliate links:', error)
-      return NextResponse.json({ error: 'Failed to fetch affiliate links' }, { status: 500 })
-    }
-
-    return NextResponse.json({ links })
-  } catch (error) {
-    console.error('Error in GET /api/affiliate-links:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return createSuccessResponse(links, 'Affiliate links fetched successfully');
   }
-}
+);
 
-export async function POST(request: NextRequest) {
-  try {
-    const { userId } = await auth()
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+// POST /api/affiliate-links - Create new affiliate link
+export const POST = createAPIRoute(
+  {
+    requireAuth: true,
+    requireSiteOwnership: true,
+    bodySchema: affiliateLinkSchema,
+    allowedMethods: ['POST']
+  },
+  async (context) => {
+    const { body, siteId, supabase } = context;
+    const linkData = body as typeof affiliateLinkSchema._type;
 
-    const body = await request.json()
+    // Sanitize URL input
+    const sanitizedUrl = sanitizeUrl(linkData.url);
     
-    const { siteId, url, title, description, image_url, button_text } = body
+    // Create affiliate link with retry logic
+    const link = await executeDBOperation(
+      async () => {
+        const { data, error } = await supabase
+          .from('affiliate_links')
+          .insert([{
+            site_id: siteId!,
+            url: sanitizedUrl,
+            title: linkData.title.trim(),
+            description: linkData.description?.trim() || '',
+            image_url: linkData.image_url?.trim() || null,
+            button_text: linkData.button_text?.trim() || 'View Product'
+          }])
+          .select('id, url, title, description, image_url, button_text, created_at, updated_at')
+          .single();
 
-    if (!siteId || !url || !title) {
-      return NextResponse.json({ error: 'Site ID, URL, and title are required' }, { status: 400 })
-    }
-
-    const supabase = createSupabaseAdminClient()
-    
-    // First verify the site belongs to the user
-    const { data: site, error: siteError } = await supabase
-      .from('sites')
-      .select('id')
-      .eq('id', siteId)
-      .eq('user_id', userId)
-      .single()
-
-    if (siteError || !site) {
-      return NextResponse.json({ error: 'Site not found or unauthorized' }, { status: 404 })
-    }
-
-    // Create the affiliate link
-    const { data: link, error } = await supabase
-      .from('affiliate_links')
-      .insert([{
-        site_id: siteId,
-        url: url.trim(),
-        title: title.trim(),
-        description: description?.trim() || '',
-        image_url: image_url?.trim() || null,
-        button_text: button_text?.trim() || 'View Product'
-      }])
-      .select('id, url, title, description, image_url, button_text, created_at, updated_at')
-      .single()
-
-    if (error) {
-      console.error('Error creating affiliate link:', error)
-      return NextResponse.json({ error: 'Failed to create affiliate link' }, { status: 500 })
-    }
+        if (error) throw error;
+        return data;
+      },
+      { operation: 'createAffiliateLink', siteId, userId: context.userId }
+    );
 
     // Invalidate cache for affiliate links
-    await cache.del(getCacheKey(siteId, 'affiliate_links'));
+    await cache.del(getCacheKey(siteId!, 'affiliate_links'));
     console.log(`🗑️ Cache invalidated for affiliate links: ${siteId}`);
 
-    return NextResponse.json({ link }, { status: 201 })
-  } catch (error) {
-    console.error('Error in POST /api/affiliate-links:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return createSuccessResponse(link, 'Affiliate link created successfully', 201);
   }
-}
+);
+
+// OPTIONS handler for CORS
+export const OPTIONS = createOptionsHandler();

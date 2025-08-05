@@ -1,141 +1,151 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
-import { createSupabaseAdminClient } from '@/lib/supabase-server'
-import { scrapeUrl } from '@/lib/scraping'
-import { analyzeContentIntelligence } from '@/lib/ai/content-intelligence'
+import { NextRequest } from 'next/server';
+import { createAPIRoute, createSuccessResponse, executeDBOperation, createOptionsHandler } from '@/lib/api-template';
+import { trainingMaterialCreateSchema, siteIdQuerySchema, sanitizeUrl } from '@/lib/validation';
+import { scrapeUrl } from '@/lib/scraping';
+import { analyzeContentIntelligence } from '@/lib/ai/content-intelligence';
+import { scrapingCircuitBreaker, createScrapingFallback } from '@/lib/circuit-breaker';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
-export async function GET(request: NextRequest) {
-  try {
-    const { userId } = await auth()
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { searchParams } = new URL(request.url)
-    const siteId = searchParams.get('siteId')
-
-    if (!siteId) {
-      return NextResponse.json({ error: 'Site ID is required' }, { status: 400 })
-    }
-
-    const supabase = createSupabaseAdminClient()
+// GET /api/training-materials - Fetch training materials for a site
+export const GET = createAPIRoute(
+  {
+    requireAuth: true,
+    requireSiteOwnership: true,
+    querySchema: siteIdQuerySchema,
+    allowedMethods: ['GET']
+  },
+  async (context) => {
+    const { siteId, supabase } = context;
     
-    // First verify the site belongs to the user
-    const { data: site, error: siteError } = await supabase
-      .from('sites')
-      .select('id')
-      .eq('id', siteId)
-      .eq('user_id', userId)
-      .single()
+    // Fetch training materials with retry logic
+    const materials = await executeDBOperation(
+      async () => {
+        const { data, error } = await supabase
+          .from('training_materials')
+          .select('id, url, title, content, content_type, metadata, scrape_status, last_scraped_at, error_message, created_at, updated_at')
+          .eq('site_id', siteId!)
+          .order('created_at', { ascending: false });
 
-    if (siteError || !site) {
-      return NextResponse.json({ error: 'Site not found or unauthorized' }, { status: 404 })
-    }
+        if (error) throw error;
+        return data || [];
+      },
+      { operation: 'fetchTrainingMaterials', siteId, userId: context.userId }
+    );
 
-    // Get training materials for this site
-    const { data: materials, error } = await supabase
-      .from('training_materials')
-      .select('id, url, title, content, content_type, metadata, scrape_status, last_scraped_at, error_message, created_at, updated_at')
-      .eq('site_id', siteId)
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      console.error('Error fetching training materials:', error)
-      return NextResponse.json({ error: 'Failed to fetch training materials' }, { status: 500 })
-    }
-
-    return NextResponse.json({ materials })
-  } catch (error) {
-    console.error('Error in GET /api/training-materials:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return createSuccessResponse(materials, 'Training materials fetched successfully');
   }
-}
+);
 
-export async function POST(request: NextRequest) {
-  try {
-    const { userId } = await auth()
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+// POST /api/training-materials - Create new training material
+export const POST = createAPIRoute(
+  {
+    requireAuth: true,
+    requireSiteOwnership: true,
+    bodySchema: trainingMaterialCreateSchema,
+    allowedMethods: ['POST'],
+    rateLimitType: 'api' // Higher rate limits for scraping operations
+  },
+  async (context) => {
+    const { body, siteId, supabase } = context;
+    const materialData = body as typeof trainingMaterialCreateSchema._type;
+
+    // Sanitize URL
+    const sanitizedUrl = sanitizeUrl(materialData.url);
+
+    // Check if material with this URL already exists
+    const existingCheck = await executeDBOperation(
+      async () => {
+        const { data, error } = await supabase
+          .from('training_materials')
+          .select('id')
+          .eq('site_id', siteId!)
+          .eq('url', sanitizedUrl)
+          .single();
+
+        // If no error or "not found" error, continue
+        if (error && error.code !== 'PGRST116') throw error;
+        return data;
+      },
+      { operation: 'checkExistingMaterial', siteId, userId: context.userId }
+    );
+
+    if (existingCheck) {
+      const { createValidationErrorResponse } = await import('@/lib/validation');
+      return createValidationErrorResponse('Material with this URL already exists', 409);
     }
 
-    const { siteId, url } = await request.json()
-
-    if (!siteId || !url) {
-      return NextResponse.json({ error: 'Site ID and URL are required' }, { status: 400 })
+    // Extract title from URL if not provided
+    let title = materialData.title || sanitizedUrl;
+    if (!materialData.title) {
+      try {
+        const urlObj = new URL(sanitizedUrl);
+        title = urlObj.hostname;
+      } catch {
+        title = sanitizedUrl;
+      }
     }
 
-    const supabase = createSupabaseAdminClient()
-    
-    // First verify the site belongs to the user
-    const { data: site, error: siteError } = await supabase
-      .from('sites')
-      .select('id')
-      .eq('id', siteId)
-      .eq('user_id', userId)
-      .single()
+    // Create initial material record
+    const material = await executeDBOperation(
+      async () => {
+        const { data, error } = await supabase
+          .from('training_materials')
+          .insert([{
+            site_id: siteId!,
+            url: sanitizedUrl,
+            title: title.trim(),
+            content_type: materialData.content_type || 'webpage',
+            scrape_status: 'pending'
+          }])
+          .select('id, url, title, content_type, scrape_status, created_at')
+          .single();
 
-    if (siteError || !site) {
-      return NextResponse.json({ error: 'Site not found or unauthorized' }, { status: 404 })
-    }
+        if (error) throw error;
+        return data;
+      },
+      { operation: 'createTrainingMaterial', siteId, userId: context.userId }
+    );
 
-    // Extract title from URL
-    let title = url.trim()
-    try {
-      const urlObj = new URL(url)
-      title = urlObj.hostname
-    } catch {
-      // If URL is invalid, use the original string
-      title = url.trim()
-    }
+    // Start scraping process in background
+    scrapeContentForMaterial(material.id, sanitizedUrl).catch(error => {
+      console.error('Error triggering scrape:', error);
+    });
 
-    // Create the training material with pending scrape status
-    const { data: material, error } = await supabase
-      .from('training_materials')
-      .insert([{
-        site_id: siteId,
-        url: url.trim(),
-        title: title,
-        scrape_status: 'pending'
-      }])
-      .select('id, url, title, scrape_status, created_at, updated_at')
-      .single()
-
-    if (error) {
-      console.error('Error creating training material:', error)
-      return NextResponse.json({ error: 'Failed to create training material' }, { status: 500 })
-    }
-
-    // Trigger content scraping asynchronously
-    scrapeContentForMaterial(material.id, url.trim()).catch(error => {
-      console.error('Error triggering scrape:', error)
-    })
-
-    return NextResponse.json({ material }, { status: 201 })
-  } catch (error) {
-    console.error('Error in POST /api/training-materials:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return createSuccessResponse(
+      material, 
+      'Training material created successfully. Scraping will begin shortly.', 
+      201
+    );
   }
-}
+);
 
-// Function to scrape content for a training material
+// Function to scrape content for a training material with circuit breaker protection
 async function scrapeContentForMaterial(materialId: string, url: string) {
-  const supabase = createSupabaseAdminClient()
+  const supabase = createSupabaseAdminClient();
   
   try {
     // Update status to processing
-    const { error: updateError } = await supabase
-      .from('training_materials')
-      .update({ scrape_status: 'processing' })
-      .eq('id', materialId)
+    await executeDBOperation(
+      async () => {
+        const { error } = await supabase
+          .from('training_materials')
+          .update({ scrape_status: 'processing' })
+          .eq('id', materialId);
+        
+        if (error) throw error;
+      },
+      { operation: 'updateMaterialStatus', materialId }
+    );
     
-    if (updateError) {
-      console.error('Error updating status to processing:', updateError);
-    }
+    // Use circuit breaker for scraping operation
+    const circuitResult = await scrapingCircuitBreaker.execute(
+      async () => await scrapeUrl(url),
+      createScrapingFallback(url)
+    );
     
-    // Use the shared scraping function directly
-    const scrapeResult = await scrapeUrl(url);
-    
-    if (scrapeResult.success) {
+    if (circuitResult.success && circuitResult.data) {
+      const scrapeResult = circuitResult.data;
+      
       // Analyze content intelligence
       const title = scrapeResult.metadata?.title || url;
       const content = scrapeResult.content || '';
@@ -144,57 +154,83 @@ async function scrapeContentForMaterial(materialId: string, url: string) {
       const analysis = analyzeContentIntelligence(title, content, metadata);
       
       // Update training material with scraped content and intelligence analysis
-      const { error: successUpdateError } = await supabase
-        .from('training_materials')
-        .update({
-          content: scrapeResult.content,
-          content_type: analysis.contentType, // Use analyzed content type instead of generic scraper result
-          metadata: scrapeResult.metadata,
-          structured_data: analysis.structuredData,
-          intent_keywords: analysis.intentKeywords,
-          primary_products: analysis.primaryProducts,
-          confidence_score: analysis.confidenceScore,
-          scrape_status: 'success',
-          last_scraped_at: new Date().toISOString(),
-          title: title,
-        })
-        .eq('id', materialId)
+      await executeDBOperation(
+        async () => {
+          const { error } = await supabase
+            .from('training_materials')
+            .update({
+              content: scrapeResult.content,
+              content_type: analysis.contentType,
+              metadata: scrapeResult.metadata,
+              structured_data: analysis.structuredData,
+              intent_keywords: analysis.intentKeywords,
+              primary_products: analysis.primaryProducts,
+              confidence_score: analysis.confidenceScore,
+              scrape_status: circuitResult.fallbackUsed ? 'partial' : 'success',
+              last_scraped_at: new Date().toISOString(),
+              title: title,
+              error_message: circuitResult.fallbackUsed ? 'Used fallback due to scraping issues' : null
+            })
+            .eq('id', materialId);
+          
+          if (error) throw error;
+        },
+        { operation: 'updateMaterialWithContent', materialId }
+      );
       
-      if (successUpdateError) {
-        console.error('Error updating material with success:', successUpdateError);
-      } else {
-        console.log(`Content intelligence analysis complete for material ${materialId}:`, {
-          contentType: analysis.contentType,
-          structuredDataFields: Object.keys(analysis.structuredData).length,
-          intentKeywords: analysis.intentKeywords.length,
-          primaryProducts: analysis.primaryProducts.length,
-          confidenceScore: analysis.confidenceScore
-        });
-      }
+      const statusMessage = circuitResult.fallbackUsed ? 'fallback used' : 'success';
+      console.log(`📄 Content scraping ${statusMessage} for material ${materialId}:`, {
+        contentType: analysis.contentType,
+        structuredDataFields: Object.keys(analysis.structuredData).length,
+        intentKeywords: analysis.intentKeywords.length,
+        primaryProducts: analysis.primaryProducts.length,
+        confidenceScore: analysis.confidenceScore,
+        circuitBreakerState: circuitResult.circuitState
+      });
     } else {
-      // Update with error
-      const { error: failUpdateError } = await supabase
-        .from('training_materials')
-        .update({
-          scrape_status: 'failed',
-          error_message: scrapeResult.error
-        })
-        .eq('id', materialId)
+      // Circuit breaker failed or scraping failed
+      const errorMessage = circuitResult.error || 'Unknown scraping error';
       
-      if (failUpdateError) {
-        console.error('Error updating material with failure:', failUpdateError);
-      }
+      await executeDBOperation(
+        async () => {
+          const { error } = await supabase
+            .from('training_materials')
+            .update({
+              scrape_status: 'failed',
+              error_message: errorMessage
+            })
+            .eq('id', materialId);
+          
+          if (error) throw error;
+        },
+        { operation: 'updateMaterialWithError', materialId }
+      );
+      
+      console.error(`❌ Content scraping failed for material ${materialId}. Circuit state: ${circuitResult.circuitState}`);
     }
-  } catch (error) {
-    console.error('Error in scrapeContentForMaterial:', error)
     
-    // Update with error
-    await supabase
-      .from('training_materials')
-      .update({
-        scrape_status: 'failed',
-        error_message: error instanceof Error ? error.message : 'Unknown error'
-      })
-      .eq('id', materialId)
+  } catch (error) {
+    console.error('Error in scrapeContentForMaterial:', error);
+    
+    // Final fallback - update with error
+    await executeDBOperation(
+      async () => {
+        const { error: updateError } = await supabase
+          .from('training_materials')
+          .update({
+            scrape_status: 'failed',
+            error_message: error instanceof Error ? error.message : 'Unknown error'
+          })
+          .eq('id', materialId);
+        
+        if (updateError) throw updateError;
+      },
+      { operation: 'updateMaterialWithFinalError', materialId }
+    ).catch(finalError => {
+      console.error('Failed to update material with error status:', finalError);
+    });
   }
 }
+
+// OPTIONS handler for CORS
+export const OPTIONS = createOptionsHandler();

@@ -4,34 +4,54 @@ import OpenAI from 'openai';
 import { createSupabaseAdminClient } from '@/lib/supabase-server';
 import { buildSystemPrompt } from '@/lib/instructions';
 import { StructuredAIResponse, AIResponseParseResult } from '@/types/training';
-import { detectLanguage, enforceLanguageInMessage, addLanguageToSystemPrompt } from '@/lib/ai/language';
+import { enforceLanguageInMessage, addLanguageToSystemPrompt } from '@/lib/ai/language';
 import { selectRelevantContext, buildOptimizedContext } from '@/lib/ai/context';
 import { findMostRelevantProduct } from '@/lib/ai/conversation';
 import { findBestProductMatches } from '@/lib/ai/product-matching';
 import { validateAIResponse } from '@/lib/ai/response-validator';
 import { getCachedData, getCacheKey, CACHE_TTL } from '@/lib/cache';
+import { chatRequestSchema, validateRequest, sanitizeString, createValidationErrorResponse } from '@/lib/validation';
+import { rateLimiter, createRateLimitResponse } from '@/lib/rate-limiting';
+import { openAICircuitBreaker, createOpenAIFallback } from '@/lib/circuit-breaker';
+import { detectLanguageWithCaching } from '@/lib/session-language';
+import { handleAPIError, withRetry } from '@/lib/error-handling';
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth();
+    // We'll apply rate limiting after we get the siteId from validation
+
+    // Parse and validate request body
     const body = await request.json();
     
-    const { message, siteId, conversationHistory = [], sessionId } = body;
-    
-    // Validate required fields
-    if (!message || !siteId) {
-      return NextResponse.json(
-        { error: 'Message and siteId are required' },
-        { 
-          status: 400,
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-          }
-        }
-      );
+    // Validate input using Zod schema
+    const validation = validateRequest(chatRequestSchema, body);
+    if (!validation.success) {
+      return createValidationErrorResponse(validation.error);
     }
+
+    const { message, siteId, conversationHistory = [], sessionId } = validation.data;
+
+    // Now apply rate limiting with the actual siteId
+    const finalRateLimitResult = await rateLimiter.checkChatRateLimit(
+      request,
+      siteId,
+      request.headers.get('x-user-id') || undefined
+    );
+
+    if (!finalRateLimitResult.success) {
+      return createRateLimitResponse(finalRateLimitResult);
+    }
+
+    // Sanitize message content
+    const sanitizedMessage = sanitizeString(message);
+    
+    // Sanitize conversation history
+    const sanitizedHistory = conversationHistory.map(msg => ({
+      role: msg.role,
+      content: sanitizeString(msg.content)
+    }));
+
+    const { userId } = await auth();
     
     // Get headers
     const xUserId = request.headers.get('x-user-id');
@@ -108,8 +128,8 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Generate AI response using OpenAI
-    const response = await generateChatResponse(message, conversationHistory, siteId, chatSessionId);
+    // Generate AI response using OpenAI with sanitized data
+    const response = await generateChatResponse(sanitizedMessage, sanitizedHistory, siteId, chatSessionId);
     
     // Log chat messages if session tracking is available
     if (chatSessionId && supabase) {
@@ -120,7 +140,7 @@ export async function POST(request: NextRequest) {
           .insert([{
             chat_session_id: chatSessionId,
             role: 'user',
-            content: message
+            content: sanitizedMessage
           }]);
         
         // Log assistant response - always store the complete structured response
@@ -144,8 +164,12 @@ export async function POST(request: NextRequest) {
       sessionId: chatSessionId
     };
     
+    // Add rate limit headers to response
+    const rateLimitHeaders = rateLimiter.createRateLimitHeaders(finalRateLimitResult);
+    
     return NextResponse.json(responseWithSession, {
       headers: {
+        ...rateLimitHeaders,
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
@@ -153,32 +177,12 @@ export async function POST(request: NextRequest) {
     });
     
   } catch (error) {
-    console.error('Chat API error:', error);
-    
-    // Provide more specific error messages
-    let errorMessage = 'Internal server error';
-    
-    if (error instanceof Error) {
-      if (error.message.includes('API key')) {
-        errorMessage = 'OpenAI API key not configured. Please check your environment variables.';
-      } else if (error.message.includes('rate limit')) {
-        errorMessage = 'Rate limit exceeded. Please try again in a moment.';
-      } else if (error.message.includes('network')) {
-        errorMessage = 'Network error. Please check your connection and try again.';
-      }
-    }
-    
-    return NextResponse.json(
-      { error: errorMessage },
-      { 
-        status: 500,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        }
-      }
-    );
+    // Use structured error handling
+    return handleAPIError(error, request, {
+      userId: request.headers.get('x-user-id') || undefined,
+      sessionId: request.headers.get('x-session-id') || undefined,
+      endpoint: '/api/chat',
+    });
   }
 }
 
@@ -210,7 +214,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
       apiKey: process.env.OPENAI_API_KEY,
     });
     
-    // PERFORMANCE OPTIMIZATION: Run all database queries in parallel with caching
+    // PERFORMANCE OPTIMIZATION: Run all database queries in parallel with caching and retry logic
     const dbStartTime = Date.now();
     const [
       relevantContext,
@@ -220,46 +224,65 @@ async function generateChatResponse(message: string, conversationHistory: { role
     ] = await Promise.all([
       // Select relevant training materials based on the query with conversation history
       // NOTE: Context selection is query-specific, so we don't cache this
-      selectRelevantContext(message, siteId, 7, conversationHistory),
+      withRetry(
+        () => selectRelevantContext(message, siteId, 7, conversationHistory),
+        { siteId, operation: 'selectRelevantContext' }
+      ),
       
       // Fetch all training materials for product matching (cached)
       getCachedData(
         getCacheKey(siteId, 'training_materials'),
-        async () => {
-          const { data } = await supabase
-            .from('training_materials')
-            .select('title, metadata')
-            .eq('site_id', siteId)
-            .eq('scrape_status', 'success');
-          return data || [];
-        },
+        () => withRetry(
+          async () => {
+            const { data, error } = await supabase
+              .from('training_materials')
+              .select('title, metadata')
+              .eq('site_id', siteId)
+              .eq('scrape_status', 'success');
+            
+            if (error) throw error;
+            return data || [];
+          },
+          { siteId, operation: 'fetchTrainingMaterials' }
+        ),
         CACHE_TTL.TRAINING_MATERIALS
       ),
       
       // Fetch affiliate links for this site (cached)
       getCachedData(
         getCacheKey(siteId, 'affiliate_links'),
-        async () => {
-          const { data } = await supabase
-            .from('affiliate_links')
-            .select('id, url, title, description, product_id, aliases, image_url, button_text, site_id, created_at, updated_at')
-            .eq('site_id', siteId);
-          return data || [];
-        },
+        () => withRetry(
+          async () => {
+            const { data, error } = await supabase
+              .from('affiliate_links')
+              .select('id, url, title, description, product_id, aliases, image_url, button_text, site_id, created_at, updated_at')
+              .eq('site_id', siteId);
+            
+            if (error) throw error;
+            return data || [];
+          },
+          { siteId, operation: 'fetchAffiliateLinks' }
+        ),
         CACHE_TTL.AFFILIATE_LINKS
       ),
       
       // Fetch chat settings for custom instructions and preferred language (cached)
       getCachedData(
         getCacheKey(siteId, 'chat_settings'),
-        async () => {
-          const { data } = await supabase
-            .from('chat_settings')
-            .select('instructions, preferred_language')
-            .eq('site_id', siteId)
-            .single();
-          return data;
-        },
+        () => withRetry(
+          async () => {
+            const { data, error } = await supabase
+              .from('chat_settings')
+              .select('instructions, preferred_language')
+              .eq('site_id', siteId)
+              .single();
+            
+            // Handle "no rows" error as success
+            if (error && error.code !== 'PGRST116') throw error;
+            return data;
+          },
+          { siteId, operation: 'fetchChatSettings' }
+        ),
         CACHE_TTL.CHAT_SETTINGS
       )
     ]);
@@ -270,9 +293,21 @@ async function generateChatResponse(message: string, conversationHistory: { role
     // Build training context from the parallel query result
     const trainingContext = buildOptimizedContext(relevantContext);
 
-    // Detect language from user message, using preferred language as fallback
-    const detectedLanguage = detectLanguage(message, chatSettings?.preferred_language);
-    console.log(`Detected language: ${detectedLanguage.name} (${detectedLanguage.code}) with confidence ${detectedLanguage.confidence}${chatSettings?.preferred_language ? ` (preferred: ${chatSettings.preferred_language})` : ''}`);
+    // Detect language from user message with session caching
+    const cachedLanguageResult = await detectLanguageWithCaching(
+      sessionId || 'anonymous',
+      message,
+      chatSettings?.preferred_language
+    );
+    
+    // Convert to expected format for compatibility
+    const detectedLanguage = {
+      name: cachedLanguageResult.name,
+      code: cachedLanguageResult.code,
+      confidence: cachedLanguageResult.confidence
+    };
+    
+    console.log(`Language for session ${sessionId}: ${detectedLanguage.name} (${detectedLanguage.code}) confidence: ${detectedLanguage.confidence} [${cachedLanguageResult.messageCount} msgs]${chatSettings?.preferred_language ? ` (preferred: ${chatSettings.preferred_language})` : ''}`);
     
     // Build affiliate links context
     let affiliateContext = '';
@@ -306,17 +341,40 @@ async function generateChatResponse(message: string, conversationHistory: { role
       }
     ];
 
-    // Call OpenAI API with response_format for structured JSON
+    // Call OpenAI API with circuit breaker protection
     const aiStartTime = Date.now();
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: messages,
-      max_tokens: 500,
-      temperature: 0.7,
-      stream: false,
-      response_format: { type: "json_object" }
-    });
+    const openAIResult = await openAICircuitBreaker.execute(
+      async () => {
+        return await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: messages,
+          max_tokens: 500,
+          temperature: 0.7,
+          stream: false,
+          response_format: { type: "json_object" }
+        });
+      },
+      createOpenAIFallback()
+    );
 
+    // Check if circuit breaker failed
+    if (!openAIResult.success) {
+      console.error('OpenAI circuit breaker failed:', openAIResult.error);
+      
+      // If fallback was used, return the fallback response
+      if (openAIResult.fallbackUsed && openAIResult.data) {
+        perfLog.aiResponseTime = Date.now() - aiStartTime;
+        perfLog.totalTime = Date.now() - startTime;
+        
+        console.log(`🔄 OpenAI fallback used. Circuit state: ${openAIResult.circuitState}`);
+        return openAIResult.data;
+      }
+      
+      // Otherwise return error
+      throw new Error(openAIResult.error || 'OpenAI service unavailable');
+    }
+
+    const completion = openAIResult.data!;
     const rawResponse = completion.choices[0]?.message?.content;
     
     // Track AI response performance

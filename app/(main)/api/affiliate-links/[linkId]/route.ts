@@ -1,130 +1,139 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
-import { createSupabaseAdminClient } from '@/lib/supabase-server'
-import { cache, getCacheKey } from '@/lib/cache'
+import { NextRequest } from 'next/server';
+import { createAPIRoute, createSuccessResponse, executeDBOperation, createOptionsHandler } from '@/lib/api-template';
+import { affiliateLinkSchema, sanitizeUrl } from '@/lib/validation';
+import { getCacheKey, cache } from '@/lib/cache';
+import { z } from 'zod';
 
-export async function PUT(
-  request: NextRequest,
-  context: { params: Promise<{ linkId: string }> }
-) {
-  try {
-    const { userId } = await auth()
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+// Validation schema for link update (same as create but all fields optional)
+const affiliateLinkUpdateSchema = affiliateLinkSchema.partial().omit({ siteId: true });
 
-    const { linkId } = await context.params
-    const { url, title, description, image_url, button_text } = await request.json()
+// PUT /api/affiliate-links/[linkId] - Update affiliate link
+export const PUT = createAPIRoute(
+  {
+    requireAuth: true,
+    bodySchema: affiliateLinkUpdateSchema,
+    allowedMethods: ['PUT']
+  },
+  async (context) => {
+    const { body, supabase, userId, request } = context;
+    const { linkId } = await (request as any).params;
+    const linkData = body as Partial<typeof affiliateLinkSchema._type>;
 
-    if (!url || !title) {
-      return NextResponse.json({ error: 'URL and title are required' }, { status: 400 })
-    }
+    // First verify ownership and get site_id
+    const { siteId } = await executeDBOperation(
+      async () => {
+        const { data: link, error } = await supabase
+          .from('affiliate_links')
+          .select(`
+            site_id,
+            sites!inner (
+              id,
+              user_id
+            )
+          `)
+          .eq('id', linkId)
+          .eq('sites.user_id', userId!)
+          .single();
 
-    const supabase = createSupabaseAdminClient()
-    
-    // First verify the link belongs to the user (through site ownership)
-    const { data: link, error: linkError } = await supabase
-      .from('affiliate_links')
-      .select(`
-        id,
-        sites!inner (
-          id,
-          user_id
-        )
-      `)
-      .eq('id', linkId)
-      .eq('sites.user_id', userId)
-      .single()
+        if (error || !link) {
+          throw new Error('Link not found or unauthorized');
+        }
+        return { siteId: link.site_id };
+      },
+      { operation: 'verifyLinkOwnership', userId }
+    );
 
-    if (linkError || !link) {
-      return NextResponse.json({ error: 'Link not found or unauthorized' }, { status: 404 })
-    }
+    // Sanitize URL if provided
+    const sanitizedUrl = linkData.url ? sanitizeUrl(linkData.url) : undefined;
 
     // Update the link
-    const { data: updatedLink, error } = await supabase
-      .from('affiliate_links')
-      .update({
-        url: url.trim(),
-        title: title.trim(),
-        description: description?.trim() || '',
-        image_url: image_url?.trim() || null,
-        button_text: button_text?.trim() || 'View Product',
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', linkId)
-      .select('id, url, title, description, image_url, button_text, created_at, updated_at')
-      .single()
+    const updatedLink = await executeDBOperation(
+      async () => {
+        const updateData: any = {
+          updated_at: new Date().toISOString()
+        };
 
-    if (error) {
-      console.error('Error updating affiliate link:', error)
-      return NextResponse.json({ error: 'Failed to update affiliate link' }, { status: 500 })
-    }
+        if (sanitizedUrl) updateData.url = sanitizedUrl;
+        if (linkData.title) updateData.title = linkData.title.trim();
+        if (linkData.description !== undefined) updateData.description = linkData.description?.trim() || '';
+        if (linkData.image_url !== undefined) updateData.image_url = linkData.image_url?.trim() || null;
+        if (linkData.button_text !== undefined) updateData.button_text = linkData.button_text?.trim() || 'View Product';
 
-    // Invalidate cache for affiliate links
-    // We need to get the site_id from the link data
-    const siteId = updatedLink.site_id;
+        const { data, error } = await supabase
+          .from('affiliate_links')
+          .update(updateData)
+          .eq('id', linkId)
+          .select('id, url, title, description, image_url, button_text, created_at, updated_at')
+          .single();
+
+        if (error) throw error;
+        return data;
+      },
+      { operation: 'updateAffiliateLink', siteId, userId }
+    );
+
+    // Invalidate cache
     await cache.del(getCacheKey(siteId, 'affiliate_links'));
     console.log(`🗑️ Cache invalidated for affiliate links: ${siteId}`);
 
-    return NextResponse.json({ link: updatedLink })
-  } catch (error) {
-    console.error('Error in PUT /api/affiliate-links/[linkId]:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return createSuccessResponse(updatedLink, 'Affiliate link updated successfully');
   }
-}
+);
 
-export async function DELETE(
-  request: NextRequest,
-  context: { params: Promise<{ linkId: string }> }
-) {
-  try {
-    const { userId } = await auth()
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+// DELETE /api/affiliate-links/[linkId] - Delete affiliate link
+export const DELETE = createAPIRoute(
+  {
+    requireAuth: true,
+    allowedMethods: ['DELETE']
+  },
+  async (context) => {
+    const { supabase, userId, request } = context;
+    const { linkId } = await (request as any).params;
 
-    const { linkId } = await context.params
-    const supabase = createSupabaseAdminClient()
-    
-    // First verify the link belongs to the user (through site ownership)
-    const { data: link, error: linkError } = await supabase
-      .from('affiliate_links')
-      .select(`
-        id,
-        sites!inner (
-          id,
-          user_id
-        )
-      `)
-      .eq('id', linkId)
-      .eq('sites.user_id', userId)
-      .single()
+    // First verify ownership and get site_id
+    const { siteId } = await executeDBOperation(
+      async () => {
+        const { data: link, error } = await supabase
+          .from('affiliate_links')
+          .select(`
+            site_id,
+            sites!inner (
+              id,
+              user_id
+            )
+          `)
+          .eq('id', linkId)
+          .eq('sites.user_id', userId!)
+          .single();
 
-    if (linkError || !link) {
-      return NextResponse.json({ error: 'Link not found or unauthorized' }, { status: 404 })
-    }
-
-    // Get site_id before deletion for cache invalidation
-    const siteId = link.sites.id;
+        if (error || !link) {
+          throw new Error('Link not found or unauthorized');
+        }
+        return { siteId: link.site_id };
+      },
+      { operation: 'verifyLinkOwnership', userId }
+    );
 
     // Delete the link
-    const { error } = await supabase
-      .from('affiliate_links')
-      .delete()
-      .eq('id', linkId)
+    await executeDBOperation(
+      async () => {
+        const { error } = await supabase
+          .from('affiliate_links')
+          .delete()
+          .eq('id', linkId);
 
-    if (error) {
-      console.error('Error deleting affiliate link:', error)
-      return NextResponse.json({ error: 'Failed to delete affiliate link' }, { status: 500 })
-    }
+        if (error) throw error;
+      },
+      { operation: 'deleteAffiliateLink', siteId, userId }
+    );
 
-    // Invalidate cache for affiliate links
+    // Invalidate cache
     await cache.del(getCacheKey(siteId, 'affiliate_links'));
     console.log(`🗑️ Cache invalidated for affiliate links: ${siteId}`);
 
-    return NextResponse.json({ message: 'Link deleted successfully' })
-  } catch (error) {
-    console.error('Error in DELETE /api/affiliate-links/[linkId]:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return createSuccessResponse(null, 'Affiliate link deleted successfully');
   }
-}
+);
+
+// OPTIONS handler for CORS
+export const OPTIONS = createOptionsHandler();

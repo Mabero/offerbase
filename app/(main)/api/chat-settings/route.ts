@@ -1,175 +1,143 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
-import { createSupabaseAdminClient } from '@/lib/supabase-server'
-import { cache, getCacheKey } from '@/lib/cache'
+import { NextRequest } from 'next/server';
+import { createAPIRoute, createSuccessResponse, executeDBOperation, createOptionsHandler } from '@/lib/api-template';
+import { chatSettingsSchema, siteIdQuerySchema, sanitizeString, sanitizeHtml } from '@/lib/validation';
+import { getCacheKey, cache } from '@/lib/cache';
 
-export async function GET(request: NextRequest) {
-  try {
-    const { userId } = await auth()
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+// Default chat settings
+const DEFAULT_SETTINGS = {
+  id: null,
+  chat_name: 'Affi',
+  chat_color: '#000000',
+  chat_icon_url: null,
+  chat_name_color: '#FFFFFF',
+  chat_bubble_icon_color: '#FFFFFF',
+  input_placeholder: 'Type your message...',
+  font_size: '14px',
+  intro_message: 'Hello! How can I help you today?',
+  instructions: null,
+  preferred_language: null,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString()
+};
 
-    const { searchParams } = new URL(request.url)
-    const siteId = searchParams.get('siteId')
-
-    if (!siteId) {
-      return NextResponse.json({ error: 'Site ID is required' }, { status: 400 })
-    }
-
-    const supabase = createSupabaseAdminClient()
+// GET /api/chat-settings - Fetch chat settings for a site
+export const GET = createAPIRoute(
+  {
+    requireAuth: true,
+    requireSiteOwnership: true,
+    querySchema: siteIdQuerySchema,
+    allowedMethods: ['GET']
+  },
+  async (context) => {
+    const { siteId, supabase } = context;
     
-    // First verify the site belongs to the user
-    const { data: site, error: siteError } = await supabase
-      .from('sites')
-      .select('id')
-      .eq('id', siteId)
-      .eq('user_id', userId)
-      .single()
+    // Fetch chat settings with retry logic
+    const settings = await executeDBOperation(
+      async () => {
+        const { data, error } = await supabase
+          .from('chat_settings')
+          .select('*')
+          .eq('site_id', siteId!)
+          .single();
 
-    if (siteError || !site) {
-      return NextResponse.json({ error: 'Site not found or unauthorized' }, { status: 404 })
-    }
-
-    // Get chat settings for this site
-    const { data: settings, error } = await supabase
-      .from('chat_settings')
-      .select('*')
-      .eq('site_id', siteId)
-      .single()
-
-    if (error) {
-      // If no settings found (PGRST116 is "not found" error), return default settings
-      if (error.code === 'PGRST116') {
-        const defaultSettings = {
-          id: null,
-          site_id: siteId,
-          chat_name: 'Affi',
-          chat_color: '#000000',
-          chat_icon_url: null,
-          chat_name_color: '#FFFFFF',
-          chat_bubble_icon_color: '#FFFFFF',
-          input_placeholder: 'Type your message...',
-          font_size: '14px',
-          intro_message: 'Hello! How can I help you today?',
-          instructions: null,
-          preferred_language: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+        // If no settings found, return default settings
+        if (error && error.code === 'PGRST116') {
+          return {
+            ...DEFAULT_SETTINGS,
+            site_id: siteId
+          };
         }
-        return NextResponse.json({ settings: defaultSettings })
-      }
-      
-      console.error('Error fetching chat settings:', error)
-      return NextResponse.json({ error: 'Failed to fetch chat settings' }, { status: 500 })
-    }
 
-    return NextResponse.json({ settings })
-  } catch (error) {
-    console.error('Error in GET /api/chat-settings:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+        if (error) throw error;
+        return data;
+      },
+      { operation: 'fetchChatSettings', siteId, userId: context.userId }
+    );
+
+    return createSuccessResponse(settings, 'Chat settings fetched successfully');
   }
-}
+);
 
-export async function PUT(request: NextRequest) {
-  try {
-    const { userId } = await auth()
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+// PUT /api/chat-settings - Update chat settings for a site
+export const PUT = createAPIRoute(
+  {
+    requireAuth: true,
+    requireSiteOwnership: true,
+    bodySchema: chatSettingsSchema,
+    allowedMethods: ['PUT']
+  },
+  async (context) => {
+    const { body, siteId, supabase } = context;
+    const settingsData = body as typeof chatSettingsSchema._type;
 
-    const body = await request.json()
-    const { siteId, ...settings } = body
+    // Sanitize user-generated content
+    const sanitizedSettings = {
+      chat_name: settingsData.chat_name ? sanitizeString(settingsData.chat_name) : undefined,
+      chat_color: settingsData.chat_color,
+      chat_icon_url: settingsData.chat_icon_url ? sanitizeString(settingsData.chat_icon_url) : undefined,
+      chat_name_color: settingsData.chat_name_color,
+      chat_bubble_icon_color: settingsData.chat_bubble_icon_color,
+      input_placeholder: settingsData.input_placeholder ? sanitizeString(settingsData.input_placeholder) : undefined,
+      font_size: settingsData.font_size,
+      intro_message: settingsData.intro_message ? sanitizeHtml(settingsData.intro_message) : undefined,
+      instructions: settingsData.instructions ? sanitizeHtml(settingsData.instructions) : undefined,
+      preferred_language: settingsData.preferred_language ? sanitizeString(settingsData.preferred_language) : undefined
+    };
 
-    if (!siteId) {
-      return NextResponse.json({ error: 'Site ID is required' }, { status: 400 })
-    }
+    // Check if settings exist and update or create
+    const result = await executeDBOperation(
+      async () => {
+        // Check if settings exist
+        const { data: existingSettings, error: checkError } = await supabase
+          .from('chat_settings')
+          .select('id')
+          .eq('site_id', siteId!)
+          .maybeSingle();
 
+        if (checkError) throw checkError;
 
-    const supabase = createSupabaseAdminClient()
-    
-    // First verify the site belongs to the user
-    const { data: site, error: siteError } = await supabase
-      .from('sites')
-      .select('id')
-      .eq('id', siteId)
-      .eq('user_id', userId)
-      .single()
+        const settingsDataWithMeta = {
+          ...sanitizedSettings,
+          site_id: siteId!,
+          updated_at: new Date().toISOString()
+        };
 
-    if (siteError) {
-      console.error('Site verification error:', siteError)
-      return NextResponse.json({ error: 'Site not found or unauthorized' }, { status: 404 })
-    }
+        if (existingSettings) {
+          // Update existing settings
+          const { data, error } = await supabase
+            .from('chat_settings')
+            .update(settingsDataWithMeta)
+            .eq('site_id', siteId!)
+            .select('*')
+            .single();
 
-    if (!site) {
-      console.error('Site not found for user:', { siteId, userId })
-      return NextResponse.json({ error: 'Site not found or unauthorized' }, { status: 404 })
-    }
+          if (error) throw error;
+          return data;
+        } else {
+          // Insert new settings
+          const { data, error } = await supabase
+            .from('chat_settings')
+            .insert({
+              ...settingsDataWithMeta,
+              created_at: new Date().toISOString()
+            })
+            .select('*')
+            .single();
 
-    // Check if chat settings already exist for this site
-    const { data: existingSettings, error: checkError } = await supabase
-      .from('chat_settings')
-      .select('id')
-      .eq('site_id', siteId)
-      .maybeSingle()
+          if (error) throw error;
+          return data;
+        }
+      },
+      { operation: 'upsertChatSettings', siteId, userId: context.userId }
+    );
 
-    if (checkError) {
-      console.error('Error checking existing settings:', checkError)
-      return NextResponse.json({ error: 'Database error' }, { status: 500 })
-    }
-
-    let result;
-    const settingsData = {
-      ...settings,
-      site_id: siteId,
-      updated_at: new Date().toISOString()
-    }
-
-    if (existingSettings) {
-      // Update existing settings
-      const { data: updatedSettings, error: updateError } = await supabase
-        .from('chat_settings')
-        .update(settingsData)
-        .eq('site_id', siteId)
-        .select('*')
-        .single()
-
-      if (updateError) {
-        console.error('Error updating chat settings:', updateError)
-        return NextResponse.json({ error: 'Failed to update chat settings' }, { status: 500 })
-      }
-
-      result = updatedSettings
-    } else {
-      // Insert new settings
-      const { data: newSettings, error: insertError } = await supabase
-        .from('chat_settings')
-        .insert({
-          ...settingsData,
-          created_at: new Date().toISOString()
-        })
-        .select('*')
-        .single()
-
-      if (insertError) {
-        console.error('Error inserting chat settings:', insertError)
-        return NextResponse.json({ error: 'Failed to create chat settings' }, { status: 500 })
-      }
-
-      result = newSettings
-    }
-
-    // Invalidate cache for chat settings
-    await cache.del(getCacheKey(siteId, 'chat_settings'));
+    // Invalidate cache
+    await cache.del(getCacheKey(siteId!, 'chat_settings'));
     console.log(`🗑️ Cache invalidated for chat settings: ${siteId}`);
 
-    return NextResponse.json({ settings: result })
-    
-  } catch (error) {
-    console.error('Error in PUT /api/chat-settings:', error)
-    return NextResponse.json({ 
-      error: 'Internal server error', 
-      details: error instanceof Error ? error.message : 'Unknown error' 
-    }, { status: 500 })
+    return createSuccessResponse(result, 'Chat settings updated successfully');
   }
-}
+);
+
+// OPTIONS handler for CORS
+export const OPTIONS = createOptionsHandler();

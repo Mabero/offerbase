@@ -1,48 +1,64 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
-import { createSupabaseAdminClient } from '@/lib/supabase-server';
+import { NextRequest } from 'next/server';
+import { createAPIRoute, createSuccessResponse, executeDBOperation, createOptionsHandler } from '@/lib/api-template';
 import { batchSummarizeTrainingMaterials } from '@/lib/ai/summarizer';
+import { z } from 'zod';
 
-export async function POST(
-  request: NextRequest,
-  context: { params: Promise<{ siteId: string }> }
-) {
-  try {
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+// Site ID parameter validation
+const siteIdParamSchema = z.object({
+  siteId: z.string().uuid('Invalid site ID format')
+});
+
+// POST /api/sites/[siteId]/summarize-materials - Start batch summarization
+export const POST = createAPIRoute(
+  {
+    requireAuth: true,
+    requireSiteOwnership: true,
+    allowedMethods: ['POST'],
+    rateLimitType: 'api' // Higher rate limits for AI operations
+  },
+  async (context) => {
+    const { supabase, userId, request, siteId } = context;
+
+    // Validate siteId parameter
+    const { siteId: paramSiteId } = await (request as any).params;
+    const paramValidation = siteIdParamSchema.safeParse({ siteId: paramSiteId });
+    if (!paramValidation.success) {
+      const { createValidationErrorResponse } = await import('@/lib/validation');
+      return createValidationErrorResponse('Invalid site ID format', 400);
     }
 
-    const { siteId } = await context.params;
-    const supabase = createSupabaseAdminClient();
-    
-    // Verify the site belongs to the user
-    const { data: site, error } = await supabase
-      .from('sites')
-      .select('user_id')
-      .eq('id', siteId)
-      .single();
+    // Check if there are materials to summarize
+    const materialsCount = await executeDBOperation(
+      async () => {
+        const { count, error } = await supabase
+          .from('training_materials')
+          .select('*', { count: 'exact', head: true })
+          .eq('site_id', paramSiteId)
+          .eq('scrape_status', 'success');
 
-    if (error || !site || site.user_id !== userId) {
-      return NextResponse.json({ error: 'Site not found or unauthorized' }, { status: 403 });
+        if (error) throw error;
+        return count || 0;
+      },
+      { operation: 'countTrainingMaterials', siteId: paramSiteId, userId }
+    );
+
+    if (materialsCount === 0) {
+      const { createValidationErrorResponse } = await import('@/lib/validation');
+      return createValidationErrorResponse('No training materials available for summarization', 404);
     }
 
-    // Process summaries in the background
-    // In a production app, you'd want to use a proper job queue
-    batchSummarizeTrainingMaterials(siteId).catch(error => {
+    // Start summarization process in background
+    batchSummarizeTrainingMaterials(paramSiteId).catch(error => {
       console.error('Background summarization error:', error);
     });
 
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Summarization started in background' 
-    });
-
-  } catch (error) {
-    console.error('Error starting batch summarization:', error);
-    return NextResponse.json(
-      { error: 'Failed to start summarization' },
-      { status: 500 }
+    return createSuccessResponse(
+      { materialsCount, siteId: paramSiteId },
+      `Summarization started for ${materialsCount} training materials`,
+      202 // Accepted - processing in background
     );
   }
-}
+);
+
+// OPTIONS handler for CORS
+export const OPTIONS = createOptionsHandler();
