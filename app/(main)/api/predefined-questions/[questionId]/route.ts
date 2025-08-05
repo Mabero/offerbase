@@ -13,7 +13,7 @@ const questionIdParamSchema = z.object({
 const updateQuestionSchema = predefinedQuestionSchema.partial().omit({ siteId: true }).extend({
   url_rules: z.array(z.object({
     id: z.string().uuid().optional(),
-    rule_type: z.enum(['contains', 'exact', 'regex', 'starts_with', 'ends_with']),
+    rule_type: z.enum(['contains', 'exact', 'exclude']),
     pattern: z.string().min(1).max(200).trim(),
     is_active: z.boolean().default(true),
     _delete: z.boolean().optional()

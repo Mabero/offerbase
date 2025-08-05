@@ -7,7 +7,7 @@ import { z } from 'zod';
 // Pattern test request schema
 const patternTestSchema = z.object({
   pattern: z.string().min(1, 'Pattern is required').max(200, 'Pattern too long'),
-  rule_type: z.enum(['exact', 'contains', 'regex', 'starts_with', 'ends_with']),
+  rule_type: z.enum(['exact', 'contains', 'exclude']),
   test_urls: z.array(z.string().url('Invalid URL format'))
     .min(1, 'At least one test URL is required')
     .max(20, 'Maximum 20 test URLs allowed')
@@ -42,18 +42,36 @@ export const POST = createAPIRoute(
       return createValidationErrorResponse(`Invalid pattern: ${validation.errors.join(', ')}`, 400);
     }
 
-    // Test the pattern against all URLs
-    const testResult = defaultUrlMatcher.testPattern?.(
-      sanitizedPattern,
-      rule_type,
-      sanitizedTestUrls
-    ) || {
+    // Test the pattern against all URLs using a mock question approach
+    const testResult = {
       pattern: sanitizedPattern,
       rule_type,
       test_urls: sanitizedTestUrls,
       results: sanitizedTestUrls.map(url => {
         try {
-          const isMatch = defaultUrlMatcher(url, rule_type, sanitizedPattern);
+          // Create a mock question with the rule to test
+          const mockQuestion = {
+            id: 'test',
+            question: 'test',
+            answer: 'test',
+            is_active: true,
+            is_site_wide: false,
+            priority: 50,
+            site_id: 'test',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            question_url_rules: [{
+              id: 'test-rule',
+              question_id: 'test',
+              rule_type: rule_type,
+              pattern: sanitizedPattern,
+              is_active: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            }]
+          };
+          
+          const isMatch = defaultUrlMatcher.matchesQuestion(url, mockQuestion);
           return { url, isMatch, error: null };
         } catch (error) {
           return { 

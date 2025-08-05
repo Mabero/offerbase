@@ -7,7 +7,7 @@ import { z } from 'zod';
 // Enhanced predefined question schema with URL rules
 const predefinedQuestionWithRulesSchema = predefinedQuestionSchema.extend({
   url_rules: z.array(z.object({
-    rule_type: z.enum(['contains', 'exact', 'regex', 'starts_with', 'ends_with']),
+    rule_type: z.enum(['contains', 'exact', 'exclude']),
     pattern: z.string().min(1).max(200).trim(),
     is_active: z.boolean().default(true)
   })).optional().default([])
