@@ -661,7 +661,7 @@ function parseAIResponse(rawResponse: string): AIResponseParseResult {
 }
 
 // Fallback function that uses old keyword detection when structured parsing fails
-function getFallbackResponseFromText(text: string, affiliateLinks: { title: string; description?: string; url: string }[] = []) {
+function getFallbackResponseFromText(text: string, affiliateLinks: { title: string; description?: string; url: string; button_text?: string }[] = []) {
   const lowerText = text.toLowerCase();
   
   // Check if text suggests products using keyword detection as fallback
