@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 // Maximum message length to prevent token flooding
 const MAX_MESSAGE_LENGTH = 2000;
@@ -371,7 +371,7 @@ export type SessionQuery = z.infer<typeof sessionQuerySchema>;
 
 // Validation error response helper
 export function createValidationErrorResponse(error: string, status: number = 400) {
-  return Response.json(
+  return NextResponse.json(
     { 
       error: "Validation Error", 
       message: error,
