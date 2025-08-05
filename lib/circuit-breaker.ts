@@ -354,7 +354,7 @@ export function createOpenAIChatCompletionFallback() {
         completion_tokens: 0,
         total_tokens: 0
       },
-      system_fingerprint: null
+      system_fingerprint: undefined
     };
     
     return fallbackResponse;

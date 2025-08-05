@@ -200,7 +200,7 @@ class ErrorHandler {
           retryConfig.maxDelayMs
         );
         
-        console.warn(`🔄 Retrying operation (attempt ${attempt}/${retryConfig.maxAttempts}) after ${delay}ms:`, error.message);
+        console.warn(`🔄 Retrying operation (attempt ${attempt}/${retryConfig.maxAttempts}) after ${delay}ms:`, error instanceof Error ? error.message : String(error));
         
         await this.sleep(delay);
       }

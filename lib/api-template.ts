@@ -57,6 +57,8 @@ export function createAPIRoute(
 ) {
   return async function(request: NextRequest) {
     const startTime = Date.now();
+    let userId: string | undefined;
+    let siteId: string | undefined;
     
     try {
       // 1. Check allowed methods
@@ -80,7 +82,6 @@ export function createAPIRoute(
       }
 
       // 3. Authentication if required
-      let userId: string | undefined;
       if (config.requireAuth !== false) {
         const { userId: authUserId } = await auth();
         if (!authUserId) {
@@ -129,7 +130,6 @@ export function createAPIRoute(
       const supabase = createSupabaseAdminClient();
 
       // 7. Site ownership verification if required
-      let siteId: string | undefined;
       if (config.requireSiteOwnership && userId) {
         siteId = (query as Record<string, unknown>)?.siteId as string || (body as Record<string, unknown>)?.siteId as string;
         if (!siteId) {
