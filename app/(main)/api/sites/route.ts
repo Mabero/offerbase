@@ -1,113 +1,105 @@
-import { createAPIRoute, createSuccessResponse, executeDBOperation, createOptionsHandler } from '@/lib/api-template';
-import { siteCreateSchema, SiteCreate } from '@/lib/validation';
+import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { createClient } from '@supabase/supabase-js';
 
 // GET /api/sites - Fetch sites for authenticated user
-export const GET = createAPIRoute(
-  {
-    requireAuth: true,
-    allowedMethods: ['GET']
-  },
-  async (context) => {
-    const { supabase, userId } = context;
-    
-    // Fetch sites with retry logic
-    const sites = await executeDBOperation(
-      async () => {
-        const { data, error } = await supabase
-          .from('sites')
-          .select('id, name, created_at, updated_at')
-          .eq('user_id', userId!)
-          .order('created_at', { ascending: false });
+export async function GET(request: NextRequest) {
+  try {
+    // Get user authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
 
-        if (error) throw error;
-        return data || [];
-      },
-      { operation: 'fetchSites', userId }
+    // Create simple Supabase client
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    return createSuccessResponse(sites, 'Sites fetched successfully');
+    // Query sites
+    const { data, error } = await supabase
+      .from('sites')
+      .select('id, name, created_at, updated_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Sites query error:', error);
+      return NextResponse.json({ error: 'Failed to fetch sites', details: error }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, data: data || [] });
+
+  } catch (error) {
+    console.error('Sites API error:', error);
+    return NextResponse.json({ 
+      error: 'Internal server error', 
+      details: error instanceof Error ? error.message : String(error) 
+    }, { status: 500 });
   }
-);
+}
 
-// POST /api/sites - Create new site
-export const POST = createAPIRoute(
-  {
-    requireAuth: true,
-    bodySchema: siteCreateSchema,
-    allowedMethods: ['POST']
-  },
-  async (context) => {
-    const { body, supabase, userId } = context;
-    const siteData = body as SiteCreate;
+export async function POST(request: NextRequest) {
+  try {
+    // Get user authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
 
-    // First ensure the user exists in the users table
-    await executeDBOperation(
-      async () => {
-        const { sessionClaims } = await auth();
-        const userEmail = sessionClaims?.email as string || `${userId}@clerk.local`;
-        
-        const { error } = await supabase
-          .from('users')
-          .upsert([{
-            id: userId!,
-            email: userEmail,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }], {
-            onConflict: 'id'
-          });
+    // Parse request body
+    const body = await request.json();
+    const { name } = body;
 
-        if (error) throw error;
-      },
-      { operation: 'ensureUserExists', userId }
+    if (!name || name.trim().length === 0) {
+      return NextResponse.json({ error: 'Site name is required' }, { status: 400 });
+    }
+
+    // Create simple Supabase client
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Create the site with retry logic
-    const site = await executeDBOperation(
-      async () => {
-        const { data, error } = await supabase
-          .from('sites')
-          .insert([{
-            name: siteData.name.trim(),
-            user_id: userId!
-          }])
-          .select('id, name, created_at, updated_at')
-          .single();
+    // Insert new site
+    const { data, error } = await supabase
+      .from('sites')
+      .insert([{ name: name.trim(), user_id: userId }])
+      .select('id, name, created_at, updated_at')
+      .single();
 
-        if (error) throw error;
-        return data;
-      },
-      { operation: 'createSite', userId }
-    );
+    if (error) {
+      console.error('Site creation error:', error);
+      return NextResponse.json({ error: 'Failed to create site', details: error }, { status: 500 });
+    }
 
-    // Create default chat settings for the new site (non-blocking)
-    executeDBOperation(
-      async () => {
-        const { error } = await supabase
-          .from('chat_settings')
-          .insert([{
-            site_id: site.id,
-            chat_name: 'Affi',
-            chat_color: '#000000',
-            chat_name_color: '#FFFFFF',
-            chat_bubble_icon_color: '#FFFFFF',
-            input_placeholder: 'Type your message...',
-            font_size: '14px',
-            intro_message: 'Hello! How can I help you today?'
-          }]);
-        
-        if (error) throw error;
-      },
-      { operation: 'createDefaultChatSettings', siteId: site.id, userId }
-    ).catch(error => {
-      // Log the error but don't fail the site creation
+    // Create default chat settings for the new site (optional, non-blocking)
+    try {
+      await supabase
+        .from('chat_settings')
+        .insert([{
+          site_id: data.id,
+          chat_name: 'Affi',
+          chat_color: '#000000',
+          chat_name_color: '#FFFFFF',
+          chat_bubble_icon_color: '#FFFFFF',
+          input_placeholder: 'Type your message...',
+          font_size: '14px',
+          intro_message: 'Hello! How can I help you today?'
+        }]);
+    } catch (error) {
+      // Log but don't fail the site creation
       console.error('Error creating default chat settings:', error);
-    });
+    }
 
-    return createSuccessResponse(site, 'Site created successfully', 201);
+    return NextResponse.json({ success: true, data }, { status: 201 });
+
+  } catch (error) {
+    console.error('Sites API error:', error);
+    return NextResponse.json({ 
+      error: 'Internal server error', 
+      details: error instanceof Error ? error.message : String(error) 
+    }, { status: 500 });
   }
-);
-
-// OPTIONS handler for CORS
-export const OPTIONS = createOptionsHandler();
+}

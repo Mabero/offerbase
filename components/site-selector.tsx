@@ -69,7 +69,7 @@ export function SiteSelector({
       const data = await response.json()
       
       if (response.ok) {
-        setSites(data.sites)
+        setSites(data.data || [])
       } else {
         console.error('Failed to fetch sites:', data.error)
         if (response.status === 401) {
@@ -124,10 +124,10 @@ export function SiteSelector({
       const data = await response.json()
 
       if (response.ok) {
-        setSites([data.site, ...sites])
+        setSites([data.data, ...(sites || [])])
         setNewSiteName('')
         setIsCreating(false)
-        onSiteSelect(data.site)
+        onSiteSelect(data.data)
         onSiteChange()
         toast.success('Site created successfully')
       } else {
@@ -165,7 +165,7 @@ export function SiteSelector({
       const data = await response.json()
 
       if (response.ok) {
-        const updatedSites = sites.map(site =>
+        const updatedSites = (sites || []).map(site =>
           site.id === siteId ? data.site : site
         )
         setSites(updatedSites)
@@ -205,7 +205,7 @@ export function SiteSelector({
       })
 
       if (response.ok) {
-        const updatedSites = sites.filter(site => site.id !== siteToDelete.id)
+        const updatedSites = (sites || []).filter(site => site.id !== siteToDelete.id)
         setSites(updatedSites)
         
         // If the deleted site was selected, select the first available site or null
@@ -270,13 +270,13 @@ export function SiteSelector({
             <div className="flex items-center justify-center py-4">
               <Loader2 className="w-4 h-4 animate-spin" />
             </div>
-          ) : sites.length === 0 && !isCreating ? (
+          ) : sites && sites.length === 0 && !isCreating ? (
             <div className="text-center py-4 px-2 text-sm text-muted-foreground">
               No sites yet. Create your first site below.
             </div>
           ) : (
             <>
-              {sites.map((site) => (
+              {sites && sites.map((site) => (
                 <DropdownMenuItem
                   key={site.id}
                   className="p-0"
