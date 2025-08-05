@@ -212,11 +212,7 @@ export const siteCreateSchema = z.object({
     .refine(
       (name) => /^[a-zA-Z0-9\s\-_.]+$/.test(name),
       "Site name contains invalid characters"
-    ),
-  description: z.string()
-    .max(500, "Description too long")
-    .trim()
-    .optional()
+    )
 });
 
 export const siteUpdateSchema = z.object({

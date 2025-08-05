@@ -1,7 +1,5 @@
-import { NextRequest } from 'next/server';
 import { createAPIRoute, createSuccessResponse, executeDBOperation, createOptionsHandler } from '@/lib/api-template';
-import { siteCreateSchema } from '@/lib/validation';
-import { getCacheKey, cache } from '@/lib/cache';
+import { siteCreateSchema, SiteCreate } from '@/lib/validation';
 import { auth } from '@clerk/nextjs/server';
 
 // GET /api/sites - Fetch sites for authenticated user
@@ -18,7 +16,7 @@ export const GET = createAPIRoute(
       async () => {
         const { data, error } = await supabase
           .from('sites')
-          .select('id, name, description, created_at, updated_at')
+          .select('id, name, created_at, updated_at')
           .eq('user_id', userId!)
           .order('created_at', { ascending: false });
 
@@ -41,7 +39,7 @@ export const POST = createAPIRoute(
   },
   async (context) => {
     const { body, supabase, userId } = context;
-    const siteData = body as typeof siteCreateSchema._type;
+    const siteData = body as SiteCreate;
 
     // First ensure the user exists in the users table
     await executeDBOperation(
@@ -72,10 +70,9 @@ export const POST = createAPIRoute(
           .from('sites')
           .insert([{
             name: siteData.name.trim(),
-            description: siteData.description?.trim() || null,
             user_id: userId!
           }])
-          .select('id, name, description, created_at, updated_at')
+          .select('id, name, created_at, updated_at')
           .single();
 
         if (error) throw error;
