@@ -89,10 +89,16 @@ export const GET = createAPIRoute(
           // No URL rules means it's site-wide by default
           isMatch = true;
         } else {
-          // Check each rule
+          // Check each rule using the private matchesRule method via the public interface
           for (const rule of activeRules) {
             try {
-              if (defaultUrlMatcher(sanitizedPageUrl, rule.rule_type, rule.pattern)) {
+              // Create a mock question object to use the public matchesQuestion method
+              const mockQuestion = {
+                ...question,
+                question_url_rules: [rule]
+              };
+              
+              if (defaultUrlMatcher.matchesQuestion(sanitizedPageUrl, mockQuestion)) {
                 isMatch = true;
                 break;
               }
