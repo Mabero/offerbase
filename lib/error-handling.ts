@@ -83,7 +83,18 @@ class ErrorHandler {
     const timestamp = Date.now();
     
     // Extract error message and stack
-    const message = error instanceof Error ? error.message : String(error);
+    let message: string;
+    if (error instanceof Error) {
+      message = error.message;
+    } else if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+      // Handle Supabase and other API errors
+      message = error.message;
+    } else if (error && typeof error === 'object') {
+      // Handle objects by stringifying them properly
+      message = JSON.stringify(error);
+    } else {
+      message = String(error);
+    }
     const stack = error instanceof Error ? error.stack : undefined;
     
     // Determine if error is retryable
