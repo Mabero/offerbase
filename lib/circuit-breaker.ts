@@ -344,13 +344,15 @@ export function createOpenAIChatCompletionFallback() {
             message: 'I apologize, but I\'m experiencing some technical difficulties right now. Please try again in a few moments, or contact support if the issue persists.'
           })
         },
-        finish_reason: 'stop' as const
+        finish_reason: 'stop' as const,
+        logprobs: null
       }],
       usage: {
         prompt_tokens: 0,
         completion_tokens: 0,
         total_tokens: 0
-      }
+      },
+      system_fingerprint: null
     };
   };
 }
