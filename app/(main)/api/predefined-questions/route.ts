@@ -145,7 +145,7 @@ export const POST = createAPIRoute(
             question: sanitizedQuestion,
             answer: sanitizedAnswer,
             priority: questionData.priority || 50,
-            is_site_wide: questionData.is_active,
+            is_site_wide: questionData.is_site_wide,
             is_active: questionData.is_active
           }])
           .select('id, question, answer, priority, is_site_wide, is_active, created_at, updated_at')

@@ -265,6 +265,7 @@ export const predefinedQuestionSchema = z.object({
     .trim()
     .optional(),
   is_active: z.boolean().default(true),
+  is_site_wide: z.boolean().default(false),
   priority: z.number()
     .min(0, "Priority must be non-negative")
     .max(100, "Priority too high")
