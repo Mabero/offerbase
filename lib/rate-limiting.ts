@@ -271,7 +271,7 @@ class RateLimiter {
       const data = await cache.get(key);
       statuses.push({
         key: key.replace(/:/g, '_'), // Safe for logging
-        data: data ? { count: data.count, burstUsed: data.burstUsed } : null
+        data: data ? { count: (data as { count?: number }).count, burstUsed: (data as { burstUsed?: number }).burstUsed } : null
       });
     }
 

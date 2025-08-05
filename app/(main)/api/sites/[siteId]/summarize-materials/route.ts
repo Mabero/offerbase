@@ -20,7 +20,7 @@ export const POST = createAPIRoute(
     const { supabase, userId, request, siteId } = context;
 
     // Validate siteId parameter
-    const { siteId: paramSiteId } = await (request as any).params;
+    const { siteId: paramSiteId } = await (request as NextRequest & { params: { siteId: string } }).params;
     const paramValidation = siteIdParamSchema.safeParse({ siteId: paramSiteId });
     if (!paramValidation.success) {
       const { createValidationErrorResponse } = await import('@/lib/validation');

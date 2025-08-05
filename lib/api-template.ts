@@ -131,7 +131,7 @@ export function createAPIRoute(
       // 7. Site ownership verification if required
       let siteId: string | undefined;
       if (config.requireSiteOwnership && userId) {
-        siteId = (query as any)?.siteId || (body as any)?.siteId;
+        siteId = (query as Record<string, unknown>)?.siteId as string || (body as Record<string, unknown>)?.siteId as string;
         if (!siteId) {
           return createValidationErrorResponse('Site ID is required');
         }
@@ -203,8 +203,8 @@ export function createAPIRoute(
     } catch (error) {
       // Use structured error handling
       return handleAPIError(error, request, {
-        userId,
-        siteId,
+        userId: userId || undefined,
+        siteId: siteId || undefined,
         endpoint: request.nextUrl.pathname,
         duration: Date.now() - startTime
       });
@@ -217,7 +217,7 @@ export function createAPIRoute(
  */
 export async function executeDBOperation<T>(
   operation: () => Promise<T>,
-  context: Pick<APIContext, 'siteId' | 'userId'> & { operation: string }
+  context: Pick<APIContext, 'siteId' | 'userId'> & { operation: string; [key: string]: unknown }
 ): Promise<T> {
   return withRetry(operation, {
     operation: context.operation,

@@ -30,6 +30,9 @@ export interface ErrorContext {
   method?: string;
   requestId?: string;
   duration?: number;
+  operation?: string;
+  attemptNumber?: number;
+  maxAttempts?: number;
   additionalData?: Record<string, unknown>;
 }
 
@@ -171,7 +174,7 @@ class ErrorHandler {
     config: Partial<RetryConfig> = {}
   ): Promise<T> {
     const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...config };
-    let lastError: any;
+    let lastError: unknown;
     
     for (let attempt = 1; attempt <= retryConfig.maxAttempts; attempt++) {
       try {
@@ -254,8 +257,9 @@ class ErrorHandler {
    */
   private determineSeverity(category: ErrorCategory, error: unknown): ErrorSeverity {
     switch (category) {
-      case ErrorCategory.CRITICAL:
-        return ErrorSeverity.CRITICAL;
+      case ErrorCategory.SERVER_ERROR:
+        // Treat certain server errors as critical based on context
+        return error && (error as { critical?: boolean }).critical ? ErrorSeverity.CRITICAL : ErrorSeverity.HIGH;
       
       case ErrorCategory.DATABASE_ERROR:
       case ErrorCategory.EXTERNAL_SERVICE:

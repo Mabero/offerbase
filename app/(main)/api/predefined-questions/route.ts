@@ -158,7 +158,14 @@ export const POST = createAPIRoute(
     );
 
     // Create URL rules if provided
-    let urlRules: any[] = [];
+    let urlRules: Array<{
+      id: string;
+      rule_type: string;
+      pattern: string;
+      is_active: boolean;
+      created_at: string;
+      updated_at: string;
+    }> = [];
     if (questionData.url_rules && questionData.url_rules.length > 0) {
       try {
         urlRules = await executeDBOperation(

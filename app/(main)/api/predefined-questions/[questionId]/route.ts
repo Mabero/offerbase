@@ -28,7 +28,7 @@ export const GET = createAPIRoute(
   },
   async (context) => {
     const { supabase, userId, request } = context;
-    const { questionId } = await (request as any).params;
+    const { questionId } = await (request as NextRequest & { params: { questionId: string } }).params;
 
     // Validate questionId parameter
     const paramValidation = questionIdParamSchema.safeParse({ questionId });
@@ -93,7 +93,7 @@ export const PUT = createAPIRoute(
   },
   async (context) => {
     const { body, supabase, userId, request } = context;
-    const { questionId } = await (request as any).params;
+    const { questionId } = await (request as NextRequest & { params: { questionId: string } }).params;
     const updateData = body as z.infer<typeof updateQuestionSchema>;
 
     // Validate questionId parameter
@@ -128,7 +128,7 @@ export const PUT = createAPIRoute(
     );
 
     // Sanitize user-generated content
-    const sanitizedData: any = {
+    const sanitizedData: Record<string, unknown> = {
       updated_at: new Date().toISOString()
     };
 
@@ -159,7 +159,14 @@ export const PUT = createAPIRoute(
     );
 
     // Handle URL rules updates if provided
-    let urlRules: any[] = [];
+    let urlRules: Array<{
+      id: string;
+      rule_type: string;
+      pattern: string;
+      is_active: boolean;
+      created_at: string;
+      updated_at: string;
+    }> = [];
     if (updateData.url_rules) {
       try {
         urlRules = await executeDBOperation(
@@ -279,7 +286,7 @@ export const DELETE = createAPIRoute(
   },
   async (context) => {
     const { supabase, userId, request } = context;
-    const { questionId } = await (request as any).params;
+    const { questionId } = await (request as NextRequest & { params: { questionId: string } }).params;
 
     // Validate questionId parameter
     const paramValidation = questionIdParamSchema.safeParse({ questionId });

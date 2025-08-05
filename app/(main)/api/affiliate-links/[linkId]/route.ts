@@ -16,7 +16,7 @@ export const PUT = createAPIRoute(
   },
   async (context) => {
     const { body, supabase, userId, request } = context;
-    const { linkId } = await (request as any).params;
+    const { linkId } = await (request as NextRequest & { params: { linkId: string } }).params;
     const linkData = body as Partial<typeof affiliateLinkSchema._type>;
 
     // First verify ownership and get site_id
@@ -49,7 +49,7 @@ export const PUT = createAPIRoute(
     // Update the link
     const updatedLink = await executeDBOperation(
       async () => {
-        const updateData: any = {
+        const updateData: Record<string, unknown> = {
           updated_at: new Date().toISOString()
         };
 
@@ -88,7 +88,7 @@ export const DELETE = createAPIRoute(
   },
   async (context) => {
     const { supabase, userId, request } = context;
-    const { linkId } = await (request as any).params;
+    const { linkId } = await (request as NextRequest & { params: { linkId: string } }).params;
 
     // First verify ownership and get site_id
     const { siteId } = await executeDBOperation(

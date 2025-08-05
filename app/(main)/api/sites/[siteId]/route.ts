@@ -18,7 +18,7 @@ export const PATCH = createAPIRoute(
   },
   async (context) => {
     const { body, supabase, userId, request } = context;
-    const { siteId } = await (request as any).params;
+    const { siteId } = await (request as NextRequest & { params: { siteId: string } }).params;
     const siteData = body as typeof siteUpdateSchema._type;
 
     // Validate siteId parameter
@@ -48,7 +48,7 @@ export const PATCH = createAPIRoute(
     // Update the site
     const updatedSite = await executeDBOperation(
       async () => {
-        const updateData: any = {
+        const updateData: Record<string, unknown> = {
           updated_at: new Date().toISOString()
         };
 
@@ -81,7 +81,7 @@ export const DELETE = createAPIRoute(
   },
   async (context) => {
     const { supabase, userId, request } = context;
-    const { siteId } = await (request as any).params;
+    const { siteId } = await (request as NextRequest & { params: { siteId: string } }).params;
 
     // Validate siteId parameter
     const paramValidation = siteIdParamSchema.safeParse({ siteId });
