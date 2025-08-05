@@ -60,7 +60,7 @@ export async function selectRelevantContext(
       .eq('scrape_status', 'success')
       .textSearch('fts_content', searchTerms, { type: 'websearch' })
       .limit(maxItems * 3) // Get more candidates for scoring
-      .order('confidence_score', { ascending: false, nullsLast: true });
+      .order('confidence_score', { ascending: false, nullsFirst: false });
 
     materials = ftsResults || [];
   }
