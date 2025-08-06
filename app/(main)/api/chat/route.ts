@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Generate AI response using OpenAI with sanitized data
-    const response = await generateChatResponse(sanitizedMessage, sanitizedHistory, siteId, chatSessionId);
+    const response = await generateChatResponse(sanitizedMessage, sanitizedHistory, siteId, chatSessionId || undefined);
     
     // Log chat messages if session tracking is available
     if (chatSessionId && supabase) {
