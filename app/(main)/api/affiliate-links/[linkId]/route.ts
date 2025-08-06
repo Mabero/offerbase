@@ -57,7 +57,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const { data, error } = await supabase
       .from('affiliate_links')
       .update(updateData)
-      .eq('id', params.linkId)
+      .eq('id', linkId)
       .select('id, url, title, description, image_url, button_text, created_at, updated_at')
       .single();
 
@@ -117,7 +117,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const { error } = await supabase
       .from('affiliate_links')
       .delete()
-      .eq('id', params.linkId);
+      .eq('id', linkId);
 
     if (error) {
       console.error('Affiliate link deletion error:', error);
