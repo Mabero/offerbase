@@ -3,13 +3,16 @@ import { auth } from '@clerk/nextjs/server';
 import { createClient } from '@supabase/supabase-js';
 
 // PUT /api/affiliate-links/[linkId] - Update affiliate link
-export async function PUT(request: NextRequest, { params }: { params: { linkId: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ linkId: string }> }) {
   try {
     // Get user authentication
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
+
+    // Get the params
+    const { linkId } = await params;
 
     // Parse request body
     const body = await request.json();
@@ -31,7 +34,7 @@ export async function PUT(request: NextRequest, { params }: { params: { linkId: 
           user_id
         )
       `)
-      .eq('id', params.linkId)
+      .eq('id', linkId)
       .eq('sites.user_id', userId)
       .single();
 
@@ -75,13 +78,16 @@ export async function PUT(request: NextRequest, { params }: { params: { linkId: 
 }
 
 // DELETE /api/affiliate-links/[linkId] - Delete affiliate link
-export async function DELETE(request: NextRequest, { params }: { params: { linkId: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ linkId: string }> }) {
   try {
     // Get user authentication
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
+
+    // Get the params
+    const { linkId } = await params;
 
     // Create simple Supabase client
     const supabase = createClient(
@@ -99,7 +105,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { linkI
           user_id
         )
       `)
-      .eq('id', params.linkId)
+      .eq('id', linkId)
       .eq('sites.user_id', userId)
       .single();
 
