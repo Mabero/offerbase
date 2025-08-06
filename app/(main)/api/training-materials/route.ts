@@ -141,6 +141,59 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create training material', details: error }, { status: 500 });
     }
 
+    console.log(`✅ Training material created: ${data.id}`);
+
+    // Trigger background processing (non-blocking)
+    const baseUrl = process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.NEXT_PUBLIC_APP_URL || 
+        request.headers.get('origin') ||
+        `${request.nextUrl.protocol}//${request.nextUrl.host}` ||
+        'http://localhost:3000';
+
+    // Start background scraping process
+    setTimeout(async () => {
+      try {
+        console.log(`🔄 Triggering background processing for material: ${data.id}`);
+        
+        const response = await fetch(`${baseUrl}/api/training-materials/process`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            // Forward the authorization to the background process
+            'Authorization': request.headers.get('Authorization') || '',
+            'Cookie': request.headers.get('Cookie') || ''
+          },
+          body: JSON.stringify({
+            materialId: data.id,
+            retryCount: 0
+          })
+        });
+
+        if (!response.ok) {
+          console.error('❌ Background processing trigger failed:', response.status, await response.text());
+        } else {
+          console.log('✅ Background processing triggered successfully');
+        }
+      } catch (error) {
+        console.error('❌ Failed to trigger background processing:', error);
+        
+        // Mark the material as failed so user knows something went wrong
+        try {
+          await supabase
+            .from('training_materials')
+            .update({ 
+              scrape_status: 'failed',
+              error_message: 'Failed to start background processing',
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', data.id);
+        } catch (updateError) {
+          console.error('❌ Failed to update material status after processing failure:', updateError);
+        }
+      }
+    }, 100); // Small delay to ensure response is sent first
+
     return NextResponse.json({ 
       success: true, 
       data,
