@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createClient } from '@supabase/supabase-js';
+import { scrapeUrl } from '@/lib/scraping';
 
 // GET /api/training-materials - Fetch training materials for a site
 export async function GET(request: NextRequest) {
@@ -143,56 +144,10 @@ export async function POST(request: NextRequest) {
 
     console.log(`✅ Training material created: ${data.id}`);
 
-    // Trigger background processing (non-blocking)
-    const baseUrl = process.env.VERCEL_URL 
-      ? `https://${process.env.VERCEL_URL}`
-      : process.env.NEXT_PUBLIC_APP_URL || 
-        request.headers.get('origin') ||
-        `${request.nextUrl.protocol}//${request.nextUrl.host}` ||
-        'http://localhost:3000';
-
-    // Start background scraping process
-    setTimeout(async () => {
-      try {
-        console.log(`🔄 Triggering background processing for material: ${data.id}`);
-        
-        const response = await fetch(`${baseUrl}/api/training-materials/process`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            // Forward the authorization to the background process
-            'Authorization': request.headers.get('Authorization') || '',
-            'Cookie': request.headers.get('Cookie') || ''
-          },
-          body: JSON.stringify({
-            materialId: data.id,
-            retryCount: 0
-          })
-        });
-
-        if (!response.ok) {
-          console.error('❌ Background processing trigger failed:', response.status, await response.text());
-        } else {
-          console.log('✅ Background processing triggered successfully');
-        }
-      } catch (error) {
-        console.error('❌ Failed to trigger background processing:', error);
-        
-        // Mark the material as failed so user knows something went wrong
-        try {
-          await supabase
-            .from('training_materials')
-            .update({ 
-              scrape_status: 'failed',
-              error_message: 'Failed to start background processing',
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', data.id);
-        } catch (updateError) {
-          console.error('❌ Failed to update material status after processing failure:', updateError);
-        }
-      }
-    }, 100); // Small delay to ensure response is sent first
+    // Start scraping process in background (direct function call - MUCH simpler!)
+    scrapeContentForMaterial(data.id, url.trim()).catch(error => {
+      console.error('❌ Background scraping error:', error);
+    });
 
     return NextResponse.json({ 
       success: true, 
@@ -206,5 +161,84 @@ export async function POST(request: NextRequest) {
       error: 'Internal server error', 
       details: error instanceof Error ? error.message : String(error) 
     }, { status: 500 });
+  }
+}
+
+// Helper function to handle background scraping (direct approach - simpler and more reliable)
+async function scrapeContentForMaterial(materialId: string, url: string) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  try {
+    console.log(`🔄 Starting scraping for material: ${materialId}`);
+    
+    // Update status to processing
+    await supabase
+      .from('training_materials')
+      .update({ 
+        scrape_status: 'processing',
+        error_message: null,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', materialId);
+
+    // Perform the scraping
+    const scrapeResult = await scrapeUrl(url, { timeout: 30000 });
+    
+    if (!scrapeResult.success) {
+      console.error('❌ Scraping failed:', scrapeResult.error);
+      
+      // Mark as failed
+      await supabase
+        .from('training_materials')
+        .update({ 
+          scrape_status: 'failed',
+          error_message: scrapeResult.error,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', materialId);
+      return;
+    }
+
+    console.log(`✅ Scraping successful! Content length: ${scrapeResult.content?.length}`);
+
+    // Prepare update data
+    const updateData: Record<string, unknown> = {
+      content: scrapeResult.content,
+      content_type: scrapeResult.contentType || 'webpage',
+      metadata: scrapeResult.metadata || {},
+      scrape_status: 'success',
+      last_scraped_at: new Date().toISOString(),
+      error_message: null,
+      updated_at: new Date().toISOString()
+    };
+
+    // Update title if we got better metadata
+    if (scrapeResult.metadata?.title && scrapeResult.metadata.title.length > 0) {
+      updateData.title = scrapeResult.metadata.title;
+    }
+
+    // Update the training material
+    await supabase
+      .from('training_materials')
+      .update(updateData)
+      .eq('id', materialId);
+
+    console.log(`🎉 Training material ${materialId} processed successfully`);
+
+  } catch (error) {
+    console.error('❌ Scraping error:', error);
+    
+    // Mark as failed
+    await supabase
+      .from('training_materials')
+      .update({ 
+        scrape_status: 'failed',
+        error_message: error instanceof Error ? error.message : 'Unknown error',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', materialId);
   }
 }
