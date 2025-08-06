@@ -1,5 +1,5 @@
-import { NextRequest } from 'next/server';
-import { createAPIRoute, createSuccessResponse, executeDBOperation, createOptionsHandler } from '@/lib/api-template';
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { sanitizePattern, sanitizeUrl } from '@/lib/validation';
 import { defaultUrlMatcher } from '@/lib/url-matcher';
 import { z } from 'zod';
@@ -18,16 +18,53 @@ const patternSuggestionsSchema = z.object({
   sampleUrl: z.string().url('Invalid sample URL format').optional()
 });
 
+// Helper functions
+function addCorsHeaders(response: NextResponse) {
+  response.headers.set('Access-Control-Allow-Origin', '*');
+  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  return response;
+}
+
+function createErrorResponse(message: string, status: number = 500) {
+  const response = NextResponse.json({ error: message }, { status });
+  return addCorsHeaders(response);
+}
+
+function createSuccessResponse(data: unknown, message?: string, status: number = 200) {
+  const response = NextResponse.json({
+    success: true,
+    data,
+    message,
+    timestamp: new Date().toISOString()
+  }, { status });
+  return addCorsHeaders(response);
+}
+
 // POST /api/predefined-questions/test-pattern - Test URL pattern matching
-export const POST = createAPIRoute(
-  {
-    requireAuth: true,
-    bodySchema: patternTestSchema,
-    allowedMethods: ['POST']
-  },
-  async (context) => {
-    const { body } = context;
-    const { pattern, rule_type, test_urls } = body as z.infer<typeof patternTestSchema>;
+export async function POST(request: NextRequest) {
+  try {
+    // Get authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return createErrorResponse('Authentication required', 401);
+    }
+
+    // Parse and validate request body
+    let body;
+    try {
+      body = await request.json();
+    } catch (error) {
+      return createErrorResponse('Invalid JSON in request body', 400);
+    }
+
+    const validation = patternTestSchema.safeParse(body);
+    if (!validation.success) {
+      const errorMessage = validation.error.errors.map(e => e.message).join(', ');
+      return createErrorResponse(errorMessage, 400);
+    }
+
+    const { pattern, rule_type, test_urls } = validation.data;
 
     // Sanitize the pattern
     const sanitizedPattern = sanitizePattern(pattern);
@@ -36,10 +73,9 @@ export const POST = createAPIRoute(
     const sanitizedTestUrls = test_urls.map(url => sanitizeUrl(url));
 
     // Validate pattern using URL matcher
-    const validation = defaultUrlMatcher.validatePattern?.(sanitizedPattern, rule_type);
-    if (validation && !validation.isValid) {
-      const { createValidationErrorResponse } = await import('@/lib/validation');
-      return createValidationErrorResponse(`Invalid pattern: ${validation.errors.join(', ')}`, 400);
+    const validation2 = defaultUrlMatcher.validatePattern?.(sanitizedPattern, rule_type);
+    if (validation2 && !validation2.isValid) {
+      return createErrorResponse(`Invalid pattern: ${validation2.errors.join(', ')}`, 400);
     }
 
     // Test the pattern against all URLs using a mock question approach
@@ -88,31 +124,35 @@ export const POST = createAPIRoute(
       }
     };
 
-    // Calculate summary if not provided
-    if (!testResult.summary) {
-      const matches = testResult.results.filter(r => r.isMatch).length;
-      const errors = testResult.results.filter(r => r.error).length;
-      testResult.summary = {
-        total: testResult.results.length,
-        matches,
-        errors
-      };
-    }
+    // Calculate summary
+    const matches = testResult.results.filter(r => r.isMatch).length;
+    const errors = testResult.results.filter(r => r.error).length;
+    testResult.summary = {
+      total: testResult.results.length,
+      matches,
+      errors
+    };
 
     return createSuccessResponse(testResult, 'Pattern test completed successfully');
+
+  } catch (error) {
+    console.error('POST /api/predefined-questions/test-pattern error:', error);
+    return createErrorResponse('Internal server error');
   }
-);
+}
 
 // GET /api/predefined-questions/test-pattern - Get pattern suggestions
-export const GET = createAPIRoute(
-  {
-    requireAuth: true,
-    querySchema: patternSuggestionsSchema,
-    allowedMethods: ['GET']
-  },
-  async (context) => {
-    const { query } = context;
-    const { sampleUrl } = query as z.infer<typeof patternSuggestionsSchema>;
+export async function GET(request: NextRequest) {
+  try {
+    // Get authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return createErrorResponse('Authentication required', 401);
+    }
+
+    // Get query parameters
+    const { searchParams } = new URL(request.url);
+    const sampleUrl = searchParams.get('sampleUrl');
 
     // Get pattern suggestions based on sample URL
     const suggestions = defaultUrlMatcher.getPatternSuggestions?.(
@@ -136,8 +176,19 @@ export const GET = createAPIRoute(
     ];
 
     return createSuccessResponse({ suggestions }, 'Pattern suggestions generated successfully');
-  }
-);
 
-// OPTIONS handler for CORS
-export const OPTIONS = createOptionsHandler();
+  } catch (error) {
+    console.error('GET /api/predefined-questions/test-pattern error:', error);
+    return createErrorResponse('Internal server error');
+  }
+}
+
+// OPTIONS /api/predefined-questions/test-pattern - CORS preflight
+export async function OPTIONS() {
+  const response = new NextResponse(null, { status: 200 });
+  response.headers.set('Access-Control-Allow-Origin', '*');
+  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  response.headers.set('Access-Control-Max-Age', '86400');
+  return response;
+}

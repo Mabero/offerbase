@@ -1,212 +1,256 @@
-import { NextRequest } from 'next/server';
-import { createAPIRoute, createSuccessResponse, executeDBOperation, createOptionsHandler } from '@/lib/api-template';
-import { predefinedQuestionSchema, siteIdQuerySchema, paginationQuerySchema, sanitizeString, sanitizeHtml, sanitizePattern } from '@/lib/validation';
-import { getCacheKey, cache } from '@/lib/cache';
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
+import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
-// Enhanced predefined question schema with URL rules
-const predefinedQuestionWithRulesSchema = predefinedQuestionSchema.extend({
-  url_rules: z.array(z.object({
-    rule_type: z.enum(['contains', 'exact', 'exclude']),
-    pattern: z.string().min(1).max(200).trim(),
-    is_active: z.boolean().default(true)
-  })).optional().default([])
+// Input validation schemas
+const predefinedQuestionCreateSchema = z.object({
+  siteId: z.string().uuid('Invalid site ID format'),
+  question: z.string()
+    .min(1, "Question is required")
+    .max(500, "Question too long")
+    .trim(),
+  answer: z.string()
+    .min(1, "Answer is required")
+    .max(2000, "Answer too long")
+    .trim(),
+  pattern: z.string()
+    .max(200, "Pattern too long")
+    .trim()
+    .optional(),
+  is_active: z.boolean().default(true),
+  is_site_wide: z.boolean().default(false),
+  priority: z.number()
+    .min(0, "Priority must be non-negative")
+    .max(100, "Priority too high")
+    .default(50)
 });
 
-// Query parameters schema for GET requests
-const questionsQuerySchema = siteIdQuerySchema.extend({
-  page: z.string().optional().transform(val => val ? parseInt(val, 10) : 1)
-    .refine(val => val > 0, 'Page must be positive'),
-  limit: z.string().optional().transform(val => val ? parseInt(val, 10) : 50)
-    .refine(val => val > 0 && val <= 100, 'Limit must be between 1 and 100'),
-  search: z.string().optional(),
-  is_active: z.string().optional(),
-  is_site_wide: z.string().optional()
-});
+// Helper function to get Supabase client
+function getSupabaseClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
+
+// Helper function to add CORS headers
+function addCorsHeaders(response: NextResponse) {
+  response.headers.set('Access-Control-Allow-Origin', '*');
+  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  return response;
+}
+
+// Helper function to create error response
+function createErrorResponse(message: string, status: number = 500) {
+  const response = NextResponse.json({ error: message }, { status });
+  return addCorsHeaders(response);
+}
+
+// Helper function to create success response
+function createSuccessResponse(data: unknown, message?: string, status: number = 200) {
+  const response = NextResponse.json({
+    success: true,
+    data,
+    message,
+    timestamp: new Date().toISOString()
+  }, { status });
+  return addCorsHeaders(response);
+}
 
 // GET /api/predefined-questions - Fetch predefined questions for a site
-export const GET = createAPIRoute(
-  {
-    requireAuth: true,
-    requireSiteOwnership: true,
-    querySchema: questionsQuerySchema,
-    allowedMethods: ['GET']
-  },
-  async (context) => {
-    const { query, siteId, supabase } = context;
-    const { page, limit, search, is_active, is_site_wide } = query as z.infer<typeof questionsQuerySchema>;
-    
-    // Build cache key based on query parameters
-    const cacheKey = getCacheKey(siteId!, `predefined_questions_${page}_${limit}_${search || 'all'}_${is_active || 'all'}_${is_site_wide || 'all'}`);
-    
-    // Try to get from cache first
-    const cached = await cache.get(cacheKey);
-    if (cached) {
-      return createSuccessResponse(cached, 'Predefined questions fetched from cache');
+export async function GET(request: NextRequest) {
+  try {
+    // Get authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return createErrorResponse('Authentication required', 401);
     }
 
-    // Fetch questions with retry logic
-    const { questions, total } = await executeDBOperation(
-      async () => {
-        // Build query with filters
-        let query = supabase
-          .from('predefined_questions')
-          .select(`
-            id,
-            site_id,
-            question,
-            answer,
-            priority,
-            is_site_wide,
-            is_active,
-            created_at,
-            updated_at,
-            question_url_rules (
-              id,
-              question_id,
-              rule_type,
-              pattern,
-              is_active,
-              created_at,
-              updated_at
-            )
-          `)
-          .eq('site_id', siteId!);
+    // Get query parameters
+    const { searchParams } = new URL(request.url);
+    const siteId = searchParams.get('siteId');
+    const limit = parseInt(searchParams.get('limit') || '50', 10);
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const search = searchParams.get('search');
+    const is_active = searchParams.get('is_active');
+    const is_site_wide = searchParams.get('is_site_wide');
 
-        // Apply filters
-        if (search) {
-          const sanitizedSearch = sanitizeString(search);
-          query = query.or(`question.ilike.%${sanitizedSearch}%,answer.ilike.%${sanitizedSearch}%`);
-        }
-        
-        if (is_active !== undefined && is_active !== '') {
-          query = query.eq('is_active', is_active === 'true');
-        }
-        
-        if (is_site_wide !== undefined && is_site_wide !== '') {
-          query = query.eq('is_site_wide', is_site_wide === 'true');
-        }
+    if (!siteId) {
+      return createErrorResponse('Site ID is required', 400);
+    }
 
-        // Get total count for pagination
-        const { count } = await supabase
-          .from('predefined_questions')
-          .select('*', { count: 'exact', head: true })
-          .eq('site_id', siteId!);
+    // Validate UUID format
+    try {
+      z.string().uuid().parse(siteId);
+    } catch {
+      return createErrorResponse('Invalid site ID format', 400);
+    }
 
-        // Apply pagination and ordering
-        const { data, error } = await query
-          .order('priority', { ascending: false })
-          .order('created_at', { ascending: false })
-          .range((page - 1) * limit, page * limit - 1);
+    // Get Supabase client
+    const supabase = getSupabaseClient();
 
-        if (error) throw error;
-        return { questions: data || [], total: count || 0 };
-      },
-      { operation: 'fetchPredefinedQuestions', siteId, userId: context.userId }
-    );
+    // Verify site ownership
+    const { data: site, error: siteError } = await supabase
+      .from('sites')
+      .select('id')
+      .eq('id', siteId)
+      .eq('user_id', userId)
+      .single();
+
+    if (siteError || !site) {
+      console.error('Site ownership verification failed:', siteError);
+      return createErrorResponse('Site not found or unauthorized', 404);
+    }
+
+    // Build query with filters
+    let query = supabase
+      .from('predefined_questions')
+      .select(`
+        id,
+        site_id,
+        question,
+        answer,
+        priority,
+        is_site_wide,
+        is_active,
+        created_at,
+        updated_at
+      `)
+      .eq('site_id', siteId);
+
+    // Apply filters
+    if (search) {
+      query = query.or(`question.ilike.%${search}%,answer.ilike.%${search}%`);
+    }
+    
+    if (is_active !== null && is_active !== '') {
+      query = query.eq('is_active', is_active === 'true');
+    }
+    
+    if (is_site_wide !== null && is_site_wide !== '') {
+      query = query.eq('is_site_wide', is_site_wide === 'true');
+    }
+
+    // Get total count for pagination
+    const { count } = await supabase
+      .from('predefined_questions')
+      .select('*', { count: 'exact', head: true })
+      .eq('site_id', siteId);
+
+    // Apply pagination and ordering
+    const { data: questions, error } = await query
+      .order('priority', { ascending: false })
+      .order('created_at', { ascending: false })
+      .range((page - 1) * limit, page * limit - 1);
+
+    if (error) {
+      console.error('Predefined questions fetch error:', error);
+      return createErrorResponse('Failed to fetch predefined questions');
+    }
 
     const response = {
-      questions,
-      total,
+      questions: questions || [],
+      total: count || 0,
       page,
       limit
     };
 
-    // Cache for 5 minutes
-    await cache.set(cacheKey, response, 300);
-
     return createSuccessResponse(response, 'Predefined questions fetched successfully');
+
+  } catch (error) {
+    console.error('GET /api/predefined-questions error:', error);
+    return createErrorResponse('Internal server error');
   }
-);
+}
 
 // POST /api/predefined-questions - Create new predefined question
-export const POST = createAPIRoute(
-  {
-    requireAuth: true,
-    requireSiteOwnership: true,
-    bodySchema: predefinedQuestionWithRulesSchema,
-    allowedMethods: ['POST']
-  },
-  async (context) => {
-    const { body, siteId, supabase } = context;
-    const questionData = body as z.infer<typeof predefinedQuestionWithRulesSchema>;
-
-    // Sanitize user-generated content
-    const sanitizedQuestion = sanitizeString(questionData.question);
-    const sanitizedAnswer = questionData.answer ? sanitizeHtml(questionData.answer) : null;
-
-    // Create the question with retry logic
-    const newQuestion = await executeDBOperation(
-      async () => {
-        const { data, error } = await supabase
-          .from('predefined_questions')
-          .insert([{
-            site_id: siteId!,
-            question: sanitizedQuestion,
-            answer: sanitizedAnswer,
-            priority: questionData.priority || 50,
-            is_site_wide: questionData.is_site_wide,
-            is_active: questionData.is_active
-          }])
-          .select('id, question, answer, priority, is_site_wide, is_active, created_at, updated_at')
-          .single();
-
-        if (error) throw error;
-        return data;
-      },
-      { operation: 'createPredefinedQuestion', siteId, userId: context.userId }
-    );
-
-    // Create URL rules if provided
-    let urlRules: Array<{
-      id: string;
-      rule_type: string;
-      pattern: string;
-      is_active: boolean;
-      created_at: string;
-      updated_at: string;
-    }> = [];
-    if (questionData.url_rules && questionData.url_rules.length > 0) {
-      try {
-        urlRules = await executeDBOperation(
-          async () => {
-            const rulesData = questionData.url_rules!.map(rule => ({
-              question_id: newQuestion.id,
-              rule_type: rule.rule_type,
-              pattern: sanitizePattern(rule.pattern),
-              is_active: rule.is_active
-            }));
-
-            const { data, error } = await supabase
-              .from('question_url_rules')
-              .insert(rulesData)
-              .select('id, question_id, rule_type, pattern, is_active, created_at, updated_at');
-
-            if (error) throw error;
-            return data || [];
-          },
-          { operation: 'createUrlRules', questionId: newQuestion.id, siteId, userId: context.userId }
-        );
-      } catch (error) {
-        console.error('Error creating URL rules:', error);
-        // Don't fail the entire request, but note the issue
-        urlRules = [];
-      }
+export async function POST(request: NextRequest) {
+  try {
+    // Get authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return createErrorResponse('Authentication required', 401);
     }
 
-    const questionWithRules = {
-      ...newQuestion,
-      question_url_rules: urlRules
-    };
+    // Parse and validate request body
+    let body;
+    try {
+      body = await request.json();
+    } catch (error) {
+      return createErrorResponse('Invalid JSON in request body', 400);
+    }
 
-    // Invalidate cache
-    const cachePattern = getCacheKey(siteId!, 'predefined_questions*');
-    await cache.del(cachePattern);
-    console.log(`🗑️ Cache invalidated for predefined questions: ${siteId}`);
+    const validation = predefinedQuestionCreateSchema.safeParse(body);
+    if (!validation.success) {
+      const errorMessage = validation.error.errors.map(e => e.message).join(', ');
+      return createErrorResponse(errorMessage, 400);
+    }
 
-    return createSuccessResponse(questionWithRules, 'Predefined question created successfully', 201);
+    const questionData = validation.data;
+    
+    // Get Supabase client
+    const supabase = getSupabaseClient();
+
+    // Verify site ownership
+    const { data: site, error: siteError } = await supabase
+      .from('sites')
+      .select('id')
+      .eq('id', questionData.siteId)
+      .eq('user_id', userId)
+      .single();
+
+    if (siteError || !site) {
+      console.error('Site ownership verification failed:', siteError);
+      return createErrorResponse('Site not found or unauthorized', 404);
+    }
+
+    // Create the predefined question
+    const { data: newQuestion, error: createError } = await supabase
+      .from('predefined_questions')
+      .insert([{
+        site_id: questionData.siteId,
+        question: questionData.question,
+        answer: questionData.answer,
+        pattern: questionData.pattern || null,
+        priority: questionData.priority,
+        is_site_wide: questionData.is_site_wide,
+        is_active: questionData.is_active
+      }])
+      .select('id, question, answer, pattern, priority, is_site_wide, is_active, created_at, updated_at')
+      .single();
+
+    if (createError) {
+      console.error('Predefined question creation error:', createError);
+      return createErrorResponse('Failed to create predefined question');
+    }
+
+    // Invalidate cache gracefully (don't fail if cache is unavailable)
+    try {
+      const { cache, getCacheKey } = await import('@/lib/cache');
+      const cacheKey = getCacheKey(questionData.siteId, 'predefined_questions');
+      await cache.del(cacheKey);
+      console.log(`🗑️ Cache invalidated for predefined questions: ${questionData.siteId}`);
+    } catch (cacheError) {
+      console.warn(`⚠️ Cache invalidation failed for site ${questionData.siteId}:`, cacheError);
+      // Continue execution - cache failure shouldn't break the API
+    }
+
+    return createSuccessResponse(newQuestion, 'Predefined question created successfully', 201);
+
+  } catch (error) {
+    console.error('POST /api/predefined-questions error:', error);
+    return createErrorResponse('Internal server error');
   }
-);
+}
 
-// OPTIONS handler for CORS
-export const OPTIONS = createOptionsHandler();
+// OPTIONS /api/predefined-questions - CORS preflight
+export async function OPTIONS() {
+  const response = new NextResponse(null, { status: 200 });
+  response.headers.set('Access-Control-Allow-Origin', '*');
+  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  response.headers.set('Access-Control-Max-Age', '86400');
+  return response;
+}

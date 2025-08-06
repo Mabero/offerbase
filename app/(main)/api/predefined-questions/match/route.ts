@@ -1,28 +1,71 @@
-import { NextRequest } from 'next/server';
-import { createAPIRoute, createSuccessResponse, executeDBOperation, createOptionsHandler } from '@/lib/api-template';
-import { siteIdQuerySchema, sanitizeUrl } from '@/lib/validation';
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import { sanitizeUrl } from '@/lib/validation';
 import { getCacheKey, cache } from '@/lib/cache';
 import { defaultUrlMatcher } from '@/lib/url-matcher';
 import { z } from 'zod';
 
-// Match query schema
-const matchQuerySchema = siteIdQuerySchema.extend({
-  pageUrl: z.string().url('Invalid page URL format'),
-  maxResults: z.string().optional()
-    .transform(val => val ? parseInt(val, 10) : 4)
-    .refine(val => val > 0 && val <= 20, 'Max results must be between 1 and 20')
-});
+// Helper function to get Supabase client
+function getSupabaseClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
+
+// Helper functions
+function addCorsHeaders(response: NextResponse) {
+  response.headers.set('Access-Control-Allow-Origin', '*');
+  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  return response;
+}
+
+function createErrorResponse(message: string, status: number = 500) {
+  const response = NextResponse.json({ error: message }, { status });
+  return addCorsHeaders(response);
+}
+
+function createSuccessResponse(data: unknown, message?: string, status: number = 200) {
+  const response = NextResponse.json({
+    success: true,
+    data,
+    message,
+    timestamp: new Date().toISOString()
+  }, { status });
+  return addCorsHeaders(response);
+}
 
 // GET /api/predefined-questions/match - Match questions to page URL (public endpoint for widget)
-export const GET = createAPIRoute(
-  {
-    requireAuth: false, // Public endpoint for widget usage
-    querySchema: matchQuerySchema,
-    allowedMethods: ['GET']
-  },
-  async (context) => {
-    const { query, supabase } = context;
-    const { siteId, pageUrl, maxResults } = query as z.infer<typeof matchQuerySchema>;
+export async function GET(request: NextRequest) {
+  try {
+    // Get query parameters
+    const { searchParams } = new URL(request.url);
+    const siteId = searchParams.get('siteId');
+    const pageUrl = searchParams.get('pageUrl');
+    const maxResults = parseInt(searchParams.get('maxResults') || '4', 10);
+
+    if (!siteId) {
+      return createErrorResponse('Site ID is required', 400);
+    }
+
+    if (!pageUrl) {
+      return createErrorResponse('Page URL is required', 400);
+    }
+
+    // Validate UUID format
+    try {
+      z.string().uuid().parse(siteId);
+    } catch {
+      return createErrorResponse('Invalid site ID format', 400);
+    }
+
+    // Validate URL format
+    try {
+      new URL(pageUrl);
+    } catch {
+      return createErrorResponse('Invalid page URL format', 400);
+    }
     
     // Sanitize the page URL
     const sanitizedPageUrl = sanitizeUrl(pageUrl);
@@ -31,51 +74,58 @@ export const GET = createAPIRoute(
     const cacheKey = getCacheKey(siteId, `question_match_${Buffer.from(sanitizedPageUrl).toString('base64')}_${maxResults}`);
     
     // Try to get from cache first
-    const cached = await cache.get(cacheKey);
-    if (cached) {
-      return createSuccessResponse(cached, 'Question matches fetched from cache');
+    try {
+      const cached = await cache.get(cacheKey);
+      if (cached) {
+        return createSuccessResponse(cached, 'Question matches fetched from cache');
+      }
+    } catch (cacheError) {
+      console.warn('Cache read failed:', cacheError);
+      // Continue without cache
     }
 
-    // Fetch active predefined questions with URL rules
-    const allQuestions = await executeDBOperation(
-      async () => {
-        const { data, error } = await supabase
-          .from('predefined_questions')
-          .select(`
-            id,
-            site_id,
-            question,
-            answer,
-            priority,
-            is_site_wide,
-            is_active,
-            created_at,
-            updated_at,
-            question_url_rules (
-              id,
-              question_id,
-              rule_type,
-              pattern,
-              is_active,
-              created_at,
-              updated_at
-            )
-          `)
-          .eq('site_id', siteId)
-          .eq('is_active', true)
-          .order('priority', { ascending: false })
-          .order('created_at', { ascending: false });
+    // Get Supabase client
+    const supabase = getSupabaseClient();
 
-        if (error) throw error;
-        return data || [];
-      },
-      { operation: 'fetchQuestionsForMatching', siteId }
-    );
+    // Fetch active predefined questions with URL rules
+    const { data: allQuestions, error } = await supabase
+      .from('predefined_questions')
+      .select(`
+        id,
+        site_id,
+        question,
+        answer,
+        priority,
+        is_site_wide,
+        is_active,
+        created_at,
+        updated_at,
+        question_url_rules (
+          id,
+          question_id,
+          rule_type,
+          pattern,
+          is_active,
+          created_at,
+          updated_at
+        )
+      `)
+      .eq('site_id', siteId)
+      .eq('is_active', true)
+      .order('priority', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Questions fetch error:', error);
+      return createErrorResponse('Failed to fetch questions');
+    }
+
+    const questions = allQuestions || [];
 
     // Filter questions based on URL matching
     const matchedQuestions = [];
     
-    for (const question of allQuestions) {
+    for (const question of questions) {
       let isMatch = false;
       
       // Check if it's a site-wide question (always matches)
@@ -89,7 +139,7 @@ export const GET = createAPIRoute(
           // No URL rules means it's site-wide by default
           isMatch = true;
         } else {
-          // Check each rule using the private matchesRule method via the public interface
+          // Check each rule
           for (const rule of activeRules) {
             try {
               // Create a mock question object to use the public matchesQuestion method
@@ -127,15 +177,31 @@ export const GET = createAPIRoute(
       pageUrl: sanitizedPageUrl,
       siteId,
       matchCount: matchedQuestions.length,
-      total: allQuestions.length
+      total: questions.length
     };
 
     // Cache for 10 minutes
-    await cache.set(cacheKey, response, 600);
+    try {
+      await cache.set(cacheKey, response, 600);
+    } catch (cacheError) {
+      console.warn('Cache write failed:', cacheError);
+      // Continue without caching
+    }
 
     return createSuccessResponse(response, 'Question matches found successfully');
-  }
-);
 
-// OPTIONS handler for CORS
-export const OPTIONS = createOptionsHandler();
+  } catch (error) {
+    console.error('GET /api/predefined-questions/match error:', error);
+    return createErrorResponse('Internal server error');
+  }
+}
+
+// OPTIONS /api/predefined-questions/match - CORS preflight
+export async function OPTIONS() {
+  const response = new NextResponse(null, { status: 200 });
+  response.headers.set('Access-Control-Allow-Origin', '*');
+  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  response.headers.set('Access-Control-Max-Age', '86400');
+  return response;
+}
