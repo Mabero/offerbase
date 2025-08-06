@@ -285,11 +285,11 @@ async function generateChatResponse(message: string, conversationHistory: { role
       // Helper function to check if product is relevant to user's query
       const isRelevantToQuery = (product: { title: string; product_id: string | null; aliases: string[] | null }, userMessage: string) => {
         const normalizedMessage = userMessage.toLowerCase();
-        const productTerms = [
+        const productTerms: string[] = [
           product.title.toLowerCase(),
           product.product_id?.toLowerCase(),
-          ...(product.aliases || []).map(a => a?.toLowerCase()).filter(Boolean)
-        ].filter(Boolean);
+          ...(product.aliases || []).map(a => a?.toLowerCase())
+        ].filter((term): term is string => term !== null && term !== undefined);
         
         return productTerms.some(term => normalizedMessage.includes(term));
       };
@@ -419,11 +419,11 @@ async function generateChatResponse(message: string, conversationHistory: { role
         // Helper function to check if product is relevant to user's query
         const isRelevantToQuery = (product: { title: string; product_id: string | null; aliases: string[] | null }, userMessage: string) => {
           const normalizedMessage = userMessage.toLowerCase();
-          const productTerms = [
+          const productTerms: string[] = [
             product.title.toLowerCase(),
             product.product_id?.toLowerCase(),
-            ...(product.aliases || []).map(a => a?.toLowerCase()).filter(Boolean)
-          ].filter(Boolean);
+            ...(product.aliases || []).map(a => a?.toLowerCase())
+          ].filter((term): term is string => term !== null && term !== undefined);
           
           return productTerms.some(term => normalizedMessage.includes(term));
         };
