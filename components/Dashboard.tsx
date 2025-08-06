@@ -583,7 +583,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         const responseData = await response.json();
 
         if (response.ok) {
-          setTrainingMaterials(prev => [...prev, responseData.material]);
+          setTrainingMaterials(prev => [...prev, responseData.data]);
         } else {
           throw new Error(responseData.error || 'Failed to add training material');
         }
