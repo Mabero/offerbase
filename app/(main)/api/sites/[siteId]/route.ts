@@ -14,11 +14,11 @@ export const PATCH = createAPIRoute(
   {
     requireAuth: true,
     bodySchema: siteUpdateSchema,
-    allowedMethods: ['PATCH']
+    allowedMethods: ['PATCH', 'PUT']
   },
   async (context) => {
     const { body, supabase, userId, request } = context;
-    const { siteId } = await (request as NextRequest & { params: { siteId: string } }).params;
+    const { siteId } = await (request as NextRequest & { params: Promise<{ siteId: string }> }).params;
     const siteData = body as typeof siteUpdateSchema._type;
 
     // Validate siteId parameter
@@ -52,7 +52,71 @@ export const PATCH = createAPIRoute(
           updated_at: new Date().toISOString()
         };
 
-        if (siteData.name) updateData.name = siteData.name.trim();
+        if (siteData.name !== undefined) updateData.name = siteData.name.trim();
+        if (siteData.description !== undefined) updateData.description = siteData.description?.trim() || null;
+
+        const { data, error } = await supabase
+          .from('sites')
+          .update(updateData)
+          .eq('id', siteId)
+          .eq('user_id', userId!)
+          .select('id, name, description, created_at, updated_at')
+          .single();
+
+        if (error) throw error;
+        return data;
+      },
+      { operation: 'updateSite', siteId, userId }
+    );
+
+    return createSuccessResponse(updatedSite, 'Site updated successfully');
+  }
+);
+
+// PUT /api/sites/[siteId] - Update site (alias for PATCH)
+export const PUT = createAPIRoute(
+  {
+    requireAuth: true,
+    bodySchema: siteUpdateSchema,
+    allowedMethods: ['PUT']
+  },
+  async (context) => {
+    const { body, supabase, userId, request } = context;
+    const { siteId } = await (request as NextRequest & { params: Promise<{ siteId: string }> }).params;
+    const siteData = body as typeof siteUpdateSchema._type;
+
+    // Validate siteId parameter
+    const paramValidation = siteIdParamSchema.safeParse({ siteId });
+    if (!paramValidation.success) {
+      const { createValidationErrorResponse } = await import('@/lib/validation');
+      return createValidationErrorResponse('Invalid site ID format', 400);
+    }
+
+    // First verify ownership
+    await executeDBOperation(
+      async () => {
+        const { data: site, error } = await supabase
+          .from('sites')
+          .select('id')
+          .eq('id', siteId)
+          .eq('user_id', userId!)
+          .single();
+
+        if (error || !site) {
+          throw new Error('Site not found or unauthorized');
+        }
+      },
+      { operation: 'verifySiteOwnership', siteId, userId }
+    );
+
+    // Update the site
+    const updatedSite = await executeDBOperation(
+      async () => {
+        const updateData: Record<string, unknown> = {
+          updated_at: new Date().toISOString()
+        };
+
+        if (siteData.name !== undefined) updateData.name = siteData.name.trim();
         if (siteData.description !== undefined) updateData.description = siteData.description?.trim() || null;
 
         const { data, error } = await supabase
@@ -81,7 +145,7 @@ export const DELETE = createAPIRoute(
   },
   async (context) => {
     const { supabase, userId, request } = context;
-    const { siteId } = await (request as NextRequest & { params: { siteId: string } }).params;
+    const { siteId } = await (request as NextRequest & { params: Promise<{ siteId: string }> }).params;
 
     // Validate siteId parameter
     const paramValidation = siteIdParamSchema.safeParse({ siteId });

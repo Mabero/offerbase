@@ -225,6 +225,7 @@ export const siteUpdateSchema = z.object({
   description: z.string()
     .max(500, "Description too long")
     .trim()
+    .nullable()
     .optional()
 });
 
