@@ -174,27 +174,45 @@ export const DELETE = createAPIRoute(
     // Delete the site (cascade will handle related data)
     await executeDBOperation(
       async () => {
+        console.log(`🗑️ Attempting to delete site: ${siteId} for user: ${userId}`);
+        
         const { error } = await supabase
           .from('sites')
           .delete()
           .eq('id', siteId)
           .eq('user_id', userId!);
 
-        if (error) throw error;
+        if (error) {
+          console.error(`❌ Site deletion error:`, error);
+          console.error(`❌ Error details:`, {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+            hint: error.hint
+          });
+          throw error;
+        }
+        
+        console.log(`✅ Site deleted successfully: ${siteId}`);
       },
       { operation: 'deleteSite', siteId, userId }
     );
 
-    // Invalidate caches for this site
-    const cacheKeys = [
-      getCacheKey(siteId, 'affiliate_links'),
-      getCacheKey(siteId, 'chat_settings'),
-      getCacheKey(siteId, 'training_materials'),
-      getCacheKey(siteId, 'predefined_questions')
-    ];
-    
-    await Promise.all(cacheKeys.map(key => cache.del(key)));
-    console.log(`🗑️ Cache invalidated for deleted site: ${siteId}`);
+    // Invalidate caches for this site (gracefully handle cache failures)
+    try {
+      const cacheKeys = [
+        getCacheKey(siteId, 'affiliate_links'),
+        getCacheKey(siteId, 'chat_settings'),
+        getCacheKey(siteId, 'training_materials'),
+        getCacheKey(siteId, 'predefined_questions')
+      ];
+      
+      await Promise.all(cacheKeys.map(key => cache.del(key)));
+      console.log(`🗑️ Cache invalidated for deleted site: ${siteId}`);
+    } catch (error) {
+      console.warn(`⚠️ Cache invalidation failed for site ${siteId}:`, error);
+      // Don't fail the entire operation due to cache issues
+    }
 
     return createSuccessResponse(null, 'Site deleted successfully');
   }
