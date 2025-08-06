@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
-import { createSupabaseAdminClient } from '@/lib/supabase-server'
+import { createClient } from '@supabase/supabase-js'
 
 export async function GET(
   request: NextRequest,
@@ -20,7 +20,10 @@ export async function GET(
     }
 
     const { sessionId } = await context.params
-    const supabase = createSupabaseAdminClient()
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
     
     // Get the chat session with messages and verify ownership
     const { data: session, error: sessionError } = await supabase
@@ -100,7 +103,10 @@ export async function PUT(
     const { sessionId } = await context.params
     const { ended_at, is_active } = await request.json()
 
-    const supabase = createSupabaseAdminClient()
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
     
     // Update the chat session
     const { data: session, error } = await supabase
@@ -164,7 +170,10 @@ export async function DELETE(
     }
 
     const { sessionId } = await context.params
-    const supabase = createSupabaseAdminClient()
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
     
     // Verify the session belongs to the user before deleting
     const { data: session, error: sessionError } = await supabase

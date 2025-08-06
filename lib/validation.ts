@@ -23,6 +23,7 @@ export const chatRequestSchema = z.object({
   
   sessionId: z.string()
     .uuid("Invalid session ID format")
+    .nullable()
     .optional(),
   
   conversationHistory: z.array(

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
-import { createSupabaseAdminClient } from '@/lib/supabase-server'
+import { createClient } from '@supabase/supabase-js'
 
 export async function GET(
   request: NextRequest,
@@ -13,7 +13,10 @@ export async function GET(
     }
 
     const { materialId } = await context.params
-    const supabase = createSupabaseAdminClient()
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
     
     // Get the material and verify ownership
     const { data: material, error } = await supabase
@@ -56,7 +59,10 @@ export async function PUT(
 
     console.log('Updating training material:', { materialId, userId, hasContent: !!content })
 
-    const supabase = createSupabaseAdminClient()
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
     
     // First verify the material belongs to the user (through site ownership)
     const { data: material, error: materialError } = await supabase
@@ -127,7 +133,10 @@ export async function DELETE(
     }
 
     const { materialId } = await context.params
-    const supabase = createSupabaseAdminClient()
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
     
     // First verify the material belongs to the user (through site ownership)
     const { data: material, error: materialError } = await supabase

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import OpenAI from 'openai';
-import { createSupabaseAdminClient } from '@/lib/supabase-server';
+import { createClient } from '@supabase/supabase-js';
 import { buildSystemPrompt } from '@/lib/instructions';
 import { StructuredAIResponse, AIResponseParseResult } from '@/types/training';
 import { enforceLanguageInMessage, addLanguageToSystemPrompt } from '@/lib/ai/language';
@@ -9,19 +9,16 @@ import { selectRelevantContext, buildOptimizedContext } from '@/lib/ai/context';
 import { findMostRelevantProduct } from '@/lib/ai/conversation';
 import { findBestProductMatches } from '@/lib/ai/product-matching';
 import { validateAIResponse } from '@/lib/ai/response-validator';
-import { getCachedData, getCacheKey, CACHE_TTL } from '@/lib/cache';
+import { detectLanguageWithoutRedis } from '@/lib/ai/simple-language';
 import { chatRequestSchema, validateRequest, sanitizeString, createValidationErrorResponse } from '@/lib/validation';
-import { rateLimiter, createRateLimitResponse } from '@/lib/rate-limiting';
-import { openAICircuitBreaker, createOpenAIChatCompletionFallback } from '@/lib/circuit-breaker';
-import { detectLanguageWithCaching } from '@/lib/session-language';
-import { handleAPIError, withRetry } from '@/lib/error-handling';
 
 export async function POST(request: NextRequest) {
   try {
-    // We'll apply rate limiting after we get the siteId from validation
-
+    console.log('🚀 Chat API: Starting request processing');
+    
     // Parse and validate request body
     const body = await request.json();
+    console.log('📝 Chat API: Request body parsed', { messageLength: body.message?.length, siteId: body.siteId });
     
     // Validate input using Zod schema
     const validation = validateRequest(chatRequestSchema, body);
@@ -30,20 +27,11 @@ export async function POST(request: NextRequest) {
     }
 
     const { message, siteId, conversationHistory = [], sessionId } = validation.data;
-
-    // Now apply rate limiting with the actual siteId
-    const finalRateLimitResult = await rateLimiter.checkChatRateLimit(
-      request,
-      siteId,
-      request.headers.get('x-user-id') || undefined
-    );
-
-    if (!finalRateLimitResult.success) {
-      return createRateLimitResponse(finalRateLimitResult);
-    }
+    console.log('✅ Chat API: Validation passed');
 
     // Sanitize message content
     const sanitizedMessage = sanitizeString(message);
+    console.log('🧹 Chat API: Message sanitized');
     
     // Sanitize conversation history
     const sanitizedHistory = conversationHistory.map(msg => ({
@@ -56,11 +44,12 @@ export async function POST(request: NextRequest) {
     // Get headers
     const xUserId = request.headers.get('x-user-id');
     
-    
-    // Initialize Supabase for session tracking
-    const supabase = createSupabaseAdminClient();
+    // Initialize Supabase
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
     let chatSessionId = sessionId;
-    
     
     // Create or update chat session
     if (!chatSessionId) {
@@ -84,48 +73,6 @@ export async function POST(request: NextRequest) {
       } else {
         chatSessionId = newSession.id;
       }
-    } else {
-      // Verify session exists and update activity, or create new one if it doesn't exist
-      const { data: existingSession, error: fetchError } = await supabase
-        .from('chat_sessions')
-        .select('id')
-        .eq('id', chatSessionId)
-        .single();
-      
-      if (fetchError || !existingSession) {
-        // Session doesn't exist, create a new one
-        const { data: newSession, error: sessionError } = await supabase
-          .from('chat_sessions')
-          .insert([{
-            site_id: siteId,
-            user_session_id: userId || xUserId || 'anonymous_' + Date.now(),
-            user_agent: request.headers.get('user-agent'),
-            ip_address: request.headers.get('x-forwarded-for')?.split(',')[0] || 
-                       request.headers.get('x-real-ip') || 
-                       'unknown'
-          }])
-          .select('id')
-          .single();
-        
-        if (sessionError) {
-          console.error('Failed to create new chat session:', sessionError);
-        } else {
-          chatSessionId = newSession.id;
-        }
-      } else {
-        // Update existing session activity
-        const { error: updateError } = await supabase
-          .from('chat_sessions')
-          .update({ 
-            last_activity_at: new Date().toISOString()
-          })
-          .eq('id', chatSessionId);
-        
-        if (updateError) {
-          console.warn('Failed to update chat session:', updateError);
-        } else {
-        }
-      }
     }
     
     // Generate AI response using OpenAI with sanitized data
@@ -143,7 +90,7 @@ export async function POST(request: NextRequest) {
             content: sanitizedMessage
           }]);
         
-        // Log assistant response - always store the complete structured response
+        // Log assistant response
         const responseMessage = JSON.stringify(response);
         await supabase
           .from('chat_messages')
@@ -164,12 +111,8 @@ export async function POST(request: NextRequest) {
       sessionId: chatSessionId
     };
     
-    // Add rate limit headers to response
-    const rateLimitHeaders = rateLimiter.createRateLimitHeaders(finalRateLimitResult);
-    
     return NextResponse.json(responseWithSession, {
       headers: {
-        ...rateLimitHeaders,
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
@@ -177,45 +120,32 @@ export async function POST(request: NextRequest) {
     });
     
   } catch (error) {
-    // Use structured error handling
-    return handleAPIError(error, request, {
-      userId: request.headers.get('x-user-id') || undefined,
-      sessionId: request.headers.get('x-session-id') || undefined,
-      endpoint: '/api/chat',
-    });
+    console.error('Chat API error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
 
 async function generateChatResponse(message: string, conversationHistory: { role: string; content: string }[], siteId: string, sessionId?: string) {
-  // PERFORMANCE MONITORING: Track response time
-  const startTime = Date.now();
-  const perfLog = {
-    siteId,
-    messageLength: message.length,
-    historyLength: conversationHistory.length,
-    startTime,
-    dbQueryTime: 0,
-    aiResponseTime: 0,
-    totalTime: 0,
-    cacheHitCount: 0,
-    cacheMissCount: 0
-  };
-
   try {
     // Check if OpenAI API key is configured
     if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'your_openai_api_key_here') {
       return getFallbackResponse(message);
     }
 
-    const supabase = createSupabaseAdminClient();
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 
-    // Initialize OpenAI client inside the function to avoid build-time errors
+    // Initialize OpenAI client
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
     
-    // PERFORMANCE OPTIMIZATION: Run all database queries in parallel with caching and retry logic
-    const dbStartTime = Date.now();
+    // Fetch data with smart context selection (no caching to avoid Redis issues)
     const [
       relevantContext,
       trainingMaterials,
@@ -223,78 +153,47 @@ async function generateChatResponse(message: string, conversationHistory: { role
       chatSettings
     ] = await Promise.all([
       // Select relevant training materials based on the query with conversation history
-      // NOTE: Context selection is query-specific, so we don't cache this
-      withRetry(
-        () => selectRelevantContext(message, siteId, 7, conversationHistory),
-        { siteId, operation: 'selectRelevantContext' }
-      ),
+      selectRelevantContext(message, siteId, 7, conversationHistory),
       
-      // Fetch all training materials for product matching (cached)
-      getCachedData(
-        getCacheKey(siteId, 'training_materials'),
-        () => withRetry(
-          async () => {
-            const { data, error } = await supabase
-              .from('training_materials')
-              .select('title, metadata')
-              .eq('site_id', siteId)
-              .eq('scrape_status', 'success');
-            
-            if (error) throw error;
-            return data || [];
-          },
-          { siteId, operation: 'fetchTrainingMaterials' }
-        ),
-        CACHE_TTL.TRAINING_MATERIALS
-      ),
+      // Fetch all training materials for product matching
+      supabase
+        .from('training_materials')
+        .select('title, metadata')
+        .eq('site_id', siteId)
+        .eq('scrape_status', 'success')
+        .then(result => {
+          if (result.error) throw result.error;
+          return result.data || [];
+        }),
       
-      // Fetch affiliate links for this site (cached)
-      getCachedData(
-        getCacheKey(siteId, 'affiliate_links'),
-        () => withRetry(
-          async () => {
-            const { data, error } = await supabase
-              .from('affiliate_links')
-              .select('id, url, title, description, product_id, aliases, image_url, button_text, site_id, created_at, updated_at')
-              .eq('site_id', siteId);
-            
-            if (error) throw error;
-            return data || [];
-          },
-          { siteId, operation: 'fetchAffiliateLinks' }
-        ),
-        CACHE_TTL.AFFILIATE_LINKS
-      ),
+      // Fetch affiliate links for this site
+      supabase
+        .from('affiliate_links')
+        .select('id, url, title, description, product_id, aliases, image_url, button_text, site_id, created_at, updated_at')
+        .eq('site_id', siteId)
+        .then(result => {
+          if (result.error) throw result.error;
+          return result.data || [];
+        }),
       
-      // Fetch chat settings for custom instructions and preferred language (cached)
-      getCachedData(
-        getCacheKey(siteId, 'chat_settings'),
-        () => withRetry(
-          async () => {
-            const { data, error } = await supabase
-              .from('chat_settings')
-              .select('instructions, preferred_language')
-              .eq('site_id', siteId)
-              .single();
-            
-            // Handle "no rows" error as success
-            if (error && error.code !== 'PGRST116') throw error;
-            return data;
-          },
-          { siteId, operation: 'fetchChatSettings' }
-        ),
-        CACHE_TTL.CHAT_SETTINGS
-      )
+      // Fetch chat settings for custom instructions and preferred language
+      supabase
+        .from('chat_settings')
+        .select('instructions, preferred_language')
+        .eq('site_id', siteId)
+        .single()
+        .then(result => {
+          // Handle "no rows" error as success
+          if (result.error && result.error.code !== 'PGRST116') throw result.error;
+          return result.data;
+        })
     ]);
 
-    // Track database query performance
-    perfLog.dbQueryTime = Date.now() - dbStartTime;
-
-    // Build training context from the parallel query result
+    // Build training context from the smart context selection
     const trainingContext = buildOptimizedContext(relevantContext);
 
-    // Detect language from user message with session caching
-    const cachedLanguageResult = await detectLanguageWithCaching(
+    // Detect language from user message with simple session memory (no Redis)
+    const cachedLanguageResult = await detectLanguageWithoutRedis(
       sessionId || 'anonymous',
       message,
       chatSettings?.preferred_language
@@ -325,7 +224,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
     
     // Enforce language in user message
     const languageEnforcedMessage = enforceLanguageInMessage(message, detectedLanguage);
-
+    
     // Build the conversation messages for OpenAI
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
@@ -342,44 +241,17 @@ async function generateChatResponse(message: string, conversationHistory: { role
       }
     ];
 
-    // Call OpenAI API with circuit breaker protection
-    const aiStartTime = Date.now();
-    const openAIResult = await openAICircuitBreaker.execute(
-      async () => {
-        return await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          messages: messages,
-          max_tokens: 500,
-          temperature: 0.7,
-          stream: false,
-          response_format: { type: "json_object" }
-        });
-      },
-      createOpenAIChatCompletionFallback()
-    );
+    // Call OpenAI API directly
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: messages,
+      max_tokens: 500,
+      temperature: 0.7,
+      stream: false,
+      response_format: { type: "json_object" }
+    });
 
-    // Check if circuit breaker failed
-    if (!openAIResult.success) {
-      console.error('OpenAI circuit breaker failed:', openAIResult.error);
-      
-      // If fallback was used, return the fallback response
-      if (openAIResult.fallbackUsed && openAIResult.data) {
-        perfLog.aiResponseTime = Date.now() - aiStartTime;
-        perfLog.totalTime = Date.now() - startTime;
-        
-        console.log(`🔄 OpenAI fallback used. Circuit state: ${openAIResult.circuitState}`);
-        return openAIResult.data;
-      }
-      
-      // Otherwise return error
-      throw new Error(openAIResult.error || 'OpenAI service unavailable');
-    }
-
-    const completion = openAIResult.data!;
     const rawResponse = completion.choices[0]?.message?.content;
-    
-    // Track AI response performance
-    perfLog.aiResponseTime = Date.now() - aiStartTime;
     
     if (!rawResponse) {
       throw new Error('No response from OpenAI');
@@ -410,6 +282,18 @@ async function generateChatResponse(message: string, conversationHistory: { role
     if (structuredResponse.show_products && affiliateLinks && affiliateLinks.length > 0) {
       let linksToShow = [...affiliateLinks];
       
+      // Helper function to check if product is relevant to user's query
+      const isRelevantToQuery = (product: { title: string; product_id: string | null; aliases: string[] | null }, userMessage: string) => {
+        const normalizedMessage = userMessage.toLowerCase();
+        const productTerms = [
+          product.title.toLowerCase(),
+          product.product_id?.toLowerCase(),
+          ...(product.aliases || []).map(a => a?.toLowerCase()).filter(Boolean)
+        ].filter(Boolean);
+        
+        return productTerms.some(term => normalizedMessage.includes(term));
+      };
+      
       // If AI specified specific products, use smart matching service
       if (structuredResponse.specific_products && structuredResponse.specific_products.length > 0) {
         console.log('🎯 Product Box Matching - AI specified products:', structuredResponse.specific_products);
@@ -419,7 +303,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
           affiliateLinks,
           {
             maxResults: structuredResponse.max_products || 3,
-            minConfidence: 0.5, // Higher confidence for product boxes
+            minConfidence: 0.7, // Higher confidence to prevent wrong products
             conversationContext: {
               currentMessage: message,
               history: conversationHistory
@@ -428,33 +312,29 @@ async function generateChatResponse(message: string, conversationHistory: { role
         );
         
         if (productMatches.length > 0) {
-          linksToShow = productMatches.map(match => match.product);
-          console.log(`✅ Product Box Matching - Showing ${linksToShow.length} matched products`);
-        } else {
-          console.log('❌ Product Box Matching - No exact matches, trying contextual fallback...');
-          
-          // Use contextual matching as fallback when no specific matches found
-          const contextualMatches = findBestProductMatches(
-            [], // Empty specific products array
-            affiliateLinks,
-            {
-              maxResults: Math.min(structuredResponse.max_products || 1, 2), // Limit fallback results
-              minConfidence: 0.3, // Lower confidence for fallback
-              conversationContext: {
-                currentMessage: message,
-                history: conversationHistory
-              }
-            }
+          // Filter matches to only include products relevant to the user's query
+          const relevantMatches = productMatches.filter(match => 
+            isRelevantToQuery(match.product, message)
           );
           
-          if (contextualMatches.length > 0) {
-            linksToShow = contextualMatches.map(match => match.product);
-            console.log(`🔄 Product Box Matching - Using contextual fallback: ${linksToShow.length} products`);
+          if (relevantMatches.length > 0) {
+            linksToShow = relevantMatches.map(match => match.product);
+            console.log(`✅ Product Box Matching - Showing ${linksToShow.length} query-relevant products`);
           } else {
-            console.log('❌ Product Box Matching - No contextual matches found, showing first available product');
-            // Final fallback: show first product to avoid empty response when AI explicitly requested products
-            linksToShow = affiliateLinks.slice(0, 1);
+            console.log('❌ Product Box Matching - No matches relevant to user query, showing message only');
+            // Don't show products if none are relevant to the user's specific question
+            return {
+              type: 'message',
+              message: structuredResponse.message
+            };
           }
+        } else {
+          console.log('❌ Product Box Matching - No high-confidence matches found, showing message only');
+          // When AI specifies products but we can't find good matches, don't fall back to random products
+          return {
+            type: 'message',
+            message: structuredResponse.message
+          };
         }
       } else {
         console.log('🎯 Product Box Matching - No specific products mentioned, using contextual matching');
@@ -465,7 +345,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
           affiliateLinks,
           {
             maxResults: Math.min(structuredResponse.max_products || 1, 2),
-            minConfidence: 0.3,
+            minConfidence: 0.4, // Moderate confidence for contextual matching
             conversationContext: {
               currentMessage: message,
               history: conversationHistory
@@ -536,6 +416,18 @@ async function generateChatResponse(message: string, conversationHistory: { role
            linkUrl.length === 0) && 
           affiliateLinks && affiliateLinks.length > 0) {
         
+        // Helper function to check if product is relevant to user's query
+        const isRelevantToQuery = (product: { title: string; product_id: string | null; aliases: string[] | null }, userMessage: string) => {
+          const normalizedMessage = userMessage.toLowerCase();
+          const productTerms = [
+            product.title.toLowerCase(),
+            product.product_id?.toLowerCase(),
+            ...(product.aliases || []).map(a => a?.toLowerCase()).filter(Boolean)
+          ].filter(Boolean);
+          
+          return productTerms.some(term => normalizedMessage.includes(term));
+        };
+        
         // First, try to match AI's specific products using smart matching service
         if (structuredResponse.specific_products && structuredResponse.specific_products.length > 0) {
           console.log('🔗 Simple Link Matching - AI specified products:', structuredResponse.specific_products);
@@ -545,7 +437,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
             affiliateLinks,
             {
               maxResults: 1, // Only need one link for simple link
-              minConfidence: 0.4, // Lower confidence for simple links (more flexible)
+              minConfidence: 0.6, // Higher confidence for simple links to prevent wrong products
               conversationContext: {
                 currentMessage: message,
                 history: conversationHistory
@@ -554,9 +446,18 @@ async function generateChatResponse(message: string, conversationHistory: { role
           );
           
           if (productMatches.length > 0) {
-            selectedLink = productMatches[0].product;
-            linkUrl = selectedLink.url;
-            console.log(`✅ Simple Link Matching - Selected: ${selectedLink.title} (confidence: ${productMatches[0].confidence})`);
+            // Check if the matched product is relevant to the user's query
+            const relevantMatch = productMatches.find(match => 
+              isRelevantToQuery(match.product, message)
+            );
+            
+            if (relevantMatch) {
+              selectedLink = relevantMatch.product;
+              linkUrl = selectedLink.url;
+              console.log(`✅ Simple Link Matching - Selected: ${selectedLink.title} (confidence: ${relevantMatch.confidence})`);
+            } else {
+              console.log('❌ Simple Link Matching - No matches relevant to user query');
+            }
           } else {
             console.log('❌ Simple Link Matching - No matches found above confidence threshold');
           }
@@ -587,34 +488,13 @@ async function generateChatResponse(message: string, conversationHistory: { role
     }
 
     // Return regular message response
-    const response = {
+    return {
       type: 'message',
       message: structuredResponse.message
     };
-
-    // Log final performance metrics
-    perfLog.totalTime = Date.now() - startTime;
-    const isSlowResponse = perfLog.totalTime > 2000; // Warn if over 2 seconds
-    
-    console.log(`${isSlowResponse ? '🐌' : '🚀'} Chat API Performance:`, {
-      siteId: perfLog.siteId,
-      totalTime: `${perfLog.totalTime}ms`,
-      dbQueryTime: `${perfLog.dbQueryTime}ms`,
-      aiResponseTime: `${perfLog.aiResponseTime}ms`,
-      messageLength: perfLog.messageLength,
-      historyLength: perfLog.historyLength,
-      efficiency: `${Math.round((perfLog.dbQueryTime + perfLog.aiResponseTime) / perfLog.totalTime * 100)}% active processing`,
-      ...(isSlowResponse && { warning: 'Response time over 2s - consider optimizing' })
-    });
-
-    return response;
     
   } catch (error) {
-    // Log error performance
-    perfLog.totalTime = Date.now() - startTime;
     console.error('OpenAI API error:', error);
-    console.log(`❌ Chat API Error Performance: ${perfLog.totalTime}ms (DB: ${perfLog.dbQueryTime}ms, AI: ${perfLog.aiResponseTime}ms)`);
-    
     // Fallback to simple responses if OpenAI fails
     return getFallbackResponse(message);
   }
@@ -678,7 +558,7 @@ function getFallbackResponseFromText(text: string, affiliateLinks: { title: stri
       description: link.description || 'Click to learn more',
       url: link.url,
       button_text: link.button_text || 'View Product',
-      image_url: '' // No placeholder - let component handle missing images
+      image_url: ''
     }));
     
     return {

@@ -450,7 +450,7 @@ const LinksContainer = ({ links, chatSettings, styles, onLinkClick }: {
     <div style={styles.linksContainer}>
       {links.map((link, index) => (
         <LinkCard 
-          key={index} 
+          key={link.url || `link-${index}`} 
           link={link} 
           chatSettings={chatSettings} 
           styles={styles} 
@@ -635,10 +635,12 @@ export function ChatWidgetCore({
       border: '1px solid #d1d5db',
       borderRadius: '24px',
       outline: 'none',
-      fontSize: '16px', // Fixed at 16px to prevent mobile zoom
+      fontSize: '16px', // Keep 16px to prevent mobile zoom
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Inter", sans-serif',
       backgroundColor: 'white',
-      touchAction: 'manipulation' // Prevents double-tap zoom on mobile
+      touchAction: 'manipulation', // Prevents double-tap zoom on mobile
+      transform: 'scale(0.875)', // Scale down to make it appear like 14px (14/16 = 0.875)
+      transformOrigin: 'left center' // Keep text aligned to the left
     },
     sendButton: {
       position: 'absolute',
@@ -1625,8 +1627,8 @@ export function ChatWidgetCore({
           </div>
         )}
         
-        {messages.map((message) => (
-          <div key={message.id}>
+        {messages.map((message, index) => (
+          <div key={message.id || `message-${index}`}>
             {renderMessage(message)}
           </div>
         ))}

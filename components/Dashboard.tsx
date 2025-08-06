@@ -226,10 +226,10 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       const data = await response.json();
       
       if (response.ok) {
-        setSites(data.sites);
+        setSites(data.data || []);
         // If no site is selected but we have sites, select the first one
-        if (!selectedSite && data.sites.length > 0) {
-          setSelectedSite(data.sites[0]);
+        if (!selectedSite && data.data && data.data.length > 0) {
+          setSelectedSite(data.data[0]);
         }
       } else {
         toast({
@@ -266,12 +266,13 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       const data = await response.json();
       
       if (response.ok) {
-        setAffiliateLinks(data.links);
+        setAffiliateLinks(data.data || []);
       } else {
         console.error('Failed to load affiliate links:', data.error);
       }
     } catch (error) {
       console.error('Error loading affiliate links:', error);
+      setAffiliateLinks([]); // Ensure it stays as an array
     }
   }, [isSupabaseConfiguredState]);
 
@@ -287,7 +288,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       if (response.ok) {
         // Check for status changes and show notifications
         const previousMaterials = previousMaterialsRef.current;
-        const newMaterials = data.materials;
+        const newMaterials = data.data || [];
         
         // Compare with previous state to detect status changes
         newMaterials.forEach((newMaterial: TrainingMaterial) => {
@@ -318,6 +319,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       }
     } catch (error) {
       console.error('Error loading training materials:', error);
+      setTrainingMaterials([]); // Ensure it stays as an array
     }
   }, [isSupabaseConfiguredState, toast]);
 
@@ -378,7 +380,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         const data = await response.json();
 
         if (response.ok) {
-          setAffiliateLinks(prev => [...prev, data.link]);
+          setAffiliateLinks(prev => [...prev, data.data]);
         } else {
           throw new Error(data.error || 'Failed to add offer link');
         }
@@ -463,7 +465,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         if (response.ok) {
           setAffiliateLinks(prev => 
             prev.map(link => 
-              link.id === editingLink.id ? data.link : link
+              link.id === editingLink.id ? data.data : link
             )
           );
         } else {
@@ -684,7 +686,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
             if (response.ok) {
               // Check for status changes and show notifications
               const previousMaterials = previousMaterialsRef.current;
-              const newMaterials = data.materials;
+              const newMaterials = data.data || [];
               
               // Compare with previous state to detect status changes
               newMaterials.forEach((newMaterial: TrainingMaterial) => {
@@ -1024,19 +1026,19 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       }
 
       const data = await response.json();
-      if (data.settings) {
+      if (data.data) {
         setChatSettings({
-          chat_name: data.settings.chat_name || 'Affi',
-          chat_color: data.settings.chat_color || '#000000',
-          chat_icon_url: data.settings.chat_icon_url || '',
-          chat_name_color: data.settings.chat_name_color || '#FFFFFF',
-          chat_bubble_icon_color: data.settings.chat_bubble_icon_color || '#FFFFFF',
-          input_placeholder: data.settings.input_placeholder || 'Type your message...',
-          font_size: data.settings.font_size || '14px'
+          chat_name: data.data.chat_name || 'Affi',
+          chat_color: data.data.chat_color || '#000000',
+          chat_icon_url: data.data.chat_icon_url || '',
+          chat_name_color: data.data.chat_name_color || '#FFFFFF',
+          chat_bubble_icon_color: data.data.chat_bubble_icon_color || '#FFFFFF',
+          input_placeholder: data.data.input_placeholder || 'Type your message...',
+          font_size: data.data.font_size || '14px'
         });
-        setIntroMessage(data.settings.intro_message || 'Hello! How can I help you today?');
-        setInstructions(data.settings.instructions || BASE_INSTRUCTIONS);
-        setPreferredLanguage(data.settings.preferred_language || null);
+        setIntroMessage(data.data.intro_message || 'Hello! How can I help you today?');
+        setInstructions(data.data.instructions || BASE_INSTRUCTIONS);
+        setPreferredLanguage(data.data.preferred_language || null);
       }
     } catch (error) {
       console.error('Error fetching chat settings:', error);
@@ -1365,7 +1367,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                   <div className="pt-8">
                     <h3 className="text-lg font-semibold text-gray-900 mb-4">Your Offer Links</h3>
                     <div className="space-y-4">
-                      {affiliateLinks.map((link) => (
+                      {affiliateLinks.filter(link => link && link.id).map((link) => (
                         <Card key={link.id} className="bg-white border border-gray-200">
                           <CardContent className="p-4">
                             <div className="flex items-start justify-between">

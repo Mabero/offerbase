@@ -1,4 +1,4 @@
-import { createSupabaseAdminClient } from '@/lib/supabase-server';
+import { createClient } from '@supabase/supabase-js';
 import { analyzeQueryIntent, QueryAnalysis } from './query-intent';
 import { ContentType, StructuredData } from './content-intelligence';
 
@@ -34,7 +34,10 @@ export async function selectRelevantContext(
   maxItems: number = 7, // Increased default for better context
   conversationHistory: Array<{ role: string; content: string }> = []
 ): Promise<ContextItem[]> {
-  const supabase = createSupabaseAdminClient();
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
   
   // Analyze the query intent
   const queryAnalysis = analyzeQueryIntent(query, conversationHistory);
