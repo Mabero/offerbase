@@ -70,6 +70,31 @@ export interface ChatWidgetCoreProps {
 // Utility function to generate unique message IDs
 const generateMessageId = () => `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
+// Utility function to create content-based hash for duplicate prevention
+const createContentHash = (data: MessageContent): string => {
+  // Create a deterministic hash based on content only (no timestamps)
+  const hashContent = {
+    type: data.type,
+    message: data.message?.trim() || '',
+    linksCount: data.links?.length || 0,
+    linksHashes: data.links?.map(link => `${link.url}:${link.name || link.description || ''}`).sort() || [],
+    simpleLink: data.simple_link ? `${data.simple_link.url}:${data.simple_link.text}` : null
+  };
+  
+  // Create a simple hash using JSON.stringify (deterministic for same content)
+  const hashString = JSON.stringify(hashContent);
+  
+  // Simple hash function for consistent IDs
+  let hash = 0;
+  for (let i = 0; i < hashString.length; i++) {
+    const char = hashString.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  
+  return `content_${Math.abs(hash).toString(36)}`;
+};
+
 // Simple icon components using SVG (no external dependencies)
 const SendIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
   <svg
@@ -308,14 +333,19 @@ const TypewriterMessage = ({
 }) => {
   const [displayedText, setDisplayedText] = useState('');
   const [isTyping, setIsTyping] = useState(true);
+  const [hasCompleted, setHasCompleted] = useState(false);
+  const completedRef = useRef(false);
 
   useEffect(() => {
     let index = 0;
     let timeoutId: NodeJS.Timeout | null = null;
     let isCancelled = false;
     
+    // Reset completion state when message changes
     setDisplayedText('');
     setIsTyping(true);
+    setHasCompleted(false);
+    completedRef.current = false;
 
     const typeCharacter = () => {
       if (isCancelled) return;
@@ -334,9 +364,20 @@ const TypewriterMessage = ({
         const delay = (char === '.' || char === '!' || char === '?') ? 50 : 5;
         timeoutId = setTimeout(typeCharacter, delay);
       } else {
-        if (!isCancelled) {
+        // Typing completed - use completion guard to prevent multiple calls
+        if (!isCancelled && !completedRef.current) {
+          completedRef.current = true;
           setIsTyping(false);
-          onComplete();
+          setHasCompleted(true);
+          
+          console.log('🎯 TypewriterMessage: Completing animation for message:', message.substring(0, 30));
+          
+          // Small delay to ensure state updates are complete before calling onComplete
+          setTimeout(() => {
+            if (!isCancelled && completedRef.current) {
+              onComplete();
+            }
+          }, 10);
         }
       }
     };
@@ -348,6 +389,8 @@ const TypewriterMessage = ({
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
+      // Reset completion state on cleanup
+      completedRef.current = false;
     };
   }, [message, onComplete, onScroll]);
 
@@ -1003,9 +1046,76 @@ export function ChatWidgetCore({
   
   // Track processed responses to prevent duplicates
   const [processedResponses, setProcessedResponses] = useState<Set<string>>(new Set());
+  
+  // Track active API requests to prevent multiple simultaneous calls
+  const [activeRequests, setActiveRequests] = useState<Set<string>>(new Set());
+  const activeRequestsRef = useRef<Set<string>>(new Set());
+  
+  // Message sequence tracking for ordering guarantee
+  const [messageSequence, setMessageSequence] = useState<number>(0);
+  const messageSequenceRef = useRef<number>(0);
+  const processingSequence = useRef<number>(0);
+
+  // Helper functions for request tracking
+  const startRequest = (requestKey: string): boolean => {
+    // Check if request already in progress
+    if (activeRequestsRef.current.has(requestKey)) {
+      console.warn('🚫 Request already in progress, skipping:', requestKey);
+      return false;
+    }
+    
+    // Add to active requests
+    activeRequestsRef.current.add(requestKey);
+    setActiveRequests(prev => new Set([...prev, requestKey]));
+    console.log('🚀 Started request:', requestKey);
+    return true;
+  };
+  
+  const endRequest = (requestKey: string) => {
+    activeRequestsRef.current.delete(requestKey);
+    setActiveRequests(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(requestKey);
+      return newSet;
+    });
+    console.log('✅ Ended request:', requestKey);
+  };
+  
+  // Create request key from user message content
+  const createRequestKey = (userMessage: string): string => {
+    const messageHash = userMessage.trim().toLowerCase().replace(/\s+/g, ' ');
+    return `chat_${messageHash.substring(0, 50)}_${Date.now()}`;
+  };
+  
+  // Helper functions for message sequence management
+  const getNextSequenceNumber = (): number => {
+    messageSequenceRef.current += 1;
+    setMessageSequence(messageSequenceRef.current);
+    return messageSequenceRef.current;
+  };
+  
+  const shouldProcessResponse = (responseSequence: number): boolean => {
+    // Only process responses in sequence order to prevent race conditions
+    const expected = processingSequence.current + 1;
+    if (responseSequence === expected) {
+      processingSequence.current = responseSequence;
+      console.log('✅ Processing response in sequence:', responseSequence);
+      return true;
+    } else if (responseSequence < expected) {
+      console.warn('🚫 Ignoring duplicate/old response:', { received: responseSequence, expected });
+      return false;
+    } else {
+      console.warn('⏳ Response out of order:', { received: responseSequence, expected });
+      // For simplicity, we'll still process it but log the warning
+      processingSequence.current = responseSequence;
+      return true;
+    }
+  };
 
   // Handle typewriter completion
   const handleTypewriterComplete = (message: string) => {
+    console.log('📝 TypewriterMessage completed, adding to messages:', message.substring(0, 30));
+    
     setIsTyping(false);
     setTypingMessage(null);
     
@@ -1015,10 +1125,13 @@ export function ChatWidgetCore({
       message: message 
     };
     
+    const messageId = generateMessageId();
+    console.log('➕ Adding bot message to state:', { id: messageId, type: finalContent.type, hasLinks: !!finalContent.links });
+    
     setMessages(prev => [...prev, { 
       type: 'bot', 
       content: finalContent,
-      id: generateMessageId(),
+      id: messageId,
       timestamp: Date.now()
     } as BotMessage]);
     
@@ -1036,24 +1149,33 @@ export function ChatWidgetCore({
   };
 
   // Centralized function to process AI responses with typing animation
-  const processAIResponse = (data: MessageContent) => {
-    // Create a unique ID for this response to prevent duplicates
-    const responseId = JSON.stringify({
-      type: data.type,
-      message: data.message,
+  const processAIResponse = (data: MessageContent, sequenceNumber?: number) => {
+    // If no sequence number provided, get the next one (for legacy compatibility)
+    const responseSequence = sequenceNumber || getNextSequenceNumber();
+    
+    // Check if we should process this response based on sequence ordering
+    if (!shouldProcessResponse(responseSequence)) {
+      return;
+    }
+    // Create a content-based hash for true duplicate prevention
+    const responseHash = createContentHash(data);
+    
+    console.log('🔍 Processing AI response:', { 
+      hash: responseHash, 
+      type: data.type, 
+      messageLength: data.message?.length,
       hasLinks: !!data.links,
-      hasSimpleLink: !!data.simple_link,
-      timestamp: Date.now()
+      hasSimpleLink: !!data.simple_link 
     });
     
-    // Check if we've already processed this response
-    if (processedResponses.has(responseId)) {
-      console.warn('Duplicate response detected, skipping:', responseId);
+    // Check if we've already processed this exact response content
+    if (processedResponses.has(responseHash)) {
+      console.warn('🚫 Duplicate response detected, skipping:', { hash: responseHash, message: data.message?.substring(0, 50) });
       return;
     }
     
     // Mark this response as processed
-    setProcessedResponses(prev => new Set([...prev, responseId]));
+    setProcessedResponses(prev => new Set([...prev, responseHash]));
     
     // Extract the main message text for typing animation
     const messageText = data.message || 'Sorry, I could not understand the response.';
@@ -1095,6 +1217,13 @@ export function ChatWidgetCore({
     }
     
     const userMessage = lastUserMessage.content;
+    const requestKey = createRequestKey(userMessage + '_retry');
+    const sequenceNumber = getNextSequenceNumber();
+    
+    // Prevent multiple simultaneous retry requests for the same message
+    if (!startRequest(requestKey)) {
+      return;
+    }
     
     // Find and remove the bot's response we want to retry (compatible with older browsers)
     setMessages(prev => {
@@ -1176,7 +1305,7 @@ export function ChatWidgetCore({
       setIsLoading(false);
       
       // Use typing animation for all response types
-      processAIResponse(data);
+      processAIResponse(data, sequenceNumber);
     } catch (error) {
       console.error('Error retrying message:', error);
       setIsLoading(false);
@@ -1187,6 +1316,9 @@ export function ChatWidgetCore({
           message: 'Sorry, I encountered an error while retrying. Please try again.'
         }
       } as BotMessage]);
+    } finally {
+      // Always end the request tracking
+      endRequest(requestKey);
     }
   };
 
@@ -1195,6 +1327,13 @@ export function ChatWidgetCore({
     if (!inputMessage.trim()) return;
 
     const userMessage = inputMessage;
+    const requestKey = createRequestKey(userMessage);
+    const sequenceNumber = getNextSequenceNumber();
+    
+    // Prevent multiple simultaneous requests for the same message
+    if (!startRequest(requestKey)) {
+      return;
+    }
     setInputMessage('');
     setMessages(prev => [...prev, { 
       type: 'user', 
@@ -1260,7 +1399,7 @@ export function ChatWidgetCore({
       setIsLoading(false);
       
       // Use typing animation for all response types
-      processAIResponse(data);
+      processAIResponse(data, sequenceNumber);
     } catch (error) {
       console.error('Error:', error);
       setIsLoading(false);
@@ -1273,6 +1412,9 @@ export function ChatWidgetCore({
         id: generateMessageId(),
         timestamp: Date.now()
       } as BotMessage]);
+    } finally {
+      // Always end the request tracking
+      endRequest(requestKey);
     }
   };
 
@@ -1296,6 +1438,14 @@ export function ChatWidgetCore({
 
   // Send a message to AI (used for predefined questions without answers)
   const sendMessageToAI = async (userMessage: string) => {
+    const requestKey = createRequestKey(userMessage);
+    const sequenceNumber = getNextSequenceNumber();
+    
+    // Prevent multiple simultaneous requests for the same message
+    if (!startRequest(requestKey)) {
+      return;
+    }
+    
     setIsLoading(true);
     
     // Force scroll to bottom when sending a message
@@ -1349,7 +1499,7 @@ export function ChatWidgetCore({
       setIsLoading(false);
       
       // Use typing animation for all response types
-      processAIResponse(data);
+      processAIResponse(data, sequenceNumber);
     } catch (error) {
       console.error('Error:', error);
       setIsLoading(false);
@@ -1362,6 +1512,9 @@ export function ChatWidgetCore({
         id: generateMessageId(),
         timestamp: Date.now()
       } as BotMessage]);
+    } finally {
+      // Always end the request tracking
+      endRequest(requestKey);
     }
   };
 
@@ -1380,10 +1533,11 @@ export function ChatWidgetCore({
     
     if (question.answer && question.answer.trim()) {
       // Has predefined answer - show it with typing animation
+      const sequenceNumber = getNextSequenceNumber();
       processAIResponse({
         type: 'message',
         message: question.answer
-      });
+      }, sequenceNumber);
       
       // Scroll to bottom
       setTimeout(() => scrollToBottom(true), 100);
