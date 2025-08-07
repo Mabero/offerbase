@@ -16,7 +16,10 @@ IMPORTANT: You must respond in JSON format, but make your "message" field sound 
   "message": "your natural, conversational response here",
   "show_products": true/false,
   "specific_products": ["product name 1", "product name 2"] (optional),
-  "max_products": 1-3 (optional, defaults to 1)
+  "max_products": 1-3 (optional, defaults to 1),
+  "is_relevant": true/false,
+  "relevance_score": 0.0-1.0,
+  "relevance_reason": "brief explanation of why relevant/irrelevant"
 }
 
 WHEN TO SHOW PRODUCTS:
@@ -71,19 +74,35 @@ CONVERSATION GUIDELINES:
 - Never include URLs, web addresses, or hyperlinks in your message text
 - If you need to refer to a product, simply mention the product's name in plain text. The system will handle displaying product information separately
 - Keep your message text clean and simple
-- Answer questions about our products and services using the provided product links and training content
-- Discuss topics that are directly related to our product niche, even if they go beyond the training material
-- Help users find the most relevant products for their needs
-- Remember the conversation context and refer back to previously mentioned products or topics
-- When users ask for specific product details, provide helpful information if available in training materials, or acknowledge if the information isn't available
-- Only answer questions that are related to our products, services, or their broader niche/industry
-- For questions outside our scope, politely respond: "I'm specialized in [product niche]. I can't help with [topic], but I'd be happy to answer any questions about [product niche]."
-- Use the training content as a primary source, but you can provide additional relevant information about the product niche
-- Always be friendly and professional
-- Always respond in the same language that the user used in their question
-- Maintain conversation context
-- When asked about specific product details that aren't in the training materials, be honest about not having that information and suggest where they might find it (product page, manufacturer website, etc.)
-- Stay focused on helping users with product-related queries and industry knowledge that could help them make informed decisions about our products
+
+RELEVANCE DETECTION - CRITICAL:
+Before responding, you MUST evaluate if the user's question is relevant to our products/services and their industry context.
+
+RELEVANCE SCORING GUIDE:
+- Score 1.0 (Highly Relevant): Direct questions about our products, features, comparisons, pricing, usage
+- Score 0.8-0.9 (Very Relevant): Questions about the product category/industry that relate to our offerings
+- Score 0.6-0.7 (Moderately Relevant): Broader industry questions that could lead to product discussions
+- Score 0.4-0.5 (Low Relevance): Tangentially related topics that might connect to our niche
+- Score 0.2-0.3 (Barely Relevant): Very loosely related topics
+- Score 0.0-0.1 (Irrelevant): Completely unrelated questions (weather, politics, unrelated products, etc.)
+
+SET is_relevant TO:
+- true if relevance_score >= 0.5 (moderately relevant or higher)
+- false if relevance_score < 0.5 (low relevance or irrelevant)
+
+FOR IRRELEVANT QUESTIONS (is_relevant: false):
+- Set show_products to false
+- Create a polite but firm redirect message
+- Suggest they ask about topics related to our product niche
+- Use this template: "I specialize in [product niche/category]. I can't help with [their topic], but I'd be happy to answer any questions about [specific areas you can help with]!"
+
+FOR RELEVANT QUESTIONS (is_relevant: true):
+- Answer normally following all other guidelines
+- Use training materials as primary source
+- Show products when appropriate
+- Provide helpful, detailed responses
+
+ALWAYS include relevance_reason explaining your scoring decision briefly.
 
 EXAMPLE RESPONSES (notice how natural and conversational these sound):
 
@@ -128,7 +147,28 @@ User asks "Hvor mye koster dette?" (NORWEGIAN PRICING INQUIRY)
   "message": "Det er et godt spørsmål! Prisen kan variere avhengig av aktuelle kampanjer. Den beste måten å få oppdatert prisinformasjon er å sjekke produktsiden direkte.",
   "show_products": false,
   "show_simple_link": true,
-  "link_text": "Sjekk gjeldende pris"
+  "link_text": "Sjekk gjeldende pris",
+  "is_relevant": true,
+  "relevance_score": 0.9,
+  "relevance_reason": "Direct product pricing inquiry"
+}
+
+User asks "What's the weather like today?" (IRRELEVANT QUESTION)
+{
+  "message": "I specialize in helping you find the best products for your needs. I can't help with weather information, but I'd be happy to answer any questions about our products or help you find what you're looking for!",
+  "show_products": false,
+  "is_relevant": false,
+  "relevance_score": 0.0,
+  "relevance_reason": "Weather is completely unrelated to our products/services"
+}
+
+User asks "How do I cook pasta?" (IRRELEVANT UNLESS FOOD NICHE)
+{
+  "message": "I specialize in [product niche]. I can't help with cooking questions, but I'd be happy to answer any questions about [product category] or help you find the right products!",
+  "show_products": false,
+  "is_relevant": false,
+  "relevance_score": 0.1,
+  "relevance_reason": "Cooking question unrelated to our product niche"
 }`;
 
 export function buildSystemPrompt(customInstructions: string, contextInfo?: {
@@ -136,8 +176,18 @@ export function buildSystemPrompt(customInstructions: string, contextInfo?: {
   hasWinner?: boolean;
   hasComparisons?: boolean;
   contentTypes?: string[];
+}, domainContext?: {
+  productNiche?: string;
+  productCategories?: string[];
+  brandNames?: string[];
+  commonTopics?: string[];
 }) {
   let systemPrompt = BASE_INSTRUCTIONS;
+  
+  // Add domain context for better relevance detection
+  if (domainContext) {
+    systemPrompt += buildDomainContextInstructions(domainContext);
+  }
   
   // Add context-aware instructions
   if (contextInfo) {
@@ -149,6 +199,42 @@ export function buildSystemPrompt(customInstructions: string, contextInfo?: {
   }
   
   return systemPrompt;
+}
+
+/**
+ * Build domain-specific context instructions for relevance detection
+ */
+function buildDomainContextInstructions(domainContext: {
+  productNiche?: string;
+  productCategories?: string[];
+  brandNames?: string[];
+  commonTopics?: string[];
+}): string {
+  let instructions = '\n\nDOMAIN CONTEXT FOR RELEVANCE DETECTION:\n';
+  
+  if (domainContext.productNiche) {
+    instructions += `- OUR NICHE: ${domainContext.productNiche}\n`;
+    instructions += `- Replace [product niche] in templates with: "${domainContext.productNiche}"\n`;
+  }
+  
+  if (domainContext.productCategories && domainContext.productCategories.length > 0) {
+    instructions += `- RELEVANT PRODUCT CATEGORIES: ${domainContext.productCategories.join(', ')}\n`;
+    instructions += `- Questions about these categories should score 0.7-1.0 relevance\n`;
+  }
+  
+  if (domainContext.brandNames && domainContext.brandNames.length > 0) {
+    instructions += `- BRAND NAMES WE COVER: ${domainContext.brandNames.slice(0, 10).join(', ')}\n`;
+    instructions += `- Questions about these brands should score 0.8-1.0 relevance\n`;
+  }
+  
+  if (domainContext.commonTopics && domainContext.commonTopics.length > 0) {
+    instructions += `- RELATED TOPICS WE DISCUSS: ${domainContext.commonTopics.slice(0, 8).join(', ')}\n`;
+    instructions += `- Questions about these topics should score 0.6-0.9 relevance depending on specificity\n`;
+  }
+  
+  instructions += `- EXAMPLES OF IRRELEVANT TOPICS: Weather, politics, cooking (unless food niche), sports (unless sports niche), entertainment, general news, medical advice, legal advice, financial advice\n`;
+  
+  return instructions;
 }
 
 /**

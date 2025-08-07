@@ -10,6 +10,7 @@ import { findMostRelevantProduct } from '@/lib/ai/conversation';
 import { findBestProductMatches } from '@/lib/ai/product-matching';
 import { validateAIResponse } from '@/lib/ai/response-validator';
 import { detectLanguageWithoutRedis } from '@/lib/ai/simple-language';
+import { extractDomainContext } from '@/lib/ai/domain-context';
 import { chatRequestSchema, validateRequest, sanitizeString, createValidationErrorResponse } from '@/lib/validation';
 
 export async function POST(request: NextRequest) {
@@ -191,6 +192,14 @@ async function generateChatResponse(message: string, conversationHistory: { role
 
     // Build training context from the smart context selection
     const trainingContext = buildOptimizedContext(relevantContext);
+    
+    // Extract domain context from training materials for better relevance detection
+    const domainContext = extractDomainContext(trainingMaterials.map(tm => ({
+      title: tm.title || '',
+      metadata: tm.metadata
+    })));
+    
+    console.log(`🎯 Domain Context: ${domainContext.productNiche || 'Unknown'} (${domainContext.productCategories?.length || 0} categories, ${domainContext.brandNames?.length || 0} brands)`);
 
     // Detect language from user message with simple session memory (no Redis)
     const cachedLanguageResult = await detectLanguageWithoutRedis(
@@ -218,8 +227,12 @@ async function generateChatResponse(message: string, conversationHistory: { role
       });
     }
     
-    // Build system prompt with language enforcement
-    let systemPrompt = buildSystemPrompt(chatSettings?.instructions || '');
+    // Build system prompt with language enforcement and domain context
+    let systemPrompt = buildSystemPrompt(
+      chatSettings?.instructions || '', 
+      undefined, // contextInfo - can be enhanced later with ranking/comparison detection
+      domainContext
+    );
     systemPrompt = addLanguageToSystemPrompt(systemPrompt, detectedLanguage);
     
     // Enforce language in user message
@@ -277,6 +290,25 @@ async function generateChatResponse(message: string, conversationHistory: { role
     }
 
     const structuredResponse = validationResult.sanitizedResponse!;
+    
+    // Handle irrelevant questions - log and return appropriate response
+    if (!structuredResponse.is_relevant) {
+      console.log(`❌ Irrelevant Question Detected: Score ${structuredResponse.relevance_score} - ${structuredResponse.relevance_reason}`);
+      
+      // For irrelevant questions, always return a simple message without products
+      return {
+        type: 'message',
+        message: structuredResponse.message,
+        metadata: {
+          relevance_score: structuredResponse.relevance_score,
+          relevance_reason: structuredResponse.relevance_reason,
+          is_relevant: false
+        }
+      };
+    }
+    
+    // Log relevant question for monitoring
+    console.log(`✅ Relevant Question: Score ${structuredResponse.relevance_score} - ${structuredResponse.relevance_reason}`);
     
     // If AI decided to show products, return with links
     if (structuredResponse.show_products && affiliateLinks && affiliateLinks.length > 0) {
@@ -400,7 +432,12 @@ async function generateChatResponse(message: string, conversationHistory: { role
       return {
         type: 'links',
         message: structuredResponse.message,
-        links: links
+        links: links,
+        metadata: {
+          relevance_score: structuredResponse.relevance_score,
+          relevance_reason: structuredResponse.relevance_reason,
+          is_relevant: structuredResponse.is_relevant
+        }
       };
     }
 
@@ -483,6 +520,11 @@ async function generateChatResponse(message: string, conversationHistory: { role
         simple_link: {
           text: structuredResponse.link_text || 'See more details',
           url: linkUrl
+        },
+        metadata: {
+          relevance_score: structuredResponse.relevance_score,
+          relevance_reason: structuredResponse.relevance_reason,
+          is_relevant: structuredResponse.is_relevant
         }
       };
     }
@@ -490,7 +532,12 @@ async function generateChatResponse(message: string, conversationHistory: { role
     // Return regular message response
     return {
       type: 'message',
-      message: structuredResponse.message
+      message: structuredResponse.message,
+      metadata: {
+        relevance_score: structuredResponse.relevance_score,
+        relevance_reason: structuredResponse.relevance_reason,
+        is_relevant: structuredResponse.is_relevant
+      }
     };
     
   } catch (error) {
@@ -523,7 +570,10 @@ function parseAIResponse(rawResponse: string): AIResponseParseResult {
       link_url: parsed.link_url || '',
       specific_products: parsed.specific_products || [],
       max_products: parsed.max_products || 1,
-      product_context: parsed.product_context || ''
+      product_context: parsed.product_context || '',
+      is_relevant: parsed.is_relevant ?? true, // Default to true for backward compatibility
+      relevance_score: parsed.relevance_score ?? 1.0, // Default to 1.0
+      relevance_reason: parsed.relevance_reason || ''
     };
     
     return {
