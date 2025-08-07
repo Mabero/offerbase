@@ -101,8 +101,9 @@ export async function selectRelevantContext(
   for (let i = 0; i < Math.min(maxItems, scoredMaterials.length); i++) {
     const { material, score } = scoredMaterials[i];
     
-    // Skip items with very low relevance
-    if (score < 0.1) break;
+    // Skip items with very low relevance, but always include at least 1-2 items
+    // so the AI can see what topics are actually covered
+    if (score < 0.1 && relevantItems.length >= 2) break;
     
     // Use summary if available, otherwise truncate content
     let contextContent = '';
