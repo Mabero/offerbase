@@ -318,106 +318,6 @@ const TypingIndicator = ({ chatSettings, styles }: {
   </div>
 );
 
-const TypewriterMessage = ({ 
-  message, 
-  chatSettings, 
-  styles, 
-  onComplete,
-  onScroll
-}: { 
-  message: string;
-  chatSettings: ChatSettings;
-  styles: Record<string, React.CSSProperties>;
-  onComplete: () => void;
-  onScroll?: () => void;
-}) => {
-  const [displayedText, setDisplayedText] = useState('');
-  const [isTyping, setIsTyping] = useState(true);
-  const completedRef = useRef(false);
-  const onCompleteCalledRef = useRef(false);
-
-  useEffect(() => {
-    let index = 0;
-    let timeoutId: NodeJS.Timeout | null = null;
-    let isCancelled = false;
-    
-    // Reset completion state when message changes
-    setDisplayedText('');
-    setIsTyping(true);
-    completedRef.current = false;
-    onCompleteCalledRef.current = false;
-
-    const typeCharacter = () => {
-      if (isCancelled) return;
-      
-      if (index < message.length) {
-        const char = message[index];
-        setDisplayedText(prev => {
-          const newText = prev + char;
-          // Trigger scroll after state update
-          setTimeout(() => onScroll?.(), 0);
-          return newText;
-        });
-        index++;
-        
-        // Add slight pause after punctuation for more natural feel
-        const delay = (char === '.' || char === '!' || char === '?') ? 50 : 5;
-        timeoutId = setTimeout(typeCharacter, delay);
-      } else {
-        // Typing completed - use completion guard to prevent multiple calls
-        if (!isCancelled && !completedRef.current && !onCompleteCalledRef.current) {
-          completedRef.current = true;
-          onCompleteCalledRef.current = true;
-          setIsTyping(false);
-          
-          console.log('🎯 TypewriterMessage: Completing animation for message:', message.substring(0, 30));
-          
-          // Small delay to ensure visual completion before triggering state change
-          setTimeout(() => {
-            if (!isCancelled && completedRef.current) {
-              onComplete();
-            }
-          }, 50); // Minimal delay for visual smoothness
-        }
-      }
-    };
-    
-    timeoutId = setTimeout(typeCharacter, 25);
-
-    return () => {
-      isCancelled = true;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      // Reset completion state on cleanup
-      completedRef.current = false;
-      onCompleteCalledRef.current = false;
-    };
-  }, [message, onComplete, onScroll]);
-
-  return (
-    <div style={styles.messageRow}>
-      <Avatar
-        src={chatSettings?.chat_icon_url}
-        name={chatSettings?.chat_name}
-        style={styles.avatarSpacing}
-      />
-      <div style={{ maxWidth: '80%' }}>
-        <div
-          style={{
-            ...styles.messageBubbleBot,
-            fontSize: chatSettings?.font_size || '14px'
-          }}
-        >
-          <p style={styles.messageText}>
-            {displayedText}
-            {isTyping && <span style={styles.typingCursor}>|</span>}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // Avatar component
 const Avatar = ({ src, name, style = {} }: { src?: string; name?: string; style?: React.CSSProperties }) => {
@@ -811,12 +711,9 @@ export function ChatWidgetCore({
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [typingMessage, setTypingMessage] = useState<string | null>(null);
-  const [isTyping, setIsTyping] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const isTypingRef = useRef(false);
   const [sessionId, setSessionId] = useState<string | null>(() => {
     // Clean up old session format and try to get existing session UUID from localStorage (backend-generated)
     const oldStorageKey = `chat_session_${siteId}`;
@@ -851,7 +748,7 @@ export function ChatWidgetCore({
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isTyping, isLoadingHistory]);
+  }, [messages, isLoadingHistory]);
 
   // Track if history has been loaded to prevent re-loading
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -1052,8 +949,6 @@ export function ChatWidgetCore({
     return false;
   }, []);
 
-  // State to hold structured content that should replace the typing message
-  const [pendingStructuredContent, setPendingStructuredContent] = useState<MessageContent | null>(null);
   
   // Track processed responses to prevent duplicates
   const [processedResponses, setProcessedResponses] = useState<Set<string>>(new Set());
@@ -1109,33 +1004,18 @@ export function ChatWidgetCore({
     }
   };
 
-  // Handle typewriter completion with enhanced duplicate prevention
-  const handleTypewriterComplete = (message: string) => {
-    console.log('📝 TypewriterMessage completed, preparing to add message:', message.substring(0, 30));
-    
-    // Double-check that we're still not typing (prevents race conditions)
-    if (!isTypingRef.current) {
-      console.warn('⚠️ Typing not in progress, aborting message add');
-      return;
-    }
-    
-    // If there's pending structured content, use it; otherwise create simple message
-    const finalContent = pendingStructuredContent || { 
-      type: 'message', 
-      message: message 
-    };
-    
+  // Simplified message addition without typewriter complexity
+  const addBotMessage = (content: MessageContent) => {
     const messageId = generateMessageId();
-    const contentHash = createContentHash(finalContent);
+    const contentHash = createContentHash(content);
     
     console.log('➕ Adding bot message to state:', { 
       id: messageId, 
-      type: finalContent.type, 
-      hasLinks: !!finalContent.links,
+      type: content.type, 
+      hasLinks: !!content.links,
       hash: contentHash 
     });
     
-    // CRITICAL: Clear typing states and add message in single synchronous operation
     setMessages(prev => {
       // Enhanced duplicate check: prevent messages with same content hash
       const existingHashes = prev
@@ -1151,25 +1031,20 @@ export function ChatWidgetCore({
       const lastMessage = prev[prev.length - 1];
       if (lastMessage && 
           lastMessage.type === 'bot' && 
-          lastMessage.content.message === finalContent.message &&
-          lastMessage.content.type === finalContent.type) {
+          lastMessage.content.message === content.message &&
+          lastMessage.content.type === content.type) {
         console.warn('🚫 Duplicate message detected at render level, skipping add');
         return prev;
       }
       
       return [...prev, { 
         type: 'bot', 
-        content: finalContent,
+        content: content,
         id: messageId,
         timestamp: Date.now()
       } as BotMessage];
     });
     
-    // Clear all typing states AFTER adding message to prevent double display
-    setIsTyping(false);
-    isTypingRef.current = false;
-    setTypingMessage(null);
-    setPendingStructuredContent(null);
     
     // Clean up old processed responses to prevent memory growth (keep last 10)
     setProcessedResponses(prev => {
@@ -1210,21 +1085,8 @@ export function ChatWidgetCore({
     // Mark this response as processed
     setProcessedResponses(prev => new Set([...prev, responseHash]));
     
-    // Extract the main message text for typing animation
-    const messageText = data.message || 'Sorry, I could not understand the response.';
-    
-    // Always show typing animation first
-    setTypingMessage(messageText);
-    setIsTyping(true);
-    isTypingRef.current = true;
-    
-    // If it's a complex response (links or simple_link), store the full structure
-    if (data.type === 'links' || data.type === 'simple_link') {
-      setPendingStructuredContent(data);
-    } else {
-      // For simple messages, clear any pending content
-      setPendingStructuredContent(null);
-    }
+    // Directly add the message without complex typing animation
+    addBotMessage(data);
   };
 
   // Handle message actions
@@ -1822,15 +1684,6 @@ export function ChatWidgetCore({
           <TypingIndicator chatSettings={chatSettings} styles={styles} />
         )}
         
-        {isTyping && typingMessage && isTypingRef.current && (
-          <TypewriterMessage 
-            message={typingMessage}
-            chatSettings={chatSettings}
-            styles={styles}
-            onComplete={() => handleTypewriterComplete(typingMessage)}
-            onScroll={() => scrollToBottom()}
-          />
-        )}
         
         <div ref={messagesEndRef} />
       </div>

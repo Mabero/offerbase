@@ -86,7 +86,7 @@ User asks "What do you recommend for me?" (IF NO RECOMMENDATIONS IN TRAINING MAT
 
 User asks "What do you recommend for me?" (IF RECOMMENDATIONS EXIST IN TRAINING MATERIALS)
 {
-  "message": "Based on the information in our materials, [specific recommendation from training materials]",
+  "message": "[Direct recommendation from training materials without prefixes]",
   "show_products": true,
   "specific_products": ["Product Name from training materials"],
   "max_products": 1
@@ -155,31 +155,31 @@ function buildContextAwareInstructions(contextInfo: {
   
   if (contextInfo.hasRankings) {
     instructions += `
-- RANKINGS AVAILABLE: The training materials contain ranking information. When users ask "which is best" or similar, prioritize the explicitly ranked items and mention their ranking positions.
-- Always check the "Structured Information" section for official rankings and use those rankings in your recommendations.`;
+- RANKINGS AVAILABLE: The training materials contain ranking information. When users ask "which is best" or similar, prioritize the explicitly ranked items and state their ranking positions directly.
+- Check the "Structured Information" section for official rankings and present them as facts.`;
   }
   
   if (contextInfo.hasWinner) {
     instructions += `
-- WINNER IDENTIFIED: The training materials explicitly declare a "best choice" or "winner". When making recommendations, prioritize this winner and mention why it was chosen as the best.
-- Look for "Winner/Best Choice" in the structured information and use this as your primary recommendation.`;
+- WINNER IDENTIFIED: The training materials explicitly declare a "best choice" or "winner". When making recommendations, prioritize this winner and state why it's the best.
+- Use "Winner/Best Choice" from structured information as your primary recommendation and present it confidently.`;
   }
   
   if (contextInfo.hasComparisons) {
     instructions += `
 - COMPARISONS AVAILABLE: The training materials contain detailed comparisons. Use this comparative information to answer questions about differences between products.
-- When users ask comparative questions, reference the specific comparisons provided in the training materials.`;
+- When users ask comparative questions, present the specific comparisons as direct facts.`;
   }
   
   if (contextInfo.contentTypes?.includes('ranking')) {
     instructions += `
-- RANKING CONTENT: You have access to ranking/top list content. When users ask for the "best" option, always refer to the official rankings provided.
-- State the ranking clearly (e.g., "According to our ranking, Product X is #1 because...")`;
+- RANKING CONTENT: You have access to ranking/top list content. When users ask for the "best" option, use the official rankings provided.
+- State the ranking clearly (e.g., "Product X is #1 because...")`;
   }
   
   if (contextInfo.contentTypes?.includes('review')) {
     instructions += `
-- REVIEW CONTENT: You have access to review content with ratings and verdicts. Use these expert opinions to support your recommendations.`;
+- REVIEW CONTENT: You have access to review content with ratings and verdicts. Use these ratings and verdicts to support your recommendations confidently.`;
   }
   
   return instructions;
