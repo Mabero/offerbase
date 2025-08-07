@@ -250,6 +250,12 @@ async function generateChatResponse(message: string, conversationHistory: { role
     // Debug: Log first 500 chars of what we're sending to AI
     console.log(`🤖 First 500 chars sent to AI:`, finalSystemContent.substring(0, 500));
     
+    // Debug: Log what training materials contain vs user question
+    if (trainingContext.length > 0) {
+      console.log(`📚 Training materials topics:`, trainingContext.substring(0, 200));
+      console.log(`❓ User question:`, message);
+    }
+    
     // Build the conversation messages for OpenAI
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
