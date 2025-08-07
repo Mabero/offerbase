@@ -587,22 +587,21 @@ export function ChatWidgetCore({
   onWidgetOpen
 }: ChatWidgetCoreProps) {
   
-  // Initialize messages with intro message if available and no existing session
+  // Initialize messages with intro message if available
   const getInitialMessages = (): Message[] => {
-    // Check if there's an existing sessionId - if so, don't show intro message yet (wait for history)
-    const existingSessionId = typeof window !== 'undefined' ? 
-      localStorage.getItem(`chat_session_uuid_${siteId}`) : null;
+    // Always include intro message as the first message if it exists
+    const introMsg = introMessage?.trim() || 
+                    `Hi! I am ${chatSettings?.chat_name || 'Affi'}, your assistant. How can I help you today?`;
     
-    if (!existingSessionId && introMessage && introMessage.trim()) {
-      return [{
-        type: 'bot',
-        content: {
-          type: 'message',
-          message: introMessage
-        }
-      } as BotMessage];
-    }
-    return [];
+    return [{
+      type: 'bot',
+      content: {
+        type: 'message',
+        message: introMsg
+      },
+      id: 'intro_message',
+      timestamp: Date.now()
+    } as BotMessage];
   };
 
   // Define reusable style objects
@@ -972,22 +971,27 @@ export function ChatWidgetCore({
             }
           });
 
-          // Set messages, preserving intro message if it exists
+          // Set messages, always preserving intro message as first
           setMessages(prevMessages => {
-            // Check if the first message in current messages is an intro message
-            const hasIntroMessage = prevMessages.length > 0 && 
-                                  prevMessages[0].type === 'bot' && 
-                                  prevMessages[0].content.type === 'message' &&
-                                  (prevMessages[0].content.message.includes('Hi! I am') || 
-                                   prevMessages[0].content.message.includes('How can I help') || 
-                                   prevMessages[0].content.message.includes('your assistant'));
+            // Get the intro message (should always be first)
+            const introMsg = prevMessages.find(msg => msg.id === 'intro_message') || prevMessages[0];
             
-            // If we have an intro message and restored messages, combine them
-            if (hasIntroMessage) {
-              return [prevMessages[0], ...restoredMessages];
+            // Always keep intro message as first, then add restored messages
+            if (introMsg && introMsg.type === 'bot') {
+              return [introMsg, ...restoredMessages];
             } else {
-              // Otherwise just set the restored messages
-              return restoredMessages;
+              // Fallback - create intro message if somehow missing
+              const fallbackIntro: BotMessage = {
+                type: 'bot',
+                content: {
+                  type: 'message',
+                  message: introMessage?.trim() || 
+                          `Hi! I am ${chatSettings?.chat_name || 'Affi'}, your assistant. How can I help you today?`
+                },
+                id: 'intro_message',
+                timestamp: Date.now()
+              };
+              return [fallbackIntro, ...restoredMessages];
             }
           });
           
@@ -1031,15 +1035,20 @@ export function ChatWidgetCore({
 
   // Check if a message is an intro message that shouldn't have action buttons
   const isIntroMessage = useCallback((message: BotMessage): boolean => {
+    // Check by ID first for reliability
+    if (message.id === 'intro_message') {
+      return true;
+    }
+    
+    // Fallback content check for backward compatibility
     if (message.content.type === 'message' && message.content.message) {
       const content = message.content.message;
       return content.includes('Hi! I am') || 
              content.includes('How can I help') || 
-             content.includes('your assistant') ||
-             content === (introMessage || `Hi! I am ${chatSettings?.chat_name || 'Affi'}, your assistant. How can I help you today?`);
+             content.includes('your assistant');
     }
     return false;
-  }, [introMessage, chatSettings?.chat_name]);
+  }, []);
 
   // State to hold structured content that should replace the typing message
   const [pendingStructuredContent, setPendingStructuredContent] = useState<MessageContent | null>(null);
@@ -1761,25 +1770,6 @@ export function ChatWidgetCore({
           </div>
         )}
         
-        {messages.length === 0 && !isLoading && !isLoadingHistory && (
-          <div style={styles.messageRow}>
-            <Avatar
-              src={chatSettings?.chat_icon_url}
-              name={chatSettings?.chat_name}
-              style={styles.avatarSpacing}
-            />
-            <div
-              style={{
-                ...styles.messageBubbleBot,
-                fontSize: chatSettings?.font_size || '14px'
-              }}
-            >
-              <p style={styles.messageText}>
-                {introMessage || `Hi! I am ${chatSettings?.chat_name || 'Affi'}, your assistant. How can I help you today?`}
-              </p>
-            </div>
-          </div>
-        )}
         
         {messages.map((message, index) => (
           <div key={message.id || `message-${index}`}>
@@ -1811,7 +1801,7 @@ export function ChatWidgetCore({
           questions={predefinedQuestions}
           onQuestionClick={handlePredefinedQuestionClick}
           chatSettings={chatSettings}
-          isVisible={predefinedQuestions.length > 0 && (messages.length === 0 || (messages.length === 1 && messages[0].type === 'bot'))}
+          isVisible={predefinedQuestions.length > 0 && messages.length === 1 && messages[0].id === 'intro_message'}
         />
         <div style={styles.inputWrapper}>
           <input
