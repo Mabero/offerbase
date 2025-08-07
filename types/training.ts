@@ -95,10 +95,6 @@ export interface StructuredAIResponse {
   specific_products?: string[];
   max_products?: number;
   product_context?: string;
-  // Relevance detection fields
-  is_relevant: boolean;
-  relevance_score: number; // 0-1 scale
-  relevance_reason?: string; // Why it's relevant or not
 }
 
 export interface AIResponseParseResult {

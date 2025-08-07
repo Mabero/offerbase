@@ -128,10 +128,7 @@ export class AIResponseValidator {
       link_url: (typeof response.link_url === 'string') ? response.link_url : undefined,
       specific_products: Array.isArray(response.specific_products) ? response.specific_products : undefined,
       max_products: (typeof response.max_products === 'number') ? response.max_products : undefined,
-      product_context: (typeof response.product_context === 'string') ? response.product_context : undefined,
-      is_relevant: response.is_relevant !== undefined ? Boolean(response.is_relevant) : true,
-      relevance_score: (typeof response.relevance_score === 'number') ? Math.max(0, Math.min(1, response.relevance_score)) : 1.0,
-      relevance_reason: (typeof response.relevance_reason === 'string') ? response.relevance_reason : undefined
+      product_context: (typeof response.product_context === 'string') ? response.product_context : undefined
     };
 
     console.log('🔍 Response Validation:', {

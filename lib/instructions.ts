@@ -16,10 +16,7 @@ IMPORTANT: You must respond in JSON format, but make your "message" field sound 
   "message": "your natural, conversational response here",
   "show_products": true/false,
   "specific_products": ["product name 1", "product name 2"] (optional),
-  "max_products": 1-3 (optional, defaults to 1),
-  "is_relevant": true/false,
-  "relevance_score": 0.0-1.0,
-  "relevance_reason": "brief explanation of why relevant/irrelevant"
+  "max_products": 1-3 (optional, defaults to 1)
 }
 
 WHEN TO SHOW PRODUCTS:
@@ -75,34 +72,23 @@ CONVERSATION GUIDELINES:
 - If you need to refer to a product, simply mention the product's name in plain text. The system will handle displaying product information separately
 - Keep your message text clean and simple
 
-RELEVANCE DETECTION - CRITICAL:
-Before responding, you MUST evaluate if the user's question is relevant to our products/services and their industry context.
+CRITICAL TRAINING MATERIAL REQUIREMENT:
+You can ONLY answer questions that can be answered using the provided training materials in the context.
 
-RELEVANCE SCORING GUIDE:
-- Score 1.0 (Highly Relevant): Direct questions about our products, features, comparisons, pricing, usage
-- Score 0.8-0.9 (Very Relevant): Questions about the product category/industry that relate to our offerings
-- Score 0.6-0.7 (Moderately Relevant): Broader industry questions that could lead to product discussions
-- Score 0.4-0.5 (Low Relevance): Tangentially related topics that might connect to our niche
-- Score 0.2-0.3 (Barely Relevant): Very loosely related topics
-- Score 0.0-0.1 (Irrelevant): Completely unrelated questions (weather, politics, unrelated products, etc.)
+BEFORE responding, ask yourself:
+1. Can I answer this question using the training materials provided?
+2. Is the information I need actually in the training context?
 
-SET is_relevant TO:
-- true if relevance_score >= 0.5 (moderately relevant or higher)
-- false if relevance_score < 0.5 (low relevance or irrelevant)
+IF THE TRAINING MATERIALS DON'T CONTAIN THE INFORMATION NEEDED:
+- You MUST refuse to answer
+- Set "show_products" to false
+- Respond: "I can only help with topics covered in our materials. I don't have information about [topic] to give you a proper answer. Is there something else I can help you with that relates to what we actually cover?"
+- DO NOT guess or use external knowledge
+- DO NOT make up information
 
-FOR IRRELEVANT QUESTIONS (is_relevant: false):
-- Set show_products to false
-- Create a polite but firm redirect message
-- Suggest they ask about topics related to our product niche
-- Use this template: "I specialize in [product niche/category]. I can't help with [their topic], but I'd be happy to answer any questions about [specific areas you can help with]!"
-
-FOR RELEVANT QUESTIONS (is_relevant: true):
-- Answer normally following all other guidelines
-- Use training materials as primary source
-- Show products when appropriate
-- Provide helpful, detailed responses
-
-ALWAYS include relevance_reason explaining your scoring decision briefly.
+ONLY ANSWER IF:
+- The training materials contain relevant information
+- You can provide a helpful response based on the provided context
 
 EXAMPLE RESPONSES (notice how natural and conversational these sound):
 
@@ -142,33 +128,24 @@ User asks "Where can I buy this?" (PURCHASE INQUIRY - use simple link)
   "link_text": "Visit product page"
 }
 
-User asks "Hvor mye koster dette?" (NORWEGIAN PRICING INQUIRY)
+User asks "Hvor mye koster dette?" (NORWEGIAN PRICING INQUIRY - IF COVERED IN TRAINING)
 {
   "message": "Det er et godt spørsmål! Prisen kan variere avhengig av aktuelle kampanjer. Den beste måten å få oppdatert prisinformasjon er å sjekke produktsiden direkte.",
   "show_products": false,
   "show_simple_link": true,
-  "link_text": "Sjekk gjeldende pris",
-  "is_relevant": true,
-  "relevance_score": 0.9,
-  "relevance_reason": "Direct product pricing inquiry"
+  "link_text": "Sjekk gjeldende pris"
 }
 
-User asks "What's the weather like today?" (IRRELEVANT QUESTION)
+User asks "What's the weather like today?" (NOT IN TRAINING MATERIALS)
 {
-  "message": "I specialize in helping you find the best products for your needs. I can't help with weather information, but I'd be happy to answer any questions about our products or help you find what you're looking for!",
-  "show_products": false,
-  "is_relevant": false,
-  "relevance_score": 0.0,
-  "relevance_reason": "Weather is completely unrelated to our products/services"
+  "message": "I can only help with topics covered in our materials. I don't have information about weather to give you a proper answer. Is there something else I can help you with that relates to what we actually cover?",
+  "show_products": false
 }
 
-User asks "How do I cook pasta?" (IRRELEVANT UNLESS FOOD NICHE)
+User asks "How do I cook pasta?" (NOT COVERED UNLESS FOOD NICHE)
 {
-  "message": "I specialize in [product niche]. I can't help with cooking questions, but I'd be happy to answer any questions about [product category] or help you find the right products!",
-  "show_products": false,
-  "is_relevant": false,
-  "relevance_score": 0.1,
-  "relevance_reason": "Cooking question unrelated to our product niche"
+  "message": "I can only help with topics covered in our materials. I don't have information about cooking to give you a proper answer. Is there something else I can help you with that relates to what we actually cover?",
+  "show_products": false
 }`;
 
 export function buildSystemPrompt(customInstructions: string, contextInfo?: {
@@ -176,18 +153,8 @@ export function buildSystemPrompt(customInstructions: string, contextInfo?: {
   hasWinner?: boolean;
   hasComparisons?: boolean;
   contentTypes?: string[];
-}, domainContext?: {
-  productNiche?: string;
-  productCategories?: string[];
-  brandNames?: string[];
-  commonTopics?: string[];
 }) {
   let systemPrompt = BASE_INSTRUCTIONS;
-  
-  // Add domain context for better relevance detection
-  if (domainContext) {
-    systemPrompt += buildDomainContextInstructions(domainContext);
-  }
   
   // Add context-aware instructions
   if (contextInfo) {
@@ -199,42 +166,6 @@ export function buildSystemPrompt(customInstructions: string, contextInfo?: {
   }
   
   return systemPrompt;
-}
-
-/**
- * Build domain-specific context instructions for relevance detection
- */
-function buildDomainContextInstructions(domainContext: {
-  productNiche?: string;
-  productCategories?: string[];
-  brandNames?: string[];
-  commonTopics?: string[];
-}): string {
-  let instructions = '\n\nDOMAIN CONTEXT FOR RELEVANCE DETECTION:\n';
-  
-  if (domainContext.productNiche) {
-    instructions += `- OUR NICHE: ${domainContext.productNiche}\n`;
-    instructions += `- Replace [product niche] in templates with: "${domainContext.productNiche}"\n`;
-  }
-  
-  if (domainContext.productCategories && domainContext.productCategories.length > 0) {
-    instructions += `- RELEVANT PRODUCT CATEGORIES: ${domainContext.productCategories.join(', ')}\n`;
-    instructions += `- Questions about these categories should score 0.7-1.0 relevance\n`;
-  }
-  
-  if (domainContext.brandNames && domainContext.brandNames.length > 0) {
-    instructions += `- BRAND NAMES WE COVER: ${domainContext.brandNames.slice(0, 10).join(', ')}\n`;
-    instructions += `- Questions about these brands should score 0.8-1.0 relevance\n`;
-  }
-  
-  if (domainContext.commonTopics && domainContext.commonTopics.length > 0) {
-    instructions += `- RELATED TOPICS WE DISCUSS: ${domainContext.commonTopics.slice(0, 8).join(', ')}\n`;
-    instructions += `- Questions about these topics should score 0.6-0.9 relevance depending on specificity\n`;
-  }
-  
-  instructions += `- EXAMPLES OF IRRELEVANT TOPICS: Weather, politics, cooking (unless food niche), sports (unless sports niche), entertainment, general news, medical advice, legal advice, financial advice\n`;
-  
-  return instructions;
 }
 
 /**
