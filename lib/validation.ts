@@ -1,3 +1,4 @@
+// FILE PURPOSE: Input validation schemas and sanitization functions for API requests
 import { z } from 'zod';
 import { NextRequest, NextResponse } from 'next/server';
 

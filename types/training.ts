@@ -1,4 +1,4 @@
-// Types for the enhanced training materials system
+// FILE PURPOSE: TypeScript type definitions for training materials, AI responses, and chat data
 
 export interface TrainingMaterial {
   id: string;

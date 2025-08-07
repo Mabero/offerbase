@@ -1,3 +1,4 @@
+// FILE PURPOSE: Contains all AI personality and behavior instructions - controls how the AI responds
 // SINGLE SOURCE OF TRUTH for all chat instructions
 // Used by: Dashboard.js, API endpoints, and all chat functionality
 

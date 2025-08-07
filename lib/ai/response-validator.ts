@@ -1,3 +1,4 @@
+// FILE PURPOSE: Basic validation for AI responses - ensures required fields exist
 /**
  * Minimal AI Response Validation - Just Structure Check
  * AI handles content validation through self-correction

@@ -1,3 +1,4 @@
+// FILE PURPOSE: Main chat widget UI component - handles messages, typing animation, product boxes
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PredefinedQuestions } from './PredefinedQuestions';
 import { PredefinedQuestionButton } from '@/types/predefined-questions';

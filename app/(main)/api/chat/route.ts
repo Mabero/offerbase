@@ -1,3 +1,4 @@
+// FILE PURPOSE: Main chat API endpoint - processes user messages and returns AI responses with products
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import OpenAI from 'openai';

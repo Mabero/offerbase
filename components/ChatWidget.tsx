@@ -1,3 +1,4 @@
+// FILE PURPOSE: Chat widget wrapper component - handles widget positioning, toggle, and initialization
 import React, { useState, useEffect, useCallback } from 'react';
 import { X } from "lucide-react";
 import ChatWidgetCore, { 

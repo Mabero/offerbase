@@ -1,4 +1,4 @@
-// Dashboard component with shadcn UI - preserving exact functionality
+// FILE PURPOSE: Main admin dashboard for managing sites, training materials, and chat settings
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';

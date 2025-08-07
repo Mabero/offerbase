@@ -1,3 +1,4 @@
+// FILE PURPOSE: Finds relevant training materials for AI chat responses using keyword matching
 /**
  * Simple, Reliable Training Material Context Selection
  * Enterprise-grade system that prioritizes data inclusion over filtering

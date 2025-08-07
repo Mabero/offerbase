@@ -1,4 +1,4 @@
-// Shared scraping logic that can be used by both HTTP API and internal functions
+// FILE PURPOSE: Web scraping functions to extract content from URLs for training materials
 import { ScrapeResult, TrainingMetadata } from '@/types/training';
 import * as cheerio from 'cheerio';
 
