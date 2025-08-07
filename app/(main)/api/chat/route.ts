@@ -242,6 +242,14 @@ async function generateChatResponse(message: string, conversationHistory: { role
     // Debug: Log system prompt length and key parts
     console.log(`📝 System Prompt: ${systemPrompt.length} chars, Training: ${trainingContext.length} chars, Final: ${finalSystemContent.length} chars`);
     
+    // Debug: Log if critical rule is in the prompt
+    const hasCriticalRule = finalSystemContent.includes('🚨 CRITICAL RULE');
+    const hasTrainingMaterials = finalSystemContent.includes('Relevant Training Materials:');
+    console.log(`🔍 Debug: Critical rule present: ${hasCriticalRule}, Training materials present: ${hasTrainingMaterials}`);
+    
+    // Debug: Log first 500 chars of what we're sending to AI
+    console.log(`🤖 First 500 chars sent to AI:`, finalSystemContent.substring(0, 500));
+    
     // Build the conversation messages for OpenAI
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
@@ -269,6 +277,9 @@ async function generateChatResponse(message: string, conversationHistory: { role
     });
 
     const rawResponse = completion.choices[0]?.message?.content;
+    
+    // Debug: Log AI's raw response
+    console.log(`🤖 AI Raw Response:`, rawResponse?.substring(0, 300));
     
     if (!rawResponse) {
       throw new Error('No response from OpenAI');
