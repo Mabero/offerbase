@@ -18,8 +18,11 @@ export const chatRequestSchema = z.object({
     ),
   
   siteId: z.string()
-    .uuid("Invalid site ID format")
-    .min(1, "Site ID is required"),
+    .min(1, "Site ID is required")
+    .refine(
+      (id) => process.env.NODE_ENV === 'development' ? true : z.string().uuid().safeParse(id).success,
+      "Invalid site ID format - must be UUID in production"
+    ),
   
   sessionId: z.string()
     .uuid("Invalid session ID format")
