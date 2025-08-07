@@ -3,7 +3,7 @@ import { PredefinedQuestions } from './PredefinedQuestions';
 import { PredefinedQuestionButton } from '@/types/predefined-questions';
 
 // Simple typewriter component
-const TypewriterText = ({ text, isTyping }: { text: string; isTyping: boolean }) => {
+const TypewriterText = ({ text, isTyping, onTextChange }: { text: string; isTyping: boolean; onTextChange?: () => void }) => {
   const [displayedText, setDisplayedText] = useState('');
   
   useEffect(() => {
@@ -15,6 +15,7 @@ const TypewriterText = ({ text, isTyping }: { text: string; isTyping: boolean })
     let i = 0;
     const timer = setInterval(() => {
       setDisplayedText(text.slice(0, i));
+      onTextChange?.(); // Trigger scroll during typing
       i++;
       if (i > text.length) {
         clearInterval(timer);
@@ -22,7 +23,7 @@ const TypewriterText = ({ text, isTyping }: { text: string; isTyping: boolean })
     }, 15); // Fast typing
     
     return () => clearInterval(timer);
-  }, [text, isTyping]);
+  }, [text, isTyping, onTextChange]);
   
   return (
     <span>
@@ -1496,6 +1497,7 @@ export function ChatWidgetCore({
                 <TypewriterText 
                   text={messageContent} 
                   isTyping={message.isTyping || false}
+                  onTextChange={scrollToBottom}
                 />
               </p>
               
