@@ -88,13 +88,10 @@ export interface ContentChunk {
 // Structured AI Response Types
 export interface StructuredAIResponse {
   message: string;
-  show_products: boolean;
   show_simple_link?: boolean;
   link_text?: string;
   link_url?: string;
-  specific_products?: string[];
-  max_products?: number;
-  product_context?: string;
+  products?: string[];  // AI-selected product IDs for intelligent recommendations
 }
 
 export interface AIResponseParseResult {

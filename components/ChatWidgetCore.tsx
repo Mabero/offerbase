@@ -1529,14 +1529,16 @@ export function ChatWidgetCore({
               )}
             </div>
             
-            {/* Product boxes outside message bubble */}
+            {/* Product boxes outside message bubble - hide during typing */}
             {botContent.type === 'links' && botContent.links && (
-              <LinksContainer
-                links={botContent.links}
-                chatSettings={chatSettings}
-                styles={styles}
-                onLinkClick={handleLinkClick}
-              />
+              <div style={{ display: message.isTyping ? 'none' : 'block' }}>
+                <LinksContainer
+                  links={botContent.links}
+                  chatSettings={chatSettings}
+                  styles={styles}
+                  onLinkClick={handleLinkClick}
+                />
+              </div>
             )}
           </div>
         </div>

@@ -51,8 +51,21 @@ import {
 
 import { supabase } from '../lib/supabaseClient';
 import { BASE_INSTRUCTIONS } from '../lib/instructions';
-import { PREFERRED_LANGUAGE_OPTIONS } from '@/lib/ai/language';
 import ChatWidget from './ChatWidget';
+
+// Simple language options for the dashboard (AI will handle detection naturally)
+const PREFERRED_LANGUAGE_OPTIONS = [
+  { code: 'eng', name: 'English', flag: '🇺🇸' },
+  { code: 'nor', name: 'Norwegian', flag: '🇳🇴' },
+  { code: 'dan', name: 'Danish', flag: '🇩🇰' },
+  { code: 'swe', name: 'Swedish', flag: '🇸🇪' },
+  { code: 'deu', name: 'German', flag: '🇩🇪' },
+  { code: 'fra', name: 'French', flag: '🇫🇷' },
+  { code: 'spa', name: 'Spanish', flag: '🇪🇸' },
+  { code: 'ita', name: 'Italian', flag: '🇮🇹' },
+  { code: 'nld', name: 'Dutch', flag: '🇳🇱' },
+  { code: 'por', name: 'Portuguese', flag: '🇵🇹' }
+];
 import { SiteSelector } from './site-selector';
 import { TrainingContentEditor } from './TrainingContentEditor';
 import { PredefinedQuestionsManager } from './PredefinedQuestionsManager';
