@@ -266,7 +266,7 @@ async function searchMaterials(
       if (!material.metadata) return false;
       
       const metadata = material.metadata;
-      const metadataString = JSON.stringify(metadata).toLowerCase();
+      // const metadataString = JSON.stringify(metadata).toLowerCase();
       
       // Check if any keyword matches metadata fields (URL, siteName, etc.)
       return keywords.some(keyword => {
@@ -419,7 +419,7 @@ export function buildOptimizedContext(contextItems: ContextItem[]): string {
     
     // Add rich source metadata for AI understanding
     if (item.sourceInfo) {
-      const { domain, company, url, contentType } = item.sourceInfo;
+      const { domain, company, contentType } = item.sourceInfo;
       const sourceDetails = [];
       
       if (company) sourceDetails.push(`Company: ${company}`);
