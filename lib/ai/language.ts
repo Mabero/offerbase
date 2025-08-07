@@ -87,17 +87,27 @@ export function detectLanguage(text: string, preferredLanguage?: string | null):
   const cleanedText = cleanTextForDetection(text);
   
   // If text is too short or mostly non-linguistic, default to English
-  if (cleanedText.length < 3) {
+  if (cleanedText.length < 10) {
     return {
       code: 'eng',
       name: 'English',
-      confidence: 0.5,
+      confidence: 0.9, // High confidence for default
       instruction: 'You must respond in English.',
     };
   }
 
   // Use franc for language detection
   const detectedCode = franc(cleanedText);
+  
+  // If detected language is not English but text is very short, prefer English
+  if (detectedCode !== 'eng' && cleanedText.length < 20) {
+    return {
+      code: 'eng',
+      name: 'English',
+      confidence: 0.8,
+      instruction: 'You must respond in English.',
+    };
+  }
   
   // If franc can't detect (returns 'und'), use preferred language or default to English
   if (detectedCode === 'und') {
@@ -125,7 +135,7 @@ export function detectLanguage(text: string, preferredLanguage?: string | null):
   const confidence = Math.min(cleanedText.length / 20, 1) * 0.9;
   
   // If confidence is low and we have a preferred language, use it instead
-  if (confidence < 0.99 && preferredLanguage) {
+  if (confidence < 0.6 && preferredLanguage) {
     const fallbackLanguageName = languageNames[preferredLanguage] || 'Unknown';
     return {
       code: preferredLanguage,

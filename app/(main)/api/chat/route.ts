@@ -231,15 +231,15 @@ async function generateChatResponse(message: string, conversationHistory: { role
       });
     }
     
-    // Build system prompt with language enforcement
+    // Build system prompt - temporarily disable language enforcement
     let systemPrompt = buildSystemPrompt(chatSettings?.instructions || '');
-    systemPrompt = addLanguageToSystemPrompt(systemPrompt, detectedLanguage);
+    // systemPrompt = addLanguageToSystemPrompt(systemPrompt, detectedLanguage);
     
     // Add context guidance instead of strict refusal
     systemPrompt += contextGuidance;
     
-    // Enforce language in user message
-    const languageEnforcedMessage = enforceLanguageInMessage(message, detectedLanguage);
+    // Temporarily disable language enforcement
+    const languageEnforcedMessage = message;
     
     // Build final system message content
     const finalSystemContent = systemPrompt + trainingContext + affiliateContext + `\n\nSite ID: ${siteId}`;
@@ -306,17 +306,18 @@ async function generateChatResponse(message: string, conversationHistory: { role
     // Validate and sanitize the AI response
     const validationResult = validateAIResponse(parseResult.structured!, affiliateLinks || []);
     
-    // Additional intelligent validation
+    // Additional intelligent validation - be more permissive
     const intelligentValidation = validateResponseIntelligently(
       message,
       parseResult.structured!.message,
       trainingContext,
-      getValidationConfig({ strictnessLevel: 'moderate', allowInference: true })
+      getValidationConfig({ strictnessLevel: 'flexible', allowInference: true })
     );
     
     console.log(`🤖 Intelligent Validation: Confidence ${(intelligentValidation.confidence * 100).toFixed(1)}% - ${intelligentValidation.reasoning}`);
     
-    if (!validationResult.isValid && intelligentValidation.confidence < 0.2) {
+    // Only reject if both validations fail AND confidence is very low
+    if (!validationResult.isValid && intelligentValidation.confidence < 0.1) {
       console.error('❌ AI Response Validation Failed:', validationResult.errors);
       return getFallbackResponseFromText(rawResponse, affiliateLinks || []);
     }
