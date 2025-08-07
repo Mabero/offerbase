@@ -232,7 +232,7 @@ function extractSimpleKeywords(query: string): string[] {
  * Search materials using simple keyword matching
  */
 async function searchMaterials(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   keywords: string[],
   siteId: string,
   limit: number
@@ -324,7 +324,7 @@ function getFullContent(material: TrainingMaterial): string {
  * Fallback when no keyword matches found
  */
 async function getFallbackMaterials(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   siteId: string,
   maxItems: number
 ): Promise<ContextItem[]> {
