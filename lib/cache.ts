@@ -29,6 +29,13 @@ class CacheClient {
   }
 
   private async initializeClient() {
+    // Skip Redis initialization in development unless explicitly enabled
+    if (process.env.NODE_ENV === 'development' && !process.env.ENABLE_REDIS_DEV) {
+      console.log('⚠️ Cache: Redis disabled in development mode');
+      this.isConnected = false;
+      return;
+    }
+
     try {
       // Try Upstash Redis first (for production)
       if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
@@ -41,15 +48,24 @@ class CacheClient {
       }
       // Fallback to local Redis (for development)
       else if (process.env.REDIS_URL) {
-        this.client = new IORedis(process.env.REDIS_URL);
+        this.client = new IORedis(process.env.REDIS_URL, {
+          retryDelayOnFailedAttempt: (times) => Math.min(times * 50, 2000),
+          maxRetriesPerRequest: 1,
+          lazyConnect: true
+        });
+        
+        // Test connection
+        await this.client.ping();
         console.log('✅ Cache: Connected to local Redis');
         this.isConnected = true;
       } else {
-        console.warn('⚠️ Cache: No Redis configuration found, caching disabled');
+        console.log('⚠️ Cache: No Redis configuration found, caching disabled');
+        this.isConnected = false;
       }
     } catch (error) {
-      console.warn('⚠️ Cache: Redis connection failed, falling back to no caching:', error);
+      console.log('⚠️ Cache: Redis connection failed, falling back to no caching');
       this.isConnected = false;
+      this.client = null;
     }
   }
 
