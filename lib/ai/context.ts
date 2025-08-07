@@ -32,8 +32,7 @@ interface ContextItem {
 export async function selectRelevantContext(
   query: string,
   siteId: string,
-  maxItems: number = 10,
-  _conversationHistory: Array<{ role: string; content: string }> = []
+  maxItems: number = 10
 ): Promise<ContextItem[]> {
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -232,7 +231,8 @@ function extractSimpleKeywords(query: string): string[] {
  * Search materials using simple keyword matching
  */
 async function searchMaterials(
-  supabase: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any, // Supabase type is complex and conflicts with strict schema
   keywords: string[],
   siteId: string,
   limit: number
@@ -262,7 +262,8 @@ async function searchMaterials(
     const results = materials || [];
     
     // Additional client-side filtering for metadata matches (domain/company intelligence)
-    const metadataMatches = results.filter(material => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const metadataMatches = results.filter((material: any) => {
       if (!material.metadata) return false;
       
       const metadata = material.metadata;
@@ -291,7 +292,8 @@ async function searchMaterials(
     // Prioritize metadata matches (likely more relevant for company queries)
     const prioritized = [
       ...metadataMatches,
-      ...uniqueMatches.filter(m => !metadataMatches.some(mm => mm.id === m.id))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...uniqueMatches.filter((m: any) => !metadataMatches.some((mm: any) => mm.id === m.id))
     ].slice(0, limit);
     
     console.log(`🔍 Found ${results.length} content matches, ${metadataMatches.length} metadata matches, returning ${prioritized.length}`);
@@ -324,7 +326,8 @@ function getFullContent(material: TrainingMaterial): string {
  * Fallback when no keyword matches found
  */
 async function getFallbackMaterials(
-  supabase: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any, // Supabase type is complex and conflicts with strict schema
   siteId: string,
   maxItems: number
 ): Promise<ContextItem[]> {
@@ -343,7 +346,8 @@ async function getFallbackMaterials(
       return [];
     }
 
-    return materials.map(material => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return materials.map((material: any) => ({
       title: material.title,
       content: getFullContent(material),
       sourceInfo: extractSourceInfo(material)
