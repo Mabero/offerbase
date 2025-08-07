@@ -2,6 +2,38 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PredefinedQuestions } from './PredefinedQuestions';
 import { PredefinedQuestionButton } from '@/types/predefined-questions';
 
+// Simple typewriter component
+const TypewriterText = ({ text, isTyping }: { text: string; isTyping: boolean }) => {
+  const [displayedText, setDisplayedText] = useState('');
+  
+  useEffect(() => {
+    if (!isTyping) {
+      setDisplayedText(text);
+      return;
+    }
+    
+    let i = 0;
+    const timer = setInterval(() => {
+      setDisplayedText(text.slice(0, i));
+      i++;
+      if (i > text.length) {
+        clearInterval(timer);
+      }
+    }, 15); // Fast typing
+    
+    return () => clearInterval(timer);
+  }, [text, isTyping]);
+  
+  return (
+    <span>
+      {displayedText}
+      {isTyping && displayedText.length < text.length && (
+        <span style={{ animation: 'blink 1s infinite' }}>|</span>
+      )}
+    </span>
+  );
+};
+
 // Types
 export interface ChatSettings {
   chat_name: string;
@@ -42,6 +74,7 @@ export interface BotMessage {
   content: MessageContent;
   id: string;
   timestamp: number;
+  isTyping?: boolean; // For simple typewriter effect
 }
 
 export type Message = UserMessage | BotMessage;
@@ -1004,57 +1037,6 @@ export function ChatWidgetCore({
     }
   };
 
-  // Simplified message addition without typewriter complexity
-  const addBotMessage = (content: MessageContent) => {
-    const messageId = generateMessageId();
-    const contentHash = createContentHash(content);
-    
-    console.log('➕ Adding bot message to state:', { 
-      id: messageId, 
-      type: content.type, 
-      hasLinks: !!content.links,
-      hash: contentHash 
-    });
-    
-    setMessages(prev => {
-      // Enhanced duplicate check: prevent messages with same content hash
-      const existingHashes = prev
-        .filter(msg => msg.type === 'bot')
-        .map(msg => createContentHash(msg.content));
-      
-      if (existingHashes.includes(contentHash)) {
-        console.warn('🚫 Duplicate content hash detected at render level, skipping add:', contentHash);
-        return prev;
-      }
-      
-      // Also check last message content for quick duplicate prevention
-      const lastMessage = prev[prev.length - 1];
-      if (lastMessage && 
-          lastMessage.type === 'bot' && 
-          lastMessage.content.message === content.message &&
-          lastMessage.content.type === content.type) {
-        console.warn('🚫 Duplicate message detected at render level, skipping add');
-        return prev;
-      }
-      
-      return [...prev, { 
-        type: 'bot', 
-        content: content,
-        id: messageId,
-        timestamp: Date.now()
-      } as BotMessage];
-    });
-    
-    
-    // Clean up old processed responses to prevent memory growth (keep last 10)
-    setProcessedResponses(prev => {
-      const responses = Array.from(prev);
-      if (responses.length > 10) {
-        return new Set(responses.slice(-10));
-      }
-      return prev;
-    });
-  };
 
   // Centralized function to process AI responses with typing animation
   const processAIResponse = (data: MessageContent, sequenceNumber?: number) => {
@@ -1085,8 +1067,50 @@ export function ChatWidgetCore({
     // Mark this response as processed
     setProcessedResponses(prev => new Set([...prev, responseHash]));
     
-    // Directly add the message without complex typing animation
-    addBotMessage(data);
+    // Add message with simple typewriter effect
+    const messageId = generateMessageId();
+    const contentHash = createContentHash(data);
+    
+    // Check for duplicates
+    const existingHashes = messages
+      .filter(msg => msg.type === 'bot')
+      .map(msg => createContentHash(msg.content));
+    
+    if (existingHashes.includes(contentHash)) {
+      console.warn('🚫 Duplicate detected, skipping');
+      return;
+    }
+    
+    // Add message with typing flag
+    const newMessage: BotMessage = {
+      type: 'bot',
+      content: data,
+      id: messageId,
+      timestamp: Date.now(),
+      isTyping: true
+    };
+    
+    setMessages(prev => [...prev, newMessage]);
+    
+    // Simple typewriter effect - disable typing after delay
+    setTimeout(() => {
+      setMessages(prev => 
+        prev.map(msg => 
+          msg.id === messageId 
+            ? { ...msg, isTyping: false }
+            : msg
+        )
+      );
+    }, Math.max(data.message.length * 15, 600)); // Fast typing
+    
+    // Clean up old processed responses to prevent memory growth (keep last 10)
+    setProcessedResponses(prev => {
+      const responses = Array.from(prev);
+      if (responses.length > 10) {
+        return new Set(responses.slice(-10));
+      }
+      return prev;
+    });
   };
 
   // Handle message actions
@@ -1525,7 +1549,10 @@ export function ChatWidgetCore({
               }}
             >
               <p style={styles.messageText}>
-                {messageContent}
+                <TypewriterText 
+                  text={messageContent} 
+                  isTyping={message.isTyping || false}
+                />
               </p>
               
               {/* Simple link inside message bubble */}
