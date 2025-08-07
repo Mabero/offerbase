@@ -335,6 +335,7 @@ const TypewriterMessage = ({
   const [isTyping, setIsTyping] = useState(true);
   const [hasCompleted, setHasCompleted] = useState(false);
   const completedRef = useRef(false);
+  const onCompleteCalledRef = useRef(false);
 
   useEffect(() => {
     let index = 0;
@@ -346,6 +347,7 @@ const TypewriterMessage = ({
     setIsTyping(true);
     setHasCompleted(false);
     completedRef.current = false;
+    onCompleteCalledRef.current = false;
 
     const typeCharacter = () => {
       if (isCancelled) return;
@@ -365,19 +367,16 @@ const TypewriterMessage = ({
         timeoutId = setTimeout(typeCharacter, delay);
       } else {
         // Typing completed - use completion guard to prevent multiple calls
-        if (!isCancelled && !completedRef.current) {
+        if (!isCancelled && !completedRef.current && !onCompleteCalledRef.current) {
           completedRef.current = true;
+          onCompleteCalledRef.current = true;
           setIsTyping(false);
           setHasCompleted(true);
           
           console.log('🎯 TypewriterMessage: Completing animation for message:', message.substring(0, 30));
           
-          // Small delay to ensure state updates are complete before calling onComplete
-          setTimeout(() => {
-            if (!isCancelled && completedRef.current) {
-              onComplete();
-            }
-          }, 10);
+          // Call onComplete immediately - no delay needed since we have enhanced guards
+          onComplete();
         }
       }
     };
@@ -391,6 +390,7 @@ const TypewriterMessage = ({
       }
       // Reset completion state on cleanup
       completedRef.current = false;
+      onCompleteCalledRef.current = false;
     };
   }, [message, onComplete, onScroll]);
 
@@ -815,6 +815,7 @@ export function ChatWidgetCore({
   const [isInputFocused, setIsInputFocused] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const isTypingRef = useRef(false);
   const [sessionId, setSessionId] = useState<string | null>(() => {
     // Clean up old session format and try to get existing session UUID from localStorage (backend-generated)
     const oldStorageKey = `chat_session_${siteId}`;
@@ -1104,48 +1105,83 @@ export function ChatWidgetCore({
   };
   
   const shouldProcessResponse = (responseSequence: number): boolean => {
-    // Only process responses in sequence order to prevent race conditions
+    // Process responses in order - reject old/duplicate responses
     const expected = processingSequence.current + 1;
     if (responseSequence === expected) {
       processingSequence.current = responseSequence;
       console.log('✅ Processing response in sequence:', responseSequence);
       return true;
-    } else if (responseSequence < expected) {
-      console.warn('🚫 Ignoring duplicate/old response:', { received: responseSequence, expected });
-      return false;
     } else {
-      console.warn('⏳ Response out of order:', { received: responseSequence, expected });
-      // For simplicity, we'll still process it but log the warning
-      processingSequence.current = responseSequence;
-      return true;
+      console.warn('🚫 Rejecting out-of-sequence response:', { received: responseSequence, expected });
+      return false;
     }
   };
 
-  // Handle typewriter completion
+  // Handle typewriter completion with enhanced duplicate prevention
   const handleTypewriterComplete = (message: string) => {
-    console.log('📝 TypewriterMessage completed, adding to messages:', message.substring(0, 30));
+    console.log('📝 TypewriterMessage completed, preparing to add message:', message.substring(0, 30));
     
+    // CRITICAL: Set typing states to false FIRST to hide TypewriterMessage immediately
     setIsTyping(false);
+    isTypingRef.current = false;
     setTypingMessage(null);
     
-    // If there's pending structured content, use it; otherwise create simple message
-    const finalContent = pendingStructuredContent || { 
-      type: 'message', 
-      message: message 
-    };
-    
-    const messageId = generateMessageId();
-    console.log('➕ Adding bot message to state:', { id: messageId, type: finalContent.type, hasLinks: !!finalContent.links });
-    
-    setMessages(prev => [...prev, { 
-      type: 'bot', 
-      content: finalContent,
-      id: messageId,
-      timestamp: Date.now()
-    } as BotMessage]);
-    
-    // Clear pending content
-    setPendingStructuredContent(null);
+    // Use setTimeout to ensure state updates are processed and TypewriterMessage is hidden before adding message
+    setTimeout(() => {
+      // Double-check that we're still not typing (prevents race conditions)
+      if (isTypingRef.current) {
+        console.warn('⚠️ Typing still in progress, aborting message add');
+        return;
+      }
+      
+      // If there's pending structured content, use it; otherwise create simple message
+      const finalContent = pendingStructuredContent || { 
+        type: 'message', 
+        message: message 
+      };
+      
+      const messageId = generateMessageId();
+      const contentHash = createContentHash(finalContent);
+      
+      console.log('➕ Adding bot message to state:', { 
+        id: messageId, 
+        type: finalContent.type, 
+        hasLinks: !!finalContent.links,
+        hash: contentHash 
+      });
+      
+      setMessages(prev => {
+        // Enhanced duplicate check: prevent messages with same content hash
+        const existingHashes = prev
+          .filter(msg => msg.type === 'bot')
+          .map(msg => createContentHash(msg.content));
+        
+        if (existingHashes.includes(contentHash)) {
+          console.warn('🚫 Duplicate content hash detected at render level, skipping add:', contentHash);
+          return prev;
+        }
+        
+        // Also check last message content for quick duplicate prevention
+        const lastMessage = prev[prev.length - 1];
+        if (lastMessage && 
+            lastMessage.type === 'bot' && 
+            lastMessage.content.message === finalContent.message &&
+            lastMessage.content.type === finalContent.type) {
+          console.warn('🚫 Duplicate message detected at render level, skipping add');
+          return prev;
+        }
+        
+        return [...prev, { 
+          type: 'bot', 
+          content: finalContent,
+          id: messageId,
+          timestamp: Date.now()
+        } as BotMessage];
+      });
+      
+      // Clear pending content
+      setPendingStructuredContent(null);
+    }, 100); // Increased delay to ensure TypewriterMessage is completely hidden
     
     // Clean up old processed responses to prevent memory growth (keep last 10)
     setProcessedResponses(prev => {
@@ -1192,6 +1228,7 @@ export function ChatWidgetCore({
     // Always show typing animation first
     setTypingMessage(messageText);
     setIsTyping(true);
+    isTypingRef.current = true;
     
     // If it's a complex response (links or simple_link), store the full structure
     if (data.type === 'links' || data.type === 'simple_link') {
@@ -1771,11 +1808,27 @@ export function ChatWidgetCore({
         )}
         
         
-        {messages.map((message, index) => (
-          <div key={message.id || `message-${index}`}>
-            {renderMessage(message)}
-          </div>
-        ))}
+        {/* Render messages with deduplication safeguard */}
+        {messages.reduce((acc, message, index) => {
+          // Skip if this is a duplicate of the previous message
+          if (index > 0) {
+            const prevMessage = messages[index - 1];
+            if (prevMessage.type === 'bot' && 
+                message.type === 'bot' && 
+                prevMessage.content.message === message.content.message &&
+                Math.abs(prevMessage.timestamp - message.timestamp) < 1000) {
+              console.warn('🚫 Skipping duplicate message at render:', message.content.message?.substring(0, 30));
+              return acc;
+            }
+          }
+          
+          acc.push(
+            <div key={message.id || `message-${index}`}>
+              {renderMessage(message)}
+            </div>
+          );
+          return acc;
+        }, [] as React.ReactElement[])}
         
         {isLoading && (
           <TypingIndicator chatSettings={chatSettings} styles={styles} />
