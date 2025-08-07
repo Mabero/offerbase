@@ -49,9 +49,10 @@ class CacheClient {
       // Fallback to local Redis (for development)
       else if (process.env.REDIS_URL) {
         this.client = new IORedis(process.env.REDIS_URL, {
-          retryDelayOnFailedAttempt: (times) => Math.min(times * 50, 2000),
+          retryDelayOnFailover: 100,
           maxRetriesPerRequest: 1,
-          lazyConnect: true
+          lazyConnect: true,
+          connectTimeout: 10000
         });
         
         // Test connection
