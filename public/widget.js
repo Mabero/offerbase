@@ -110,7 +110,7 @@
 
         // Create iframe
         const iframe = document.createElement('iframe');
-        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&embedded=true&widgetType=floating&v=${Date.now()}`;
+        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&embedded=true&widgetType=floating`;
         iframe.style.cssText = `
             width: 100%;
             height: 100%;
@@ -147,7 +147,7 @@
 
         // Create iframe
         const iframe = document.createElement('iframe');
-        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&embedded=true&widgetType=inline&v=${Date.now()}`;
+        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&embedded=true&widgetType=inline`;
         iframe.style.cssText = `
             width: 100%;
             height: 100%;
