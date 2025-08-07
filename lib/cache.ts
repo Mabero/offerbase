@@ -48,12 +48,7 @@ class CacheClient {
       }
       // Fallback to local Redis (for development)
       else if (process.env.REDIS_URL) {
-        this.client = new IORedis(process.env.REDIS_URL, {
-          retryDelayOnFailover: 100,
-          maxRetriesPerRequest: 1,
-          lazyConnect: true,
-          connectTimeout: 10000
-        });
+        this.client = new IORedis(process.env.REDIS_URL);
         
         // Test connection
         await this.client.ping();

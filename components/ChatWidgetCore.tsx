@@ -1220,13 +1220,14 @@ export function ChatWidgetCore({
         headers['x-user-id'] = session.user.id;
       }
 
-      // Build conversation history (include all messages for better context)
+      // Build conversation history (limit to last 18 messages to stay under 20 limit)
       const conversationHistory = messages
         .map(msg => ({
           role: msg.type === 'user' ? 'user' : 'assistant',
           content: msg.type === 'user' ? msg.content : msg.content.message || ''
         }))
-        .filter(msg => msg.content.trim().length > 0);
+        .filter(msg => msg.content.trim().length > 0)
+        .slice(-18); // Keep only the most recent 18 messages
       
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
@@ -1323,13 +1324,14 @@ export function ChatWidgetCore({
         headers['x-user-id'] = session.user.id;
       }
 
-      // Build conversation history (include all messages for better context)
+      // Build conversation history (limit to last 18 messages to stay under 20 limit)
       const conversationHistory = messages
         .map(msg => ({
           role: msg.type === 'user' ? 'user' : 'assistant',
           content: msg.type === 'user' ? msg.content : msg.content.message || ''
         }))
-        .filter(msg => msg.content.trim().length > 0);
+        .filter(msg => msg.content.trim().length > 0)
+        .slice(-18); // Keep only the most recent 18 messages
       
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
