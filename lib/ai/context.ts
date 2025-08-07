@@ -101,9 +101,9 @@ export async function selectRelevantContext(
   for (let i = 0; i < Math.min(maxItems, scoredMaterials.length); i++) {
     const { material, score } = scoredMaterials[i];
     
-    // Skip items with very low relevance, but always include at least 1-2 items
-    // so the AI can see what topics are actually covered
-    if (score < 0.1 && relevantItems.length >= 2) break;
+    // Include more materials with lower threshold for better context
+    // Always include at least 3-4 items to give AI broader understanding
+    if (score < 0.05 && relevantItems.length >= 4) break;
     
     // Use summary if available, otherwise truncate content
     let contextContent = '';
@@ -146,8 +146,11 @@ function calculateEnhancedRelevance(
   const queryWords = extractKeywords(query.toLowerCase());
   let score = 0;
   
-  // Base relevance calculation
+  // Base relevance calculation with semantic understanding
   score += calculateBaseRelevance(queryWords, material);
+  
+  // Add semantic similarity bonus for related concepts
+  score += calculateSemanticBonus(query, material);
   
   // Content type boost based on query intent
   const contentTypeBoost = getContentTypeBoost(material.content_type, queryAnalysis);
@@ -156,10 +159,10 @@ function calculateEnhancedRelevance(
   // Structured data relevance boost
   score += calculateStructuredDataRelevance(material.structured_data, queryAnalysis);
   
-  // Intent keywords matching
+  // Intent keywords matching with fuzzy matching
   score += calculateIntentKeywordMatching(material.intent_keywords, queryAnalysis.keywords);
   
-  // Product matching boost
+  // Product matching boost with partial matches
   score += calculateProductMatchingBoost(material.primary_products, queryAnalysis.products);
   
   // Confidence score factor
@@ -169,6 +172,11 @@ function calculateEnhancedRelevance(
   // Special boosts for recommendation-seeking queries
   if (queryAnalysis.isLookingForRecommendation) {
     score += calculateRecommendationBoost(material);
+  }
+  
+  // Boost materials that have substantial content
+  if (material.content && material.content.length > 500) {
+    score += 0.1;
   }
   
   // Normalize score to reasonable range
@@ -264,19 +272,34 @@ function calculateStructuredDataRelevance(structuredData: StructuredData | undef
 }
 
 /**
- * Calculate matching score for intent keywords
+ * Calculate matching score for intent keywords with improved matching
  */
 function calculateIntentKeywordMatching(materialKeywords: string[] | undefined, queryKeywords: string[]): number {
   if (!materialKeywords || materialKeywords.length === 0) return 0;
   
-  const matches = materialKeywords.filter(keyword => 
-    queryKeywords.some(qKeyword => 
-      keyword.toLowerCase().includes(qKeyword.toLowerCase()) ||
-      qKeyword.toLowerCase().includes(keyword.toLowerCase())
-    )
-  );
+  let matchScore = 0;
   
-  return Math.min(matches.length * 0.1, 0.3);
+  for (const materialKeyword of materialKeywords) {
+    for (const queryKeyword of queryKeywords) {
+      const matLower = materialKeyword.toLowerCase();
+      const queryLower = queryKeyword.toLowerCase();
+      
+      // Exact match
+      if (matLower === queryLower) {
+        matchScore += 0.15;
+      }
+      // Substring match
+      else if (matLower.includes(queryLower) || queryLower.includes(matLower)) {
+        matchScore += 0.1;
+      }
+      // Stem similarity
+      else if (haveSimilarStem(matLower, queryLower)) {
+        matchScore += 0.05;
+      }
+    }
+  }
+  
+  return Math.min(matchScore, 0.4);
 }
 
 /**
@@ -339,11 +362,80 @@ function extractKeywords(text: string): string[] {
 }
 
 /**
- * Count matching keywords between two sets
+ * Count matching keywords between two sets with fuzzy matching
  */
 function countMatches(queryWords: string[], targetWords: string[]): number {
+  let matches = 0;
   const targetSet = new Set(targetWords);
-  return queryWords.filter(word => targetSet.has(word)).length;
+  
+  for (const queryWord of queryWords) {
+    // Exact match
+    if (targetSet.has(queryWord)) {
+      matches += 1;
+      continue;
+    }
+    
+    // Partial match (substring matching for compound words)
+    for (const targetWord of targetWords) {
+      if (queryWord.length > 3 && targetWord.length > 3) {
+        if (targetWord.includes(queryWord) || queryWord.includes(targetWord)) {
+          matches += 0.7;
+          break;
+        }
+        // Check for common word stems
+        if (haveSimilarStem(queryWord, targetWord)) {
+          matches += 0.5;
+          break;
+        }
+      }
+    }
+  }
+  
+  return matches;
+}
+
+/**
+ * Check if two words have similar stems (simple heuristic)
+ */
+function haveSimilarStem(word1: string, word2: string): boolean {
+  // Simple stem comparison - check if first 4+ chars match
+  if (word1.length >= 4 && word2.length >= 4) {
+    const stem1 = word1.substring(0, Math.min(word1.length - 1, 5));
+    const stem2 = word2.substring(0, Math.min(word2.length - 1, 5));
+    return stem1 === stem2;
+  }
+  return false;
+}
+
+/**
+ * Calculate semantic similarity bonus for related concepts
+ */
+function calculateSemanticBonus(query: string, material: TrainingMaterial): number {
+  let bonus = 0;
+  const queryLower = query.toLowerCase();
+  
+  // Check for semantic field matches (simple approach)
+  const semanticFields = [
+    ['best', 'top', 'recommended', 'premium', 'quality', 'excellent'],
+    ['cheap', 'affordable', 'budget', 'economical', 'inexpensive'],
+    ['compare', 'versus', 'difference', 'comparison', 'vs'],
+    ['how', 'guide', 'tutorial', 'steps', 'process', 'method'],
+    ['review', 'rating', 'opinion', 'feedback', 'experience'],
+    ['feature', 'specification', 'capability', 'function', 'attribute']
+  ];
+  
+  for (const field of semanticFields) {
+    const queryHasField = field.some(term => queryLower.includes(term));
+    if (queryHasField) {
+      const materialText = (material.title + ' ' + (material.summary || '') + ' ' + (material.content?.substring(0, 500) || '')).toLowerCase();
+      const materialHasField = field.some(term => materialText.includes(term));
+      if (materialHasField) {
+        bonus += 0.2;
+      }
+    }
+  }
+  
+  return Math.min(bonus, 0.6);
 }
 
 /**

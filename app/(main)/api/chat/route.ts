@@ -9,6 +9,7 @@ import { selectRelevantContext, buildOptimizedContext } from '@/lib/ai/context';
 import { findMostRelevantProduct } from '@/lib/ai/conversation';
 import { findBestProductMatches } from '@/lib/ai/product-matching';
 import { validateAIResponse } from '@/lib/ai/response-validator';
+import { validateResponseIntelligently, getValidationConfig } from '@/lib/ai/intelligent-validator';
 import { detectLanguageWithoutRedis } from '@/lib/ai/simple-language';
 import { chatRequestSchema, validateRequest, sanitizeString, createValidationErrorResponse } from '@/lib/validation';
 
@@ -194,8 +195,14 @@ async function generateChatResponse(message: string, conversationHistory: { role
     
     // Debug: Log training context availability
     console.log(`🔍 Training Context: ${trainingContext ? trainingContext.length : 0} characters, ${relevantContext.length} materials selected`);
+    
+    // More intelligent handling of limited context
+    let contextGuidance = '';
     if (trainingContext.length < 100) {
-      console.warn('⚠️ Very little training context available - AI may not have enough information');
+      console.warn('⚠️ Limited training context available - using flexible interpretation');
+      contextGuidance = '\n\nNote: Limited training materials available. Use intelligent interpretation to provide helpful responses based on available information.';
+    } else if (trainingContext.length < 500) {
+      contextGuidance = '\n\nNote: Moderate amount of training materials available. Make reasonable inferences where appropriate.';
     }
 
     // Detect language from user message with simple session memory (no Redis)
@@ -228,10 +235,8 @@ async function generateChatResponse(message: string, conversationHistory: { role
     let systemPrompt = buildSystemPrompt(chatSettings?.instructions || '');
     systemPrompt = addLanguageToSystemPrompt(systemPrompt, detectedLanguage);
     
-    // Add explicit warning if no training context available
-    if (trainingContext.length < 50) {
-      systemPrompt += '\n\n⚠️ WARNING: Very limited or no training materials provided. You MUST refuse to answer questions as you have no information to work with.';
-    }
+    // Add context guidance instead of strict refusal
+    systemPrompt += contextGuidance;
     
     // Enforce language in user message
     const languageEnforcedMessage = enforceLanguageInMessage(message, detectedLanguage);
@@ -242,10 +247,10 @@ async function generateChatResponse(message: string, conversationHistory: { role
     // Debug: Log system prompt length and key parts
     console.log(`📝 System Prompt: ${systemPrompt.length} chars, Training: ${trainingContext.length} chars, Final: ${finalSystemContent.length} chars`);
     
-    // Debug: Log if critical rule is in the prompt
-    const hasCriticalRule = finalSystemContent.includes('🚨 CRITICAL RULE');
+    // Debug: Log validation approach
+    const hasIntelligentGuidelines = finalSystemContent.includes('INTELLIGENT CONTENT GUIDELINES');
     const hasTrainingMaterials = finalSystemContent.includes('Relevant Training Materials:');
-    console.log(`🔍 Debug: Critical rule present: ${hasCriticalRule}, Training materials present: ${hasTrainingMaterials}`);
+    console.log(`🔍 Debug: Intelligent guidelines: ${hasIntelligentGuidelines}, Training materials present: ${hasTrainingMaterials}`);
     
     // Debug: Log first 500 chars of what we're sending to AI
     console.log(`🤖 First 500 chars sent to AI:`, finalSystemContent.substring(0, 500));
@@ -301,7 +306,17 @@ async function generateChatResponse(message: string, conversationHistory: { role
     // Validate and sanitize the AI response
     const validationResult = validateAIResponse(parseResult.structured!, affiliateLinks || []);
     
-    if (!validationResult.isValid) {
+    // Additional intelligent validation
+    const intelligentValidation = validateResponseIntelligently(
+      message,
+      parseResult.structured!.message,
+      trainingContext,
+      getValidationConfig({ strictnessLevel: 'moderate', allowInference: true })
+    );
+    
+    console.log(`🤖 Intelligent Validation: Confidence ${(intelligentValidation.confidence * 100).toFixed(1)}% - ${intelligentValidation.reasoning}`);
+    
+    if (!validationResult.isValid && intelligentValidation.confidence < 0.2) {
       console.error('❌ AI Response Validation Failed:', validationResult.errors);
       return getFallbackResponseFromText(rawResponse, affiliateLinks || []);
     }

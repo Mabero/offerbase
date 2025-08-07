@@ -103,30 +103,6 @@ export interface ChatWidgetCoreProps {
 // Utility function to generate unique message IDs
 const generateMessageId = () => `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-// Utility function to create content-based hash for duplicate prevention
-const createContentHash = (data: MessageContent): string => {
-  // Create a deterministic hash based on content only (no timestamps)
-  const hashContent = {
-    type: data.type,
-    message: data.message?.trim() || '',
-    linksCount: data.links?.length || 0,
-    linksHashes: data.links?.map(link => `${link.url}:${link.name || link.description || ''}`).sort() || [],
-    simpleLink: data.simple_link ? `${data.simple_link.url}:${data.simple_link.text}` : null
-  };
-  
-  // Create a simple hash using JSON.stringify (deterministic for same content)
-  const hashString = JSON.stringify(hashContent);
-  
-  // Simple hash function for consistent IDs
-  let hash = 0;
-  for (let i = 0; i < hashString.length; i++) {
-    const char = hashString.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  
-  return `content_${Math.abs(hash).toString(36)}`;
-};
 
 // Simple icon components using SVG (no external dependencies)
 const SendIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
@@ -983,8 +959,6 @@ export function ChatWidgetCore({
   }, []);
 
   
-  // Track processed responses to prevent duplicates
-  const [processedResponses, setProcessedResponses] = useState<Set<string>>(new Set());
   
   // Track active API requests to prevent multiple simultaneous calls
   const activeRequestsRef = useRef<Set<string>>(new Set());
@@ -1025,14 +999,14 @@ export function ChatWidgetCore({
   };
   
   const shouldProcessResponse = (responseSequence: number): boolean => {
-    // Process responses in order - reject old/duplicate responses
+    // Process responses in order
     const expected = processingSequence.current + 1;
     if (responseSequence === expected) {
       processingSequence.current = responseSequence;
       console.log('✅ Processing response in sequence:', responseSequence);
       return true;
     } else {
-      console.warn('🚫 Rejecting out-of-sequence response:', { received: responseSequence, expected });
+      console.warn('⚠️ Out-of-sequence response:', { received: responseSequence, expected });
       return false;
     }
   };
@@ -1047,39 +1021,16 @@ export function ChatWidgetCore({
     if (!shouldProcessResponse(responseSequence)) {
       return;
     }
-    // Create a content-based hash for true duplicate prevention
-    const responseHash = createContentHash(data);
     
     console.log('🔍 Processing AI response:', { 
-      hash: responseHash, 
       type: data.type, 
       messageLength: data.message?.length,
       hasLinks: !!data.links,
       hasSimpleLink: !!data.simple_link 
     });
     
-    // Check if we've already processed this exact response content
-    if (processedResponses.has(responseHash)) {
-      console.warn('🚫 Duplicate response detected, skipping:', { hash: responseHash, message: data.message?.substring(0, 50) });
-      return;
-    }
-    
-    // Mark this response as processed
-    setProcessedResponses(prev => new Set([...prev, responseHash]));
-    
     // Add message with simple typewriter effect
     const messageId = generateMessageId();
-    const contentHash = createContentHash(data);
-    
-    // Check for duplicates
-    const existingHashes = messages
-      .filter(msg => msg.type === 'bot')
-      .map(msg => createContentHash(msg.content));
-    
-    if (existingHashes.includes(contentHash)) {
-      console.warn('🚫 Duplicate detected, skipping');
-      return;
-    }
     
     // Add message with typing flag
     const newMessage: BotMessage = {
@@ -1102,15 +1053,6 @@ export function ChatWidgetCore({
         )
       );
     }, Math.max(data.message.length * 15, 600)); // Fast typing
-    
-    // Clean up old processed responses to prevent memory growth (keep last 10)
-    setProcessedResponses(prev => {
-      const responses = Array.from(prev);
-      if (responses.length > 10) {
-        return new Set(responses.slice(-10));
-      }
-      return prev;
-    });
   };
 
   // Handle message actions
@@ -1685,27 +1627,12 @@ export function ChatWidgetCore({
         )}
         
         
-        {/* Render messages with deduplication safeguard */}
-        {messages.reduce((acc, message, index) => {
-          // Skip if this is a duplicate of the previous message
-          if (index > 0) {
-            const prevMessage = messages[index - 1];
-            if (prevMessage.type === 'bot' && 
-                message.type === 'bot' && 
-                prevMessage.content.message === message.content.message &&
-                Math.abs(prevMessage.timestamp - message.timestamp) < 1000) {
-              console.warn('🚫 Skipping duplicate message at render:', message.content.message?.substring(0, 30));
-              return acc;
-            }
-          }
-          
-          acc.push(
-            <div key={message.id || `message-${index}`}>
-              {renderMessage(message)}
-            </div>
-          );
-          return acc;
-        }, [] as React.ReactElement[])}
+        {/* Render messages */}
+        {messages.map((message, index) => (
+          <div key={message.id || `message-${index}`}>
+            {renderMessage(message)}
+          </div>
+        ))}
         
         {isLoading && (
           <TypingIndicator chatSettings={chatSettings} styles={styles} />
