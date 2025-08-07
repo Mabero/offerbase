@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
     // Validate input using Zod schema
     const validation = validateRequest(chatRequestSchema, body);
     if (!validation.success) {
+      console.error('🚨 Validation Error:', validation.error, 'Body received:', JSON.stringify(body, null, 2));
       return createValidationErrorResponse(validation.error);
     }
 

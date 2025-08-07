@@ -25,9 +25,12 @@ export const chatRequestSchema = z.object({
     ),
   
   sessionId: z.string()
-    .uuid("Invalid session ID format")
     .nullable()
-    .optional(),
+    .optional()
+    .refine(
+      (id) => !id || process.env.NODE_ENV === 'development' ? true : z.string().uuid().safeParse(id).success,
+      "Invalid session ID format - must be UUID in production"
+    ),
   
   conversationHistory: z.array(
     z.object({
