@@ -191,6 +191,12 @@ async function generateChatResponse(message: string, conversationHistory: { role
 
     // Build training context from the smart context selection
     const trainingContext = buildOptimizedContext(relevantContext);
+    
+    // Debug: Log training context availability
+    console.log(`🔍 Training Context: ${trainingContext ? trainingContext.length : 0} characters, ${relevantContext.length} materials selected`);
+    if (trainingContext.length < 100) {
+      console.warn('⚠️ Very little training context available - AI may not have enough information');
+    }
 
     // Detect language from user message with simple session memory (no Redis)
     const cachedLanguageResult = await detectLanguageWithoutRedis(
@@ -222,14 +228,25 @@ async function generateChatResponse(message: string, conversationHistory: { role
     let systemPrompt = buildSystemPrompt(chatSettings?.instructions || '');
     systemPrompt = addLanguageToSystemPrompt(systemPrompt, detectedLanguage);
     
+    // Add explicit warning if no training context available
+    if (trainingContext.length < 50) {
+      systemPrompt += '\n\n⚠️ WARNING: Very limited or no training materials provided. You MUST refuse to answer questions as you have no information to work with.';
+    }
+    
     // Enforce language in user message
     const languageEnforcedMessage = enforceLanguageInMessage(message, detectedLanguage);
+    
+    // Build final system message content
+    const finalSystemContent = systemPrompt + trainingContext + affiliateContext + `\n\nSite ID: ${siteId}`;
+    
+    // Debug: Log system prompt length and key parts
+    console.log(`📝 System Prompt: ${systemPrompt.length} chars, Training: ${trainingContext.length} chars, Final: ${finalSystemContent.length} chars`);
     
     // Build the conversation messages for OpenAI
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: 'system',
-        content: systemPrompt + trainingContext + affiliateContext + `\n\nSite ID: ${siteId}`
+        content: finalSystemContent
       },
       ...conversationHistory.map(msg => ({
         role: msg.role as 'user' | 'assistant',
