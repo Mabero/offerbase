@@ -15,6 +15,16 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle
+} from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import ColorPicker from "@/components/ColorPicker";
@@ -180,6 +190,8 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   const [preferredLanguage, setPreferredLanguage] = useState<string | null>(null);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
   const [chatStats, setChatStats] = useState<ChatStats>({
     totalChats: 0,
     totalMessages: 0,
@@ -911,13 +923,16 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     }
   };
 
-  const handleDeleteSession = async (sessionId: string) => {
-    if (!confirm('Are you sure you want to delete this chat session? This action cannot be undone.')) {
-      return;
-    }
+  const handleDeleteSessionClick = (sessionId: string) => {
+    setSessionToDelete(sessionId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!sessionToDelete) return;
 
     try {
-      const response = await fetch(`/api/chat-sessions/${sessionId}`, {
+      const response = await fetch(`/api/chat-sessions/${sessionToDelete}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -927,10 +942,10 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       }
       
       // Remove the session from local state
-      setChatSessions(prev => prev.filter(session => session.id !== sessionId));
+      setChatSessions(prev => prev.filter(session => session.id !== sessionToDelete));
       
       // Close the session details modal if it's the deleted session
-      if (selectedSession?.id === sessionId) {
+      if (selectedSession?.id === sessionToDelete) {
         setSelectedSession(null);
         setSessionMessages([]);
       }
@@ -939,6 +954,10 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         title: "Success",
         description: "Chat session deleted successfully"
       });
+      
+      // Close the dialog
+      setDeleteDialogOpen(false);
+      setSessionToDelete(null);
     } catch (error) {
       console.error('Error deleting chat session:', error);
       toast({
@@ -946,7 +965,16 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         description: "Failed to delete chat session",
         variant: "destructive"
       });
+      
+      // Close the dialog even on error
+      setDeleteDialogOpen(false);
+      setSessionToDelete(null);
     }
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteDialogOpen(false);
+    setSessionToDelete(null);
   };
 
   const handleRefreshChatLogs = async () => {
@@ -1962,7 +1990,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                                   size="sm"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleDeleteSession(session.id);
+                                    handleDeleteSessionClick(session.id);
                                   }}
                                   className="text-red-600 hover:text-red-700 hover:bg-red-50"
                                 >
@@ -2183,6 +2211,29 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Chat Session</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this chat session? This action cannot be undone and will permanently remove all messages in this session.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleDeleteCancel}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              Delete Session
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

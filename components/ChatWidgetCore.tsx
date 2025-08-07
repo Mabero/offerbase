@@ -333,7 +333,6 @@ const TypewriterMessage = ({
 }) => {
   const [displayedText, setDisplayedText] = useState('');
   const [isTyping, setIsTyping] = useState(true);
-  const [hasCompleted, setHasCompleted] = useState(false);
   const completedRef = useRef(false);
   const onCompleteCalledRef = useRef(false);
 
@@ -345,7 +344,6 @@ const TypewriterMessage = ({
     // Reset completion state when message changes
     setDisplayedText('');
     setIsTyping(true);
-    setHasCompleted(false);
     completedRef.current = false;
     onCompleteCalledRef.current = false;
 
@@ -371,12 +369,15 @@ const TypewriterMessage = ({
           completedRef.current = true;
           onCompleteCalledRef.current = true;
           setIsTyping(false);
-          setHasCompleted(true);
           
           console.log('🎯 TypewriterMessage: Completing animation for message:', message.substring(0, 30));
           
-          // Call onComplete immediately - no delay needed since we have enhanced guards
-          onComplete();
+          // Small delay to ensure visual completion before triggering state change
+          setTimeout(() => {
+            if (!isCancelled && completedRef.current) {
+              onComplete();
+            }
+          }, 50); // Minimal delay for visual smoothness
         }
       }
     };
@@ -1058,11 +1059,9 @@ export function ChatWidgetCore({
   const [processedResponses, setProcessedResponses] = useState<Set<string>>(new Set());
   
   // Track active API requests to prevent multiple simultaneous calls
-  const [activeRequests, setActiveRequests] = useState<Set<string>>(new Set());
   const activeRequestsRef = useRef<Set<string>>(new Set());
   
   // Message sequence tracking for ordering guarantee
-  const [messageSequence, setMessageSequence] = useState<number>(0);
   const messageSequenceRef = useRef<number>(0);
   const processingSequence = useRef<number>(0);
 
@@ -1076,18 +1075,12 @@ export function ChatWidgetCore({
     
     // Add to active requests
     activeRequestsRef.current.add(requestKey);
-    setActiveRequests(prev => new Set([...prev, requestKey]));
     console.log('🚀 Started request:', requestKey);
     return true;
   };
   
   const endRequest = (requestKey: string) => {
     activeRequestsRef.current.delete(requestKey);
-    setActiveRequests(prev => {
-      const newSet = new Set(prev);
-      newSet.delete(requestKey);
-      return newSet;
-    });
     console.log('✅ Ended request:', requestKey);
   };
   
@@ -1100,7 +1093,6 @@ export function ChatWidgetCore({
   // Helper functions for message sequence management
   const getNextSequenceNumber = (): number => {
     messageSequenceRef.current += 1;
-    setMessageSequence(messageSequenceRef.current);
     return messageSequenceRef.current;
   };
   
@@ -1121,67 +1113,63 @@ export function ChatWidgetCore({
   const handleTypewriterComplete = (message: string) => {
     console.log('📝 TypewriterMessage completed, preparing to add message:', message.substring(0, 30));
     
-    // CRITICAL: Set typing states to false FIRST to hide TypewriterMessage immediately
+    // Double-check that we're still not typing (prevents race conditions)
+    if (!isTypingRef.current) {
+      console.warn('⚠️ Typing not in progress, aborting message add');
+      return;
+    }
+    
+    // If there's pending structured content, use it; otherwise create simple message
+    const finalContent = pendingStructuredContent || { 
+      type: 'message', 
+      message: message 
+    };
+    
+    const messageId = generateMessageId();
+    const contentHash = createContentHash(finalContent);
+    
+    console.log('➕ Adding bot message to state:', { 
+      id: messageId, 
+      type: finalContent.type, 
+      hasLinks: !!finalContent.links,
+      hash: contentHash 
+    });
+    
+    // CRITICAL: Clear typing states and add message in single synchronous operation
+    setMessages(prev => {
+      // Enhanced duplicate check: prevent messages with same content hash
+      const existingHashes = prev
+        .filter(msg => msg.type === 'bot')
+        .map(msg => createContentHash(msg.content));
+      
+      if (existingHashes.includes(contentHash)) {
+        console.warn('🚫 Duplicate content hash detected at render level, skipping add:', contentHash);
+        return prev;
+      }
+      
+      // Also check last message content for quick duplicate prevention
+      const lastMessage = prev[prev.length - 1];
+      if (lastMessage && 
+          lastMessage.type === 'bot' && 
+          lastMessage.content.message === finalContent.message &&
+          lastMessage.content.type === finalContent.type) {
+        console.warn('🚫 Duplicate message detected at render level, skipping add');
+        return prev;
+      }
+      
+      return [...prev, { 
+        type: 'bot', 
+        content: finalContent,
+        id: messageId,
+        timestamp: Date.now()
+      } as BotMessage];
+    });
+    
+    // Clear all typing states AFTER adding message to prevent double display
     setIsTyping(false);
     isTypingRef.current = false;
     setTypingMessage(null);
-    
-    // Use setTimeout to ensure state updates are processed and TypewriterMessage is hidden before adding message
-    setTimeout(() => {
-      // Double-check that we're still not typing (prevents race conditions)
-      if (isTypingRef.current) {
-        console.warn('⚠️ Typing still in progress, aborting message add');
-        return;
-      }
-      
-      // If there's pending structured content, use it; otherwise create simple message
-      const finalContent = pendingStructuredContent || { 
-        type: 'message', 
-        message: message 
-      };
-      
-      const messageId = generateMessageId();
-      const contentHash = createContentHash(finalContent);
-      
-      console.log('➕ Adding bot message to state:', { 
-        id: messageId, 
-        type: finalContent.type, 
-        hasLinks: !!finalContent.links,
-        hash: contentHash 
-      });
-      
-      setMessages(prev => {
-        // Enhanced duplicate check: prevent messages with same content hash
-        const existingHashes = prev
-          .filter(msg => msg.type === 'bot')
-          .map(msg => createContentHash(msg.content));
-        
-        if (existingHashes.includes(contentHash)) {
-          console.warn('🚫 Duplicate content hash detected at render level, skipping add:', contentHash);
-          return prev;
-        }
-        
-        // Also check last message content for quick duplicate prevention
-        const lastMessage = prev[prev.length - 1];
-        if (lastMessage && 
-            lastMessage.type === 'bot' && 
-            lastMessage.content.message === finalContent.message &&
-            lastMessage.content.type === finalContent.type) {
-          console.warn('🚫 Duplicate message detected at render level, skipping add');
-          return prev;
-        }
-        
-        return [...prev, { 
-          type: 'bot', 
-          content: finalContent,
-          id: messageId,
-          timestamp: Date.now()
-        } as BotMessage];
-      });
-      
-      // Clear pending content
-      setPendingStructuredContent(null);
-    }, 100); // Increased delay to ensure TypewriterMessage is completely hidden
+    setPendingStructuredContent(null);
     
     // Clean up old processed responses to prevent memory growth (keep last 10)
     setProcessedResponses(prev => {
@@ -1834,7 +1822,7 @@ export function ChatWidgetCore({
           <TypingIndicator chatSettings={chatSettings} styles={styles} />
         )}
         
-        {isTyping && typingMessage && (
+        {isTyping && typingMessage && isTypingRef.current && (
           <TypewriterMessage 
             message={typingMessage}
             chatSettings={chatSettings}
