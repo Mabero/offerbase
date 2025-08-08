@@ -382,46 +382,9 @@ async function getFallbackMaterials(
  * Build domain scope summary to show AI the full range of available materials
  * Prevents AI from incorrectly limiting scope to single domain
  */
-function buildDomainScopeSummary(contextItems: ContextItem[]): string {
-  // Extract unique domains and companies from context items
-  const domains = new Set<string>();
-  const companies = new Set<string>();
-  
-  contextItems.forEach(item => {
-    if (item.sourceInfo?.domain) {
-      domains.add(item.sourceInfo.domain);
-    }
-    if (item.sourceInfo?.company) {
-      companies.add(item.sourceInfo.company);
-    }
-  });
-  
-  // Build summary
-  let summary = 'SCOPE AWARENESS: ';
-  
-  if (companies.size > 0) {
-    const companiesList = Array.from(companies).slice(0, 5); // Limit to avoid too long
-    summary += `You have materials from ${companies.size} companies: ${companiesList.join(', ')}`;
-    if (companies.size > 5) {
-      summary += ` and ${companies.size - 5} others`;
-    }
-  }
-  
-  if (domains.size > 0) {
-    const domainsList = Array.from(domains).slice(0, 3);
-    summary += ` | Domains include: ${domainsList.join(', ')}`;
-    if (domains.size > 3) {
-      summary += ` +${domains.size - 3} more`;
-    }
-  }
-  
-  if (companies.size === 0 && domains.size === 0) {
-    summary += 'You have materials from multiple sources.';
-  }
-  
-  summary += ' - You are NOT limited to a single domain or company.';
-  
-  return summary;
+function buildDomainScopeSummary(): string {
+  // Simple, non-confusing scope message
+  return 'IMPORTANT: You are a general assistant that can help with ANY topic. Do NOT position yourself as a specialist in any particular domain, company, or product category. These training materials are just examples of available information - they do not define your expertise or specialization.';
 }
 
 /**
@@ -434,7 +397,7 @@ export function buildOptimizedContext(contextItems: ContextItem[]): string {
   }
 
   // Build domain scope summary for AI awareness
-  const domainSummary = buildDomainScopeSummary(contextItems);
+  const domainSummary = buildDomainScopeSummary();
   
   let context = `\n\n${domainSummary}\n\nTraining Materials with Source Intelligence:\n`;
   
