@@ -747,14 +747,9 @@ export function ChatWidgetCore({
   const scrollToBottom = (force = false) => {
     console.log('📜 scrollToBottom called:', { force, isInputFocused, messagesContainerExists: !!messagesContainerRef.current });
     
-    // On mobile, don't auto-scroll when input is focused unless forced
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-    console.log('📱 Mobile check:', { isMobile, windowWidth: typeof window !== 'undefined' ? window.innerWidth : 'undefined' });
-    
-    if (isMobile && isInputFocused && !force) {
-      console.log('🚫 Scroll blocked by mobile+input focus logic');
-      return;
-    }
+    // Note: Removed mobile detection logic that was blocking scroll in embedded widgets
+    // The 440px iframe width was triggering mobile detection on desktop, preventing auto-scroll
+    // Auto-scroll should always work during AI responses for better UX
     
     // Scroll the messages container instead of the entire page
     if (messagesContainerRef.current) {
