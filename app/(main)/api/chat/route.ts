@@ -226,36 +226,59 @@ async function generateChatResponse(message: string, conversationHistory: { role
     // Language will be handled naturally by AI based on user input and preferences
     console.log(`Session ${sessionId}: AI will naturally respond in user's language${chatSettings?.preferred_language ? ` (site preference: ${chatSettings.preferred_language})` : ''}`);
     
-    // Build domain-aware product catalog for AI-first selection
+    // Build contextually filtered product catalog - only relevant products
     let productCatalog = '';
     if (affiliateLinks && affiliateLinks.length > 0) {
-      productCatalog = '\n\nProduct Catalog with Domain Context (use product IDs for recommendations):\n';
-      affiliateLinks.forEach((link) => {
-        // Try to find related training material to understand product domain context
-        const relatedMaterial = trainingMaterials?.find(material => {
-          const materialTitle = material.title?.toLowerCase() || '';
-          const productTitle = link.title.toLowerCase();
-          
-          // Check if training material and product are related
-          return materialTitle.includes(productTitle.split(' ')[0]) || 
-                 productTitle.includes(materialTitle.split(' ')[0]) ||
-                 (material.metadata?.url && link.url && 
-                  extractDomainFromUrl(material.metadata.url as string) === extractDomainFromUrl(link.url));
-        });
-        
-        // Add domain context to product listing
-        let contextInfo = '';
-        if (relatedMaterial?.metadata?.url) {
-          const domain = extractDomainFromUrl(relatedMaterial.metadata.url as string);
-          if (domain) {
-            const company = domain.replace(/\.(com|org|net|io|co|app|dev)$/, '').replace(/www\./, '');
-            contextInfo = ` [Domain: ${domain} | Company: ${company}]`;
+      // Extract domains from current training context to filter products
+      const contextDomains = new Set<string>();
+      const contextCompanies = new Set<string>();
+      
+      relevantContext.forEach(item => {
+        if (item.sourceInfo?.domain) {
+          contextDomains.add(item.sourceInfo.domain.toLowerCase());
+        }
+        if (item.sourceInfo?.company) {
+          contextCompanies.add(item.sourceInfo.company.toLowerCase());
+        }
+      });
+      
+      console.log(`🔍 Context domains for product filtering:`, Array.from(contextDomains));
+      console.log(`🔍 Context companies for product filtering:`, Array.from(contextCompanies));
+      
+      // Filter products to only those relevant to current conversation context
+      const relevantProducts = affiliateLinks.filter(link => {
+        // Check if product matches any of the context domains/companies
+        if (link.url) {
+          const productDomain = extractDomainFromUrl(link.url).toLowerCase();
+          if (contextDomains.has(productDomain)) {
+            return true;
           }
         }
         
-        productCatalog += `ID: ${link.id} | Title: ${link.title}${contextInfo} | Description: ${link.description || 'No description'}\n`;
+        // Check if product title matches context companies (flexible matching)
+        const productTitleLower = link.title.toLowerCase();
+        for (const company of contextCompanies) {
+          if (productTitleLower.includes(company) || company.includes(productTitleLower.split(' ')[0])) {
+            return true;
+          }
+        }
+        
+        return false;
       });
-      productCatalog += '\nIMPORTANT: Only recommend products that are contextually relevant to the user\'s question and match the domain/company being discussed.';
+      
+      console.log(`🎯 Filtered products: ${relevantProducts.length} relevant out of ${affiliateLinks.length} total`);
+      
+      if (relevantProducts.length > 0) {
+        productCatalog = '\n\nRelevant Products (use product IDs for recommendations):\n';
+        relevantProducts.forEach((link) => {
+          const domain = link.url ? extractDomainFromUrl(link.url) : '';
+          const contextInfo = domain ? ` [Domain: ${domain}]` : '';
+          productCatalog += `ID: ${link.id} | Title: ${link.title}${contextInfo} | Description: ${link.description || 'No description'}\n`;
+        });
+        productCatalog += '\nNOTE: Only these products are contextually relevant to the current conversation.';
+      } else {
+        console.log('⚠️ No contextually relevant products found for current conversation');
+      }
     }
     
     // Helper function to extract domain from URL

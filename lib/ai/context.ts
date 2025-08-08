@@ -327,19 +327,29 @@ async function searchMaterials(
 
 
 /**
- * Get full content from material, preferring complete content over summaries
+ * Get balanced content from material, preventing length bias
+ * Limits content to ensure equal weight regardless of original length
  */
 function getFullContent(material: TrainingMaterial): string {
-  // Always prefer full content over summaries for completeness
-  if (material.content && material.content.trim().length > 0) {
-    return material.content.trim();
-  }
+  const MAX_CONTENT_LENGTH = 800; // Reasonable limit for balanced context
   
+  let content = '';
+  
+  // Prefer summary for balanced representation, fall back to truncated content
   if (material.summary && material.summary.trim().length > 0) {
-    return material.summary.trim();
+    content = material.summary.trim();
+  } else if (material.content && material.content.trim().length > 0) {
+    content = material.content.trim();
+  } else {
+    return `Title: ${material.title}\n(No detailed content available)`;
   }
   
-  return `Title: ${material.title}\n(No detailed content available)`;
+  // Truncate if too long to prevent length bias
+  if (content.length > MAX_CONTENT_LENGTH) {
+    content = content.substring(0, MAX_CONTENT_LENGTH) + '...[truncated for balance]';
+  }
+  
+  return content;
 }
 
 /**
