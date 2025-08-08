@@ -85,7 +85,13 @@ export async function POST(request: NextRequest) {
     const response = await generateChatResponse(sanitizedMessage, sanitizedHistory, siteId, chatSessionId || undefined);
     
     // Extract debug info from response and remove it from the response
-    const responseDebugInfo = (response as Record<string, unknown>)?._debugInfo as Record<string, unknown> || {};
+    interface DebugInfo {
+      hasRawResponse?: boolean;
+      rawResponseLength?: number;
+      hasReasoning?: boolean;
+      complianceMarkers?: number;
+    }
+    const responseDebugInfo = (response as Record<string, unknown>)?._debugInfo as DebugInfo || {};
     delete (response as Record<string, unknown>)._debugInfo; // Clean up internal debug info
     
     // Log chat messages if session tracking is available
@@ -132,9 +138,9 @@ export async function POST(request: NextRequest) {
         'X-Debug-Timestamp': timestamp,
         'X-Debug-Environment': environment,
         'X-Debug-API-Version': 'v2.1.0-with-reasoning',
-        'X-Debug-Has-Reasoning': (responseDebugInfo as any)?.hasReasoning ? 'true' : 'false',
-        'X-Debug-Response-Length': String((responseDebugInfo as any)?.rawResponseLength || 0),
-        'X-Debug-Compliance-Markers': String((responseDebugInfo as any)?.complianceMarkers || 0)
+        'X-Debug-Has-Reasoning': responseDebugInfo?.hasReasoning ? 'true' : 'false',
+        'X-Debug-Response-Length': String(responseDebugInfo?.rawResponseLength || 0),
+        'X-Debug-Compliance-Markers': String(responseDebugInfo?.complianceMarkers || 0)
       }
     });
     
