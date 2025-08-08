@@ -1231,6 +1231,17 @@ export function ChatWidgetCore({
         .filter(msg => msg.content.trim().length > 0)
         .slice(-18); // Keep only the most recent 18 messages
       
+      // Debug: Log any suspiciously long messages in conversation history
+      conversationHistory.forEach((msg, index) => {
+        if (msg.content.length > 1000) {
+          console.warn(`⚠️ Long message in conversation history at index ${index}:`, {
+            role: msg.role,
+            length: msg.content.length,
+            preview: msg.content.substring(0, 200) + '...'
+          });
+        }
+      });
+      
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
         headers,
@@ -1334,6 +1345,17 @@ export function ChatWidgetCore({
         }))
         .filter(msg => msg.content.trim().length > 0)
         .slice(-18); // Keep only the most recent 18 messages
+      
+      // Debug: Log any suspiciously long messages in conversation history
+      conversationHistory.forEach((msg, index) => {
+        if (msg.content.length > 1000) {
+          console.warn(`⚠️ Long message in conversation history at index ${index}:`, {
+            role: msg.role,
+            length: msg.content.length,
+            preview: msg.content.substring(0, 200) + '...'
+          });
+        }
+      });
       
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',

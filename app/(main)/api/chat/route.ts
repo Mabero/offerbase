@@ -296,10 +296,10 @@ async function generateChatResponse(message: string, conversationHistory: { role
 
     // Call OpenAI API directly
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-mini',
       messages: messages,
-      max_tokens: 500,
-      temperature: 0.7,
+      max_completion_tokens: 2000,
+      temperature: 1,
       stream: false,
       response_format: { type: "json_object" }
     });
@@ -308,7 +308,8 @@ async function generateChatResponse(message: string, conversationHistory: { role
     
     // Debug: Log AI's raw response
     console.log(`🤖 AI Raw Response:`, rawResponse?.substring(0, 300));
-    
+    console.log("OpenAI full response:", completion);
+
     if (!rawResponse) {
       throw new Error('No response from OpenAI');
     }
@@ -317,6 +318,8 @@ async function generateChatResponse(message: string, conversationHistory: { role
     const parseResult = parseAIResponse(rawResponse);
     
     if (!parseResult.success) {
+      console.error('❌ JSON Parse Failed:', parseResult.error);
+      console.log('📝 Raw response that failed to parse:', rawResponse?.substring(0, 500));
       return getFallbackResponseFromText(rawResponse, affiliateLinks || []);
     }
 
@@ -325,6 +328,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
     
     if (!validationResult.isValid) {
       console.warn('⚠️ Basic structure validation failed, using fallback');
+      console.log('📝 Parsed structure that failed validation:', JSON.stringify(parseResult.structured, null, 2));
       return getFallbackResponseFromText(rawResponse, affiliateLinks || []);
     }
 
