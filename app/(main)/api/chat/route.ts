@@ -85,8 +85,8 @@ export async function POST(request: NextRequest) {
     const response = await generateChatResponse(sanitizedMessage, sanitizedHistory, siteId, chatSessionId || undefined);
     
     // Extract debug info from response and remove it from the response
-    const responseDebugInfo = (response as any)?._debugInfo || {};
-    delete (response as any)._debugInfo; // Clean up internal debug info
+    const responseDebugInfo = (response as Record<string, unknown>)?._debugInfo as Record<string, unknown> || {};
+    delete (response as Record<string, unknown>)._debugInfo; // Clean up internal debug info
     
     // Log chat messages if session tracking is available
     if (chatSessionId && supabase) {
@@ -132,9 +132,9 @@ export async function POST(request: NextRequest) {
         'X-Debug-Timestamp': timestamp,
         'X-Debug-Environment': environment,
         'X-Debug-API-Version': 'v2.1.0-with-reasoning',
-        'X-Debug-Has-Reasoning': responseDebugInfo?.hasReasoning ? 'true' : 'false',
-        'X-Debug-Response-Length': String(responseDebugInfo?.rawResponseLength || 0),
-        'X-Debug-Compliance-Markers': String(responseDebugInfo?.complianceMarkers || 0)
+        'X-Debug-Has-Reasoning': (responseDebugInfo as any)?.hasReasoning ? 'true' : 'false',
+        'X-Debug-Response-Length': String((responseDebugInfo as any)?.rawResponseLength || 0),
+        'X-Debug-Compliance-Markers': String((responseDebugInfo as any)?.complianceMarkers || 0)
       }
     });
     
@@ -273,11 +273,11 @@ async function generateChatResponse(message: string, conversationHistory: { role
         const titleLower = link.title.toLowerCase();
         
         // Simple keyword matching - if user query contains words from product title (3+ chars)
-        const productWords = titleLower.split(/\s+/).filter(word => word.length >= 3);
-        const queryWords = userQuery.split(/\s+/).filter(word => word.length >= 3);
+        const productWords = titleLower.split(/\s+/).filter((word: string) => word.length >= 3);
+        const queryWords = userQuery.split(/\s+/).filter((word: string) => word.length >= 3);
         
-        const hasCommonWords = productWords.some(productWord => 
-          queryWords.some(queryWord => 
+        const hasCommonWords = productWords.some((productWord: string) => 
+          queryWords.some((queryWord: string) => 
             queryWord.includes(productWord) || productWord.includes(queryWord)
           )
         );
