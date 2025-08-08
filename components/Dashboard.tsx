@@ -50,7 +50,6 @@ import {
 } from 'lucide-react';
 
 import { supabase } from '../lib/supabaseClient';
-import { BASE_INSTRUCTIONS } from '../lib/instructions';
 import ChatWidget from './ChatWidget';
 
 // Simple language options for the dashboard (AI will handle detection naturally)
@@ -77,7 +76,6 @@ const navItems = [
   { label: 'Training Materials', icon: FileText },
   { label: 'Predefined Questions', icon: HelpCircle },
   { label: 'Widgets', icon: SettingsIcon },
-  { label: 'Instructions', icon: Info },
   { label: 'Analytics', icon: BarChart3 },
   { label: 'Chat Logs', icon: MessageCircle },
 ];
@@ -199,7 +197,6 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
   const [sessionMessages, setSessionMessages] = useState<ChatMessage[]>([]);
   const [isLoadingSessionDetails, setIsLoadingSessionDetails] = useState(false);
-  const [instructions, setInstructions] = useState(BASE_INSTRUCTIONS);
   const [preferredLanguage, setPreferredLanguage] = useState<string | null>(null);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
@@ -875,42 +872,6 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     }
   };
 
-  const handleSaveInstructions = async () => {
-    if (!selectedSite) return;
-    
-    setIsSaving(true);
-    try {
-      const response = await fetch('/api/chat-settings', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          siteId: selectedSite.id,
-          instructions
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to save instructions');
-      }
-      
-      toast({
-        title: "Success",
-        description: "Instructions saved successfully"
-      });
-    } catch (error) {
-      console.error('Error saving instructions:', error);
-      toast({
-        title: "Error",
-        description: "Failed to save instructions",
-        variant: "destructive"
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
 
   const loadChatSessions = async (siteId: string) => {
     setIsLoadingLogs(true);
@@ -1078,7 +1039,6 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
           font_size: data.data.font_size || '14px'
         });
         setIntroMessage(data.data.intro_message || 'Hello! How can I help you today?');
-        setInstructions(data.data.instructions || BASE_INSTRUCTIONS);
         setPreferredLanguage(data.data.preferred_language || null);
       }
     } catch (error) {
@@ -1181,7 +1141,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     setSelectedTab(tabIndex);
     
     // If Chat Logs tab is selected, refresh the data
-    if (tabIndex === 6 && selectedSite && isSupabaseConfiguredState === true) {
+    if (tabIndex === 5 && selectedSite && isSupabaseConfiguredState === true) {
       loadChatSessions(selectedSite.id);
     }
   };
@@ -1811,43 +1771,10 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                 </div>
               )}
 
-              {/* Instructions Tab */}
-              {selectedTab === 4 && (
-                <div className="space-y-6">
-                  <h2 className="text-xl font-semibold text-gray-900 mb-6">Instructions</h2>
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="instructions">AI Assistant Instructions</Label>
-                      <Textarea
-                        id="instructions"
-                        value={instructions}
-                        onChange={(e) => setInstructions(e.target.value)}
-                        rows={10}
-                        className="bg-white/80 border-gray-300 focus:border-gray-500 font-mono text-sm"
-                        placeholder="Enter instructions for your AI assistant..."
-                      />
-                    </div>
-                    <Button
-                      onClick={handleSaveInstructions}
-                      disabled={isSaving}
-                      className="bg-gray-900 hover:bg-gray-800 text-white max-w-fit"
-                    >
-                      {isSaving ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        'Save Instructions'
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              )}
 
 
               {/* Analytics Tab */}
-              {selectedTab === 5 && (
+              {selectedTab === 4 && (
                 <div className="space-y-6">
                   <h2 className="text-xl font-semibold text-gray-900 mb-6">Analytics</h2>
                   {/* Overview Metrics */}
@@ -1950,7 +1877,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
               )}
 
               {/* Chat Logs Tab */}
-              {selectedTab === 6 && (
+              {selectedTab === 5 && (
                 <div className="space-y-6">
                   <h2 className="text-xl font-semibold text-gray-900 mb-6">Chat Logs</h2>
                   <div className="space-y-4">

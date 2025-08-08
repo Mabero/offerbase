@@ -195,10 +195,10 @@ async function generateChatResponse(message: string, conversationHistory: { role
           return result.data || [];
         }),
       
-      // Fetch chat settings for custom instructions and preferred language
+      // Fetch chat settings for preferred language only
       supabase
         .from('chat_settings')
-        .select('instructions, preferred_language')
+        .select('preferred_language')
         .eq('site_id', siteId)
         .single()
         .then(result => {
@@ -297,7 +297,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
     
     // Build system prompt with AI-native language handling
     let systemPrompt = buildSystemPrompt(
-      chatSettings?.instructions || '',
+      '', // No custom instructions
       undefined, // contextInfo
       'moderate', // strictnessLevel
       chatSettings?.preferred_language // preferredLanguage

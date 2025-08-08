@@ -144,9 +144,10 @@ export function buildSystemPrompt(
     systemPrompt += `\n\nLANGUAGE: Site prefers ${preferredLanguage}, but ALWAYS respond in user's language.`;
   }
   
-  if (customInstructions && customInstructions.trim().length > 0) {
-    systemPrompt += `\n\nCustom Instructions: ${customInstructions.trim()}`;
-  }
+  // Custom instructions are disabled - ignore the parameter
+  // if (customInstructions && customInstructions.trim().length > 0) {
+  //   systemPrompt += `\n\nCustom Instructions: ${customInstructions.trim()}`;
+  // }
   
   return systemPrompt;
 }
