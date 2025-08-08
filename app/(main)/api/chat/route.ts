@@ -11,6 +11,14 @@ import { chatRequestSchema, validateRequest, sanitizeString, createValidationErr
 
 export async function POST(request: NextRequest) {
   try {
+    const timestamp = new Date().toISOString();
+    const environment = process.env.NODE_ENV || 'unknown';
+    
+    console.log('🔥 PRODUCTION DEBUG - Chat API Called:', { 
+      timestamp, 
+      environment, 
+      userAgent: request.headers.get('user-agent')?.substring(0, 50) 
+    });
     console.log('🚀 Chat API: Starting request processing');
     
     // Parse and validate request body
@@ -76,6 +84,10 @@ export async function POST(request: NextRequest) {
     // Generate AI response using OpenAI with sanitized data
     const response = await generateChatResponse(sanitizedMessage, sanitizedHistory, siteId, chatSessionId || undefined);
     
+    // Extract debug info from response and remove it from the response
+    const responseDebugInfo = (response as any)?._debugInfo || {};
+    delete (response as any)._debugInfo; // Clean up internal debug info
+    
     // Log chat messages if session tracking is available
     if (chatSessionId && supabase) {
       try {
@@ -116,7 +128,13 @@ export async function POST(request: NextRequest) {
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
-        'Expires': '0'
+        'Expires': '0',
+        'X-Debug-Timestamp': timestamp,
+        'X-Debug-Environment': environment,
+        'X-Debug-API-Version': 'v2.1.0-with-reasoning',
+        'X-Debug-Has-Reasoning': responseDebugInfo?.hasReasoning ? 'true' : 'false',
+        'X-Debug-Response-Length': String(responseDebugInfo?.rawResponseLength || 0),
+        'X-Debug-Compliance-Markers': String(responseDebugInfo?.complianceMarkers || 0)
       }
     });
     
@@ -262,15 +280,24 @@ async function generateChatResponse(message: string, conversationHistory: { role
     systemPrompt += contextGuidance;
     
     // Add environment debugging information
-    const environment = process.env.NODE_ENV || 'unknown';
-    const isProduction = environment === 'production';
-    const environmentInfo = `\n\nEnvironment: ${environment} | Site ID: ${siteId} | Debug Mode: Active`;
+    const currentEnvironment = process.env.NODE_ENV || 'unknown';
+    const environmentInfo = `\n\nEnvironment: ${currentEnvironment} | Site ID: ${siteId} | Debug Mode: Active`;
     
     // Build final system message content
     const finalSystemContent = systemPrompt + trainingContext + productCatalog + environmentInfo;
     
     // Debug: Log system prompt length and key parts
     console.log(`📝 System Prompt: ${systemPrompt.length} chars, Training: ${trainingContext.length} chars, Final: ${finalSystemContent.length} chars`);
+    
+    // Critical Debug: Check if debug mode instructions are present
+    const hasDebugMode = finalSystemContent.includes('DEBUG MODE');
+    const hasReasoningInstructions = finalSystemContent.includes('Include your reasoning process');
+    console.log(`🔍 SYSTEM PROMPT DEBUG:`, { 
+      hasDebugMode, 
+      hasReasoningInstructions, 
+      environment: currentEnvironment,
+      promptPreview: finalSystemContent.substring(0, 200) + '...'
+    });
     
     // Debug: Log validation approach
     const hasIntelligentGuidelines = finalSystemContent.includes('INTELLIGENT CONTENT GUIDELINES');
@@ -324,6 +351,10 @@ async function generateChatResponse(message: string, conversationHistory: { role
     console.log(`🤖 AI FULL RAW RESPONSE:`, rawResponse);
     console.log("OpenAI full response:", completion);
     
+    // Track debugging info for response headers
+    let hasReasoning = false;
+    let complianceMarkers = 0;
+    
     // Extract and log AI's reasoning process if present
     if (rawResponse) {
       const reasoningMatch = rawResponse.match(/^(.*?)(\{[\s\S]*\})$/);
@@ -332,27 +363,36 @@ async function generateChatResponse(message: string, conversationHistory: { role
         const jsonPart = reasoningMatch[2];
         
         if (reasoning) {
+          hasReasoning = true;
           console.log(`🧠 AI REASONING PROCESS:`, reasoning);
           console.log(`📋 AI JSON RESPONSE:`, jsonPart);
           
           // Check instruction compliance markers
-          const complianceMarkers = [
+          const complianceMarkersList = [
             'Following generic response guideline',
             'Using training materials',
             'No relevant materials found',
             'Applying 100-word limit'
           ];
           
-          const foundMarkers = complianceMarkers.filter(marker => 
+          const foundMarkers = complianceMarkersList.filter(marker => 
             reasoning.toLowerCase().includes(marker.toLowerCase())
           );
           
+          complianceMarkers = foundMarkers.length;
           console.log(`✅ INSTRUCTION COMPLIANCE:`, foundMarkers.length > 0 ? foundMarkers : 'No compliance markers found');
         }
       } else {
         console.log(`⚠️ No reasoning found in AI response - may not be following debug format`);
       }
     }
+    
+    const debugInfo = {
+      hasRawResponse: !!rawResponse,
+      rawResponseLength: rawResponse?.length || 0,
+      hasReasoning,
+      complianceMarkers
+    };
 
     if (!rawResponse) {
       throw new Error('No response from OpenAI');
@@ -415,7 +455,8 @@ async function generateChatResponse(message: string, conversationHistory: { role
         return {
           type: 'links',
           message: structuredResponse.message,
-          links: links
+          links: links,
+          _debugInfo: debugInfo
         };
       } else {
         console.warn(`⚠️ AI selected products not found in catalog: ${structuredResponse.products.join(', ')}`);
@@ -434,7 +475,8 @@ async function generateChatResponse(message: string, conversationHistory: { role
           simple_link: {
             text: structuredResponse.link_text || 'See more details',
             url: linkUrl
-          }
+          },
+          _debugInfo: debugInfo
         };
       } else {
         // Invalid or inappropriate URL - don't show link
@@ -442,7 +484,8 @@ async function generateChatResponse(message: string, conversationHistory: { role
         // Return just the message without any link
         return {
           type: 'message',
-          message: structuredResponse.message
+          message: structuredResponse.message,
+          _debugInfo: debugInfo
         };
       }
     }
@@ -481,10 +524,11 @@ async function generateChatResponse(message: string, conversationHistory: { role
       return isAffiliate || isValidExternal;
     }
 
-    // Return regular message response
+    // Return regular message response with debug info
     return {
       type: 'message',
-      message: structuredResponse.message
+      message: structuredResponse.message,
+      _debugInfo: debugInfo
     };
     
   } catch (error) {

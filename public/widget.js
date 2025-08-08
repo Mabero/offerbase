@@ -1,7 +1,8 @@
 (function () {
     'use strict';
 
-    // Initialize widget registry for multi-widget support
+    // Initialize widget registry for multi-widget support  
+    // Version: v2.1.0 - Added AI reasoning debugging
     if (!window.ChatWidgets) {
         window.ChatWidgets = {
             floating: new Set(),
