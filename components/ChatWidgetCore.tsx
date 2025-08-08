@@ -745,15 +745,26 @@ export function ChatWidgetCore({
   });
 
   const scrollToBottom = (force = false) => {
+    console.log('📜 scrollToBottom called:', { force, isInputFocused, messagesContainerExists: !!messagesContainerRef.current });
+    
     // On mobile, don't auto-scroll when input is focused unless forced
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    console.log('📱 Mobile check:', { isMobile, windowWidth: typeof window !== 'undefined' ? window.innerWidth : 'undefined' });
+    
     if (isMobile && isInputFocused && !force) {
+      console.log('🚫 Scroll blocked by mobile+input focus logic');
       return;
     }
     
     // Scroll the messages container instead of the entire page
     if (messagesContainerRef.current) {
-      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      const scrollBefore = messagesContainerRef.current.scrollTop;
+      const scrollHeight = messagesContainerRef.current.scrollHeight;
+      messagesContainerRef.current.scrollTop = scrollHeight;
+      const scrollAfter = messagesContainerRef.current.scrollTop;
+      console.log('✅ Scroll executed:', { scrollBefore, scrollHeight, scrollAfter, scrolled: scrollAfter !== scrollBefore });
+    } else {
+      console.log('❌ messagesContainerRef.current is null - cannot scroll');
     }
   };
 
@@ -1028,7 +1039,7 @@ export function ChatWidgetCore({
       type: data.type, 
       messageLength: data.message?.length,
       hasLinks: !!data.links,
-      hasSimpleLink: !!data.simple_link 
+      hasSimpleLink: !!data.simple_link
     });
     
     // Add message with simple typewriter effect

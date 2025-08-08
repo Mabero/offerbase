@@ -43,19 +43,29 @@ export async function selectRelevantContext(
   // Normalize and extract keywords for consistent results  
   const normalizedQuery = normalizeQuery(query);
   const keywords = extractSimpleKeywords(normalizedQuery);
-  console.log(`🔍 Normalized query: "${normalizedQuery}" → Keywords: [${keywords.join(', ')}]`);
+  console.log(`🔍 CONTEXT DEBUG - Original query: "${query}"`);
+  console.log(`🔍 CONTEXT DEBUG - Normalized query: "${normalizedQuery}"`);
+  console.log(`🔍 CONTEXT DEBUG - Extracted keywords: [${keywords.join(', ')}]`);
 
   if (keywords.length === 0) {
-    console.log('⚠️ No keywords found, returning recent materials');
-    return await getFallbackMaterials(supabase, siteId, maxItems);
+    console.log('⚠️ CONTEXT DEBUG - No keywords found, returning recent materials');
+    const fallbackMaterials = await getFallbackMaterials(supabase, siteId, maxItems);
+    console.log(`📋 CONTEXT DEBUG - Fallback materials returned: ${fallbackMaterials.length} items`);
+    fallbackMaterials.forEach((item, index) => {
+      console.log(`   ${index + 1}. "${item.title}" (${item.content.substring(0, 100)}...)`);
+    });
+    return fallbackMaterials;
   }
 
   // Single database query - let AI decide relevance from results
   const materials = await searchMaterials(supabase, keywords, siteId, maxItems);
-  console.log(`📚 Found ${materials.length} materials containing keywords`);
+  console.log(`📚 CONTEXT DEBUG - Found ${materials.length} materials containing keywords`);
+  materials.forEach((material, index) => {
+    console.log(`   ${index + 1}. "${material.title}" - Keywords found in content`);
+  });
 
   if (materials.length === 0) {
-    console.log('⚠️ No keyword matches, trying broader search...');
+    console.log('⚠️ CONTEXT DEBUG - No keyword matches, trying broader search...');
     // Try broader search with individual words if compound search failed
     const broadKeywords = keywords.slice(0, 3); // Use fewer, more general keywords
     const broadResults = await searchMaterials(supabase, broadKeywords, siteId, maxItems);
@@ -69,18 +79,27 @@ export async function selectRelevantContext(
       }));
     }
     
-    console.log('⚠️ No matches found, returning recent materials');
-    return await getFallbackMaterials(supabase, siteId, maxItems);
+    console.log('⚠️ CONTEXT DEBUG - No matches found even with broader search, returning recent materials');
+    const fallbackMaterials = await getFallbackMaterials(supabase, siteId, maxItems);
+    console.log(`📋 CONTEXT DEBUG - Final fallback materials: ${fallbackMaterials.length} items`);
+    return fallbackMaterials;
   }
 
   // No scoring or sorting - just return materials as-is, let AI decide
-  console.log(`✅ Returning ${materials.length} materials for AI evaluation`);
-
-  return materials.map(material => ({
+  console.log(`✅ CONTEXT DEBUG - Returning ${materials.length} materials for AI evaluation`);
+  
+  const finalResults = materials.map(material => ({
     title: material.title,
     content: getFullContent(material),
     sourceInfo: extractSourceInfo(material)
   }));
+  
+  console.log(`📋 CONTEXT DEBUG - Final materials being sent to AI:`);
+  finalResults.forEach((item, index) => {
+    console.log(`   ${index + 1}. "${item.title}" (${item.content.substring(0, 150)}...)`);
+  });
+
+  return finalResults;
 }
 
 /**

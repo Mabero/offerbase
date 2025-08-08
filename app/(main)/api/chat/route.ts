@@ -272,13 +272,19 @@ async function generateChatResponse(message: string, conversationHistory: { role
     const hasTrainingMaterials = finalSystemContent.includes('Relevant Training Materials:');
     console.log(`🔍 Debug: Intelligent guidelines: ${hasIntelligentGuidelines}, Training materials present: ${hasTrainingMaterials}`);
     
-    // Debug: Log first 500 chars of what we're sending to AI
-    console.log(`🤖 First 500 chars sent to AI:`, finalSystemContent.substring(0, 500));
+    // Enhanced Debug: Log FULL system prompt for browser console inspection
+    console.log(`🤖 FULL SYSTEM PROMPT SENT TO AI:`, finalSystemContent);
     
     // Debug: Log what training materials contain vs user question
     if (trainingContext.length > 0) {
-      console.log(`📚 Training materials topics:`, trainingContext.substring(0, 200));
+      console.log(`📚 Training materials topics:`, trainingContext.substring(0, 500));
       console.log(`❓ User question:`, message);
+      
+      // Log training material titles/sources for debugging
+      const materialTitles = relevantContext.map(item => item.title).join(', ');
+      console.log(`📋 Training material titles included:`, materialTitles);
+    } else {
+      console.log(`⚠️ NO TRAINING MATERIALS FOUND for question:`, message);
     }
     
     // Build the conversation messages for OpenAI
