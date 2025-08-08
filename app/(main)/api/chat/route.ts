@@ -307,6 +307,13 @@ async function generateChatResponse(message: string, conversationHistory: { role
     // Enhanced Debug: Log FULL system prompt for browser console inspection
     console.log(`🤖 FULL SYSTEM PROMPT SENT TO AI:`, finalSystemContent);
     
+    // Critical Debug: Log specific rule sections for troubleshooting
+    console.log('🔥 CRITICAL RULES CHECK:');
+    console.log('- Multi-domain awareness rules present:', finalSystemContent.includes('CRITICAL: MULTI-DOMAIN AWARENESS RULES'));
+    console.log('- Forbidden phrases section present:', finalSystemContent.includes('FORBIDDEN phrases'));
+    console.log('- Generic response template present:', finalSystemContent.includes("I don't have specific information about that topic"));
+    console.log('- Compliance markers present:', finalSystemContent.includes('Avoiding domain-specific language'));
+    
     // Debug: Log what training materials contain vs user question
     if (trainingContext.length > 0) {
       console.log(`📚 Training materials topics:`, trainingContext.substring(0, 500));
