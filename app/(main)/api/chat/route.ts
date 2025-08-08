@@ -312,6 +312,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
           productCatalog += `ID: ${link.id} | Title: ${link.title}${contextInfo} | Description: ${link.description || 'No description'}\n`;
         });
         productCatalog += '\nNOTE: Only these products are contextually relevant to the current conversation.';
+        console.log(`📦 PRODUCT CATALOG BUILT:`, productCatalog.substring(0, 300));
       } else {
         console.log('⚠️ No contextually relevant products found for current conversation');
       }
@@ -434,17 +435,23 @@ async function generateChatResponse(message: string, conversationHistory: { role
       }
     ];
 
-    // Call OpenAI API directly
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-5-mini',
-      messages: messages,
-      max_completion_tokens: 2000,
-      temperature: 1,
-      stream: false,
-      response_format: { type: "json_object" }
-    });
+  const completion = await openai.responses.create({
+  model: 'gpt-5-nano',                 // use your exact Nano model id
+  input: messages,                      // array of {role, content} is fine
+  reasoning: { effort: 'minimal' },     // fastest thinking
+  max_output_tokens: 500,               // increased for product recommendations + JSON
+  text: {
+    verbosity: 'low',
+    format: { type: 'json_object' }     // moved from response_format
+  },
+  stream: false
+});
 
-    const rawResponse = completion.choices[0]?.message?.content;
+const rawResponse = completion.output_text;
+if (!rawResponse) {
+  console.error('Unexpected response:', JSON.stringify(completion, null, 2).slice(0, 2000));
+  throw new Error('No response from OpenAI');
+}
     
     // Production: Minimal AI response logging for speed
     console.log(`🤖 AI response length:`, rawResponse?.length || 0, 'chars');
@@ -461,6 +468,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
     };
 
     if (!rawResponse) {
+      console.error('Unexpected response shape:', JSON.stringify(completion, null, 2).slice(0, 2000));
       throw new Error('No response from OpenAI');
     }
 
