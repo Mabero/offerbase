@@ -228,6 +228,8 @@ async function generateChatResponse(message: string, conversationHistory: { role
     
     // Build contextually filtered product catalog - only relevant products
     let productCatalog = '';
+    let relevantProducts: typeof affiliateLinks = []; // Move to broader scope
+    
     if (affiliateLinks && affiliateLinks.length > 0) {
       // Extract domains from current training context to filter products
       const contextDomains = new Set<string>();
@@ -246,7 +248,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
       console.log(`🔍 Context companies for product filtering:`, Array.from(contextCompanies));
       
       // Filter products to only those relevant to current conversation context
-      const relevantProducts = affiliateLinks.filter(link => {
+      relevantProducts = affiliateLinks.filter(link => {
         // Check if product matches any of the context domains/companies
         if (link.url) {
           const productDomain = extractDomainFromUrl(link.url).toLowerCase();
@@ -255,10 +257,12 @@ async function generateChatResponse(message: string, conversationHistory: { role
           }
         }
         
-        // Check if product title matches context companies (flexible matching)
+        // Check if product title matches context companies (STRICT matching only)
         const productTitleLower = link.title.toLowerCase();
         for (const company of contextCompanies) {
-          if (productTitleLower.includes(company) || company.includes(productTitleLower.split(' ')[0])) {
+          const companyLower = company.toLowerCase();
+          // Only exact word matches - no partial string includes
+          if (companyLower.length > 2 && productTitleLower.includes(companyLower)) {
             return true;
           }
         }
@@ -455,8 +459,8 @@ async function generateChatResponse(message: string, conversationHistory: { role
     if (structuredResponse.products && structuredResponse.products.length > 0) {
       console.log(`🤖 AI Selected Products: ${structuredResponse.products.join(', ')}`);
       
-      // Find selected products by ID
-      const selectedProducts = (affiliateLinks || []).filter(link => 
+      // Find selected products by ID (use filtered products, not full list)
+      const selectedProducts = (relevantProducts || []).filter(link => 
         structuredResponse.products!.includes(link.id)
       );
       
