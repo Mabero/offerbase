@@ -745,21 +745,13 @@ export function ChatWidgetCore({
   });
 
   const scrollToBottom = (force = false) => {
-    console.log('📜 scrollToBottom called:', { force, isInputFocused, messagesContainerExists: !!messagesContainerRef.current });
-    
     // Note: Removed mobile detection logic that was blocking scroll in embedded widgets
     // The 440px iframe width was triggering mobile detection on desktop, preventing auto-scroll
     // Auto-scroll should always work during AI responses for better UX
     
     // Scroll the messages container instead of the entire page
     if (messagesContainerRef.current) {
-      const scrollBefore = messagesContainerRef.current.scrollTop;
-      const scrollHeight = messagesContainerRef.current.scrollHeight;
-      messagesContainerRef.current.scrollTop = scrollHeight;
-      const scrollAfter = messagesContainerRef.current.scrollTop;
-      console.log('✅ Scroll executed:', { scrollBefore, scrollHeight, scrollAfter, scrolled: scrollAfter !== scrollBefore });
-    } else {
-      console.log('❌ messagesContainerRef.current is null - cannot scroll');
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
     }
   };
 
