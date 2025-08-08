@@ -379,7 +379,10 @@ async function generateChatResponse(message: string, conversationHistory: { role
             'Following generic response guideline',
             'Using training materials',
             'No relevant materials found',
-            'Applying 100-word limit'
+            'Applying 100-word limit',
+            'Avoiding specialist positioning',
+            'Acting as general assistant',
+            'No alternative suggestions'
           ];
           
           const foundMarkers = complianceMarkersList.filter(marker => 
