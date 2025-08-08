@@ -247,9 +247,9 @@ async function generateChatResponse(message: string, conversationHistory: { role
       console.log(`🔍 Context domains for product filtering:`, Array.from(contextDomains));
       console.log(`🔍 Context companies for product filtering:`, Array.from(contextCompanies));
       
-      // Filter products to only those relevant to current conversation context
+      // Filter products with more inclusive logic - don't be too restrictive
       relevantProducts = affiliateLinks.filter(link => {
-        // Check if product matches any of the context domains/companies
+        // Strategy 1: Check if product matches any of the context domains/companies
         if (link.url) {
           const productDomain = extractDomainFromUrl(link.url).toLowerCase();
           if (contextDomains.has(productDomain)) {
@@ -257,7 +257,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
           }
         }
         
-        // Check if product title matches context companies (STRICT matching only)
+        // Strategy 2: Check if product title matches context companies
         const productTitleLower = link.title.toLowerCase();
         for (const company of contextCompanies) {
           const companyLower = company.toLowerCase();
@@ -267,10 +267,36 @@ async function generateChatResponse(message: string, conversationHistory: { role
           }
         }
         
+        // Strategy 3: FALLBACK - If no training context matches, include products that semantically match user query
+        // This ensures products are visible even without perfect training material context
+        const userQuery = message.toLowerCase();
+        const titleLower = link.title.toLowerCase();
+        
+        // Simple keyword matching - if user query contains words from product title (3+ chars)
+        const productWords = titleLower.split(/\s+/).filter(word => word.length >= 3);
+        const queryWords = userQuery.split(/\s+/).filter(word => word.length >= 3);
+        
+        const hasCommonWords = productWords.some(productWord => 
+          queryWords.some(queryWord => 
+            queryWord.includes(productWord) || productWord.includes(queryWord)
+          )
+        );
+        
+        if (hasCommonWords) {
+          return true;
+        }
+        
         return false;
       });
       
       console.log(`🎯 Filtered products: ${relevantProducts.length} relevant out of ${affiliateLinks.length} total`);
+      
+      // Safety net: If filtering is too restrictive and no products match, show recent products
+      // This ensures AI always has some products to choose from, preventing empty catalogs
+      if (relevantProducts.length === 0 && affiliateLinks.length > 0) {
+        console.log('⚠️ No products matched context - using recent products as safety net');
+        relevantProducts = affiliateLinks.slice(0, 5); // Show up to 5 most recent products
+      }
       
       if (relevantProducts.length > 0) {
         productCatalog = '\n\nRelevant Products (use product IDs for recommendations):\n';
@@ -441,6 +467,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
     if (!parseResult.success) {
       console.error('❌ JSON Parse Failed:', parseResult.error);
       console.log('📝 Raw response that failed to parse:', rawResponse?.substring(0, 500));
+      console.log('🔍 Using fallback response handler with affiliateLinks');
       return getFallbackResponseFromText(rawResponse, affiliateLinks || []);
     }
 
@@ -459,12 +486,14 @@ async function generateChatResponse(message: string, conversationHistory: { role
     if (structuredResponse.products && structuredResponse.products.length > 0) {
       console.log(`🤖 AI Selected Products: ${structuredResponse.products.join(', ')}`);
       
-      // Find selected products by ID (use filtered products, not full list)
-      const selectedProducts = (relevantProducts || []).filter(link => 
+      // Find selected products by ID from FULL catalog (not filtered subset)
+      // BUG FIX: Must look up IDs in affiliateLinks to get correct product info
+      const selectedProducts = (affiliateLinks || []).filter(link => 
         structuredResponse.products!.includes(link.id)
       );
       
       if (selectedProducts.length > 0) {
+        console.log(`✅ Found ${selectedProducts.length} products from catalog:`, selectedProducts.map(p => `${p.id}: ${p.title}`));
         // Format products with image fallback from training materials
         const links = selectedProducts.map(product => {
           let imageUrl = product.image_url || '';
@@ -582,16 +611,33 @@ function parseAIResponse(rawResponse: string): AIResponseParseResult {
     let jsonString = rawResponse.trim();
     
     // If response contains reasoning text before JSON, extract just the JSON part
-    const jsonMatch = rawResponse.match(/\{[\s\S]*\}$/);
+    // More robust regex that finds the LAST complete JSON object
+    const jsonMatch = rawResponse.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}$/);
     if (jsonMatch) {
       jsonString = jsonMatch[0];
       console.log(`🔍 Extracted JSON from reasoning response:`, jsonString.substring(0, 200));
+    } else {
+      // Fallback: Try to find any JSON-like structure
+      const fallbackMatch = rawResponse.match(/\{[\s\S]*"message"[\s\S]*\}/);
+      if (fallbackMatch) {
+        jsonString = fallbackMatch[0];
+        console.log(`🔍 Used fallback JSON extraction:`, jsonString.substring(0, 200));
+      }
     }
     
     const parsed = JSON.parse(jsonString);
     
+    // Handle both response formats:
+    // Format 1: { "message": "...", "products": [...] }
+    // Format 2: { "reasoning": "...", "response": { "message": "...", "products": [...] } }
+    let actualResponse = parsed;
+    if (parsed.response && typeof parsed.response === 'object') {
+      console.log('🔍 Detected nested response format, extracting from "response" field');
+      actualResponse = parsed.response;
+    }
+    
     // Validate required fields
-    if (!parsed.message) {
+    if (!actualResponse.message) {
       console.error('Invalid AI response structure:', parsed);
       return {
         success: false,
@@ -601,11 +647,11 @@ function parseAIResponse(rawResponse: string): AIResponseParseResult {
     }
     
     const structuredResponse: StructuredAIResponse = {
-      message: parsed.message,
-      show_simple_link: parsed.show_simple_link || false,
-      link_text: parsed.link_text || '',
-      link_url: parsed.link_url || '',
-      products: parsed.products || undefined
+      message: actualResponse.message,
+      show_simple_link: actualResponse.show_simple_link || false,
+      link_text: actualResponse.link_text || '',
+      link_url: actualResponse.link_url || '',
+      products: actualResponse.products || undefined
     };
     
     return {
@@ -623,18 +669,56 @@ function parseAIResponse(rawResponse: string): AIResponseParseResult {
 }
 
 // Fallback function that uses old keyword detection when structured parsing fails
-function getFallbackResponseFromText(text: string, affiliateLinks: { title: string; description?: string; url: string; button_text?: string }[] = []) {
+function getFallbackResponseFromText(text: string, affiliateLinks: { id?: string; title: string; description?: string; url: string; button_text?: string }[] = []) {
   const lowerText = text.toLowerCase();
   
-  // Check if text suggests products using keyword detection as fallback
+  // Try to extract product IDs and message from the malformed response
+  const productIdMatch = text.match(/"products"\s*:\s*\[\s*"([^"]+)"/);
+  let extractedMessage = 'Here is my recommendation:';
+  
+  // Try to extract the actual message from nested response structure
+  const messageMatch = text.match(/"response"\s*:\s*{[^}]*"message"\s*:\s*"([^"]+)"/);
+  if (messageMatch) {
+    extractedMessage = messageMatch[1];
+    console.log(`🔧 FALLBACK: Extracted message from nested response: ${extractedMessage.substring(0, 100)}`);
+  } else {
+    // Fallback: try simple message extraction
+    const simpleMessageMatch = text.match(/"message"\s*:\s*"([^"]+)"/);
+    if (simpleMessageMatch) {
+      extractedMessage = simpleMessageMatch[1];
+      console.log(`🔧 FALLBACK: Extracted message from simple format: ${extractedMessage.substring(0, 100)}`);
+    }
+  }
+  
+  if (productIdMatch && affiliateLinks && affiliateLinks.length > 0) {
+    const selectedId = productIdMatch[1];
+    console.log(`🔧 FALLBACK: Extracted product ID from malformed response: ${selectedId}`);
+    
+    // Find the specific product by ID
+    const selectedProduct = affiliateLinks.find(link => link.id === selectedId);
+    if (selectedProduct) {
+      console.log(`✅ FALLBACK: Found product with ID ${selectedId}: ${selectedProduct.title}`);
+      return {
+        type: 'links',
+        message: extractedMessage,
+        links: [{
+          name: selectedProduct.title,
+          description: selectedProduct.description || 'Click to learn more',
+          url: selectedProduct.url,
+          button_text: selectedProduct.button_text || 'View Product',
+          image_url: ''
+        }]
+      };
+    }
+  }
+  
+  // Old behavior as last resort (but likely wrong)
   const shouldShowLinks = lowerText.includes('product') || 
                          lowerText.includes('recommend') || 
-                         lowerText.includes('item') ||
-                         lowerText.includes('option') ||
-                         lowerText.includes('choice') ||
-                         lowerText.includes('available');
+                         lowerText.includes('anbefal');
   
   if (shouldShowLinks && affiliateLinks && affiliateLinks.length > 0) {
+    console.warn('⚠️ FALLBACK: Using first product as last resort - may be wrong!');
     const links = affiliateLinks.slice(0, 1).map(link => ({
       name: link.title,
       description: link.description || 'Click to learn more',
