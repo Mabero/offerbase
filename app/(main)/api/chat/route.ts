@@ -368,23 +368,16 @@ async function generateChatResponse(message: string, conversationHistory: { role
     // Debug: Log system prompt length and key parts
     console.log(`📝 System Prompt: ${systemPrompt.length} chars, Training: ${trainingContext.length} chars, Final: ${finalSystemContent.length} chars`);
     
-    // Critical Debug: Check if debug mode instructions are present
-    const hasDebugMode = finalSystemContent.includes('DEBUG MODE');
-    const hasReasoningInstructions = finalSystemContent.includes('Include your reasoning process');
-    console.log(`🔍 SYSTEM PROMPT DEBUG:`, { 
-      hasDebugMode, 
-      hasReasoningInstructions, 
-      environment: currentEnvironment,
-      promptPreview: finalSystemContent.substring(0, 200) + '...'
-    });
+    // Minimal debug for production performance
+    console.log(`🔍 SYSTEM PROMPT: ${finalSystemContent.length} chars, Environment: ${currentEnvironment}`);
     
     // Debug: Log validation approach
     const hasIntelligentGuidelines = finalSystemContent.includes('INTELLIGENT CONTENT GUIDELINES');
     const hasTrainingMaterials = finalSystemContent.includes('Relevant Training Materials:');
     console.log(`🔍 Debug: Intelligent guidelines: ${hasIntelligentGuidelines}, Training materials present: ${hasTrainingMaterials}`);
     
-    // Enhanced Debug: Log FULL system prompt for browser console inspection
-    console.log(`🤖 FULL SYSTEM PROMPT SENT TO AI:`, finalSystemContent);
+    // Production: Log only system prompt length for performance
+    // console.log(`🤖 FULL SYSTEM PROMPT SENT TO AI:`, finalSystemContent); // Disabled for speed
     
     // Critical Debug: Log specific rule sections for troubleshooting
     console.log('🔥 CRITICAL RULES CHECK:');
@@ -453,48 +446,12 @@ async function generateChatResponse(message: string, conversationHistory: { role
 
     const rawResponse = completion.choices[0]?.message?.content;
     
-    // Enhanced Debug: Log AI's full reasoning and response
-    console.log(`🤖 AI FULL RAW RESPONSE:`, rawResponse);
-    console.log("OpenAI full response:", completion);
+    // Production: Minimal AI response logging for speed
+    console.log(`🤖 AI response length:`, rawResponse?.length || 0, 'chars');
     
-    // Track debugging info for response headers
-    let hasReasoning = false;
-    let complianceMarkers = 0;
-    
-    // Extract and log AI's reasoning process if present
-    if (rawResponse) {
-      const reasoningMatch = rawResponse.match(/^(.*?)(\{[\s\S]*\})$/);
-      if (reasoningMatch) {
-        const reasoning = reasoningMatch[1].trim();
-        const jsonPart = reasoningMatch[2];
-        
-        if (reasoning) {
-          hasReasoning = true;
-          console.log(`🧠 AI REASONING PROCESS:`, reasoning);
-          console.log(`📋 AI JSON RESPONSE:`, jsonPart);
-          
-          // Check instruction compliance markers
-          const complianceMarkersList = [
-            'Following generic response guideline',
-            'Using training materials',
-            'No relevant materials found',
-            'Applying 100-word limit',
-            'Avoiding specialist positioning',
-            'Acting as general assistant',
-            'No alternative suggestions'
-          ];
-          
-          const foundMarkers = complianceMarkersList.filter(marker => 
-            reasoning.toLowerCase().includes(marker.toLowerCase())
-          );
-          
-          complianceMarkers = foundMarkers.length;
-          console.log(`✅ INSTRUCTION COMPLIANCE:`, foundMarkers.length > 0 ? foundMarkers : 'No compliance markers found');
-        }
-      } else {
-        console.log(`⚠️ No reasoning found in AI response - may not be following debug format`);
-      }
-    }
+    // Simplified tracking for performance
+    const hasReasoning = false;
+    const complianceMarkers = 0;
     
     const debugInfo = {
       hasRawResponse: !!rawResponse,
