@@ -261,8 +261,13 @@ async function generateChatResponse(message: string, conversationHistory: { role
     // Add context guidance instead of strict refusal
     systemPrompt += contextGuidance;
     
+    // Add environment debugging information
+    const environment = process.env.NODE_ENV || 'unknown';
+    const isProduction = environment === 'production';
+    const environmentInfo = `\n\nEnvironment: ${environment} | Site ID: ${siteId} | Debug Mode: Active`;
+    
     // Build final system message content
-    const finalSystemContent = systemPrompt + trainingContext + productCatalog + `\n\nSite ID: ${siteId}`;
+    const finalSystemContent = systemPrompt + trainingContext + productCatalog + environmentInfo;
     
     // Debug: Log system prompt length and key parts
     console.log(`📝 System Prompt: ${systemPrompt.length} chars, Training: ${trainingContext.length} chars, Final: ${finalSystemContent.length} chars`);
@@ -315,9 +320,39 @@ async function generateChatResponse(message: string, conversationHistory: { role
 
     const rawResponse = completion.choices[0]?.message?.content;
     
-    // Debug: Log AI's raw response
-    console.log(`🤖 AI Raw Response:`, rawResponse?.substring(0, 300));
+    // Enhanced Debug: Log AI's full reasoning and response
+    console.log(`🤖 AI FULL RAW RESPONSE:`, rawResponse);
     console.log("OpenAI full response:", completion);
+    
+    // Extract and log AI's reasoning process if present
+    if (rawResponse) {
+      const reasoningMatch = rawResponse.match(/^(.*?)(\{[\s\S]*\})$/);
+      if (reasoningMatch) {
+        const reasoning = reasoningMatch[1].trim();
+        const jsonPart = reasoningMatch[2];
+        
+        if (reasoning) {
+          console.log(`🧠 AI REASONING PROCESS:`, reasoning);
+          console.log(`📋 AI JSON RESPONSE:`, jsonPart);
+          
+          // Check instruction compliance markers
+          const complianceMarkers = [
+            'Following generic response guideline',
+            'Using training materials',
+            'No relevant materials found',
+            'Applying 100-word limit'
+          ];
+          
+          const foundMarkers = complianceMarkers.filter(marker => 
+            reasoning.toLowerCase().includes(marker.toLowerCase())
+          );
+          
+          console.log(`✅ INSTRUCTION COMPLIANCE:`, foundMarkers.length > 0 ? foundMarkers : 'No compliance markers found');
+        }
+      } else {
+        console.log(`⚠️ No reasoning found in AI response - may not be following debug format`);
+      }
+    }
 
     if (!rawResponse) {
       throw new Error('No response from OpenAI');
@@ -462,7 +497,17 @@ async function generateChatResponse(message: string, conversationHistory: { role
 // Parse structured JSON response from AI
 function parseAIResponse(rawResponse: string): AIResponseParseResult {
   try {
-    const parsed = JSON.parse(rawResponse);
+    // Extract JSON from response that may contain reasoning text before JSON
+    let jsonString = rawResponse.trim();
+    
+    // If response contains reasoning text before JSON, extract just the JSON part
+    const jsonMatch = rawResponse.match(/\{[\s\S]*\}$/);
+    if (jsonMatch) {
+      jsonString = jsonMatch[0];
+      console.log(`🔍 Extracted JSON from reasoning response:`, jsonString.substring(0, 200));
+    }
+    
+    const parsed = JSON.parse(jsonString);
     
     // Validate required fields
     if (!parsed.message) {
