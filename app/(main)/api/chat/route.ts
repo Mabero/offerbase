@@ -335,6 +335,26 @@ async function generateChatResponse(message: string, conversationHistory: { role
       chatSettings?.preferred_language // preferredLanguage
     );
     
+    // CRITICAL: Verify key instructions are present before proceeding
+    const requiredInstructions = [
+      'NEVER POSITION YOURSELF AS A SPECIALIST',
+      'WHEN DECLINING UNKNOWN TOPICS',
+      'NO ALTERNATIVE SUGGESTIONS',
+      'I don\'t have specific information about that topic'
+    ];
+    
+    const missingInstructions = requiredInstructions.filter(instruction => 
+      !systemPrompt.includes(instruction)
+    );
+    
+    if (missingInstructions.length > 0) {
+      console.error('🚨 CRITICAL ERROR: Missing required instructions:', missingInstructions);
+      console.error('🚨 System prompt may be corrupted or outdated');
+      console.error('🚨 First 500 chars of systemPrompt:', systemPrompt.substring(0, 500));
+    } else {
+      console.log('✅ All required instructions are present in system prompt');
+    }
+    
     // Add context guidance instead of strict refusal
     systemPrompt += contextGuidance;
     
@@ -372,6 +392,26 @@ async function generateChatResponse(message: string, conversationHistory: { role
     console.log('- Forbidden phrases section present:', finalSystemContent.includes('FORBIDDEN phrases'));
     console.log('- Generic response template present:', finalSystemContent.includes("I don't have specific information about that topic"));
     console.log('- Compliance markers present:', finalSystemContent.includes('Avoiding domain-specific language'));
+    
+    // PRODUCTION DEBUG: Enhanced instruction verification
+    console.log('🚨 PRODUCTION INSTRUCTION DEBUG:');
+    console.log('- NEVER POSITION YOURSELF AS A SPECIALIST present:', finalSystemContent.includes('NEVER POSITION YOURSELF AS A SPECIALIST'));
+    console.log('- WHEN DECLINING UNKNOWN TOPICS present:', finalSystemContent.includes('WHEN DECLINING UNKNOWN TOPICS'));
+    console.log('- NO ALTERNATIVE SUGGESTIONS present:', finalSystemContent.includes('NO ALTERNATIVE SUGGESTIONS'));
+    console.log('- FORBIDDEN phrases list present:', finalSystemContent.includes('FORBIDDEN phrases:'));
+    console.log('- Generic decline response present:', finalSystemContent.includes('I don\'t have specific information about that topic'));
+    console.log('- Environment:', currentEnvironment);
+    
+    // Log critical instruction sections to verify they exist
+    if (finalSystemContent.includes('NEVER POSITION YOURSELF AS A SPECIALIST')) {
+      const specialistSection = finalSystemContent.match(/CRITICAL: NEVER POSITION YOURSELF AS A SPECIALIST:[\s\S]*?(?=\n\n|$)/);
+      console.log('📋 SPECIALIST RULES SECTION:', specialistSection ? specialistSection[0].substring(0, 300) + '...' : 'NOT FOUND');
+    }
+    
+    if (finalSystemContent.includes('WHEN DECLINING UNKNOWN TOPICS')) {
+      const decliningSection = finalSystemContent.match(/CRITICAL: WHEN DECLINING UNKNOWN TOPICS[\s\S]*?(?=\n\n|$)/);
+      console.log('📋 DECLINING RULES SECTION:', decliningSection ? decliningSection[0].substring(0, 300) + '...' : 'NOT FOUND');
+    }
     
     // Debug: Log what training materials contain vs user question
     if (trainingContext.length > 0) {
