@@ -971,19 +971,16 @@ export function ChatWidgetCore({
   const startRequest = (requestKey: string): boolean => {
     // Check if request already in progress
     if (activeRequestsRef.current.has(requestKey)) {
-      console.warn('🚫 Request already in progress, skipping:', requestKey);
       return false;
     }
     
     // Add to active requests
     activeRequestsRef.current.add(requestKey);
-    console.log('🚀 Started request:', requestKey);
     return true;
   };
   
   const endRequest = (requestKey: string) => {
     activeRequestsRef.current.delete(requestKey);
-    console.log('✅ Ended request:', requestKey);
   };
   
   // Create request key from user message content
@@ -1003,10 +1000,8 @@ export function ChatWidgetCore({
     const expected = processingSequence.current + 1;
     if (responseSequence === expected) {
       processingSequence.current = responseSequence;
-      console.log('✅ Processing response in sequence:', responseSequence);
       return true;
     } else {
-      console.warn('⚠️ Out-of-sequence response:', { received: responseSequence, expected });
       return false;
     }
   };
@@ -1021,13 +1016,6 @@ export function ChatWidgetCore({
     if (!shouldProcessResponse(responseSequence)) {
       return;
     }
-    
-    console.log('🔍 Processing AI response:', { 
-      type: data.type, 
-      messageLength: data.message?.length,
-      hasLinks: !!data.links,
-      hasSimpleLink: !!data.simple_link
-    });
     
     // Add message with simple typewriter effect
     const messageId = generateMessageId();
@@ -1229,16 +1217,6 @@ export function ChatWidgetCore({
         .filter(msg => msg.content.trim().length > 0)
         .slice(-18); // Keep only the most recent 18 messages
       
-      // Debug: Log any suspiciously long messages in conversation history
-      conversationHistory.forEach((msg, index) => {
-        if (msg.content.length > 1000) {
-          console.warn(`⚠️ Long message in conversation history at index ${index}:`, {
-            role: msg.role,
-            length: msg.content.length,
-            preview: msg.content.substring(0, 200) + '...'
-          });
-        }
-      });
       
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
@@ -1344,16 +1322,6 @@ export function ChatWidgetCore({
         .filter(msg => msg.content.trim().length > 0)
         .slice(-18); // Keep only the most recent 18 messages
       
-      // Debug: Log any suspiciously long messages in conversation history
-      conversationHistory.forEach((msg, index) => {
-        if (msg.content.length > 1000) {
-          console.warn(`⚠️ Long message in conversation history at index ${index}:`, {
-            role: msg.role,
-            length: msg.content.length,
-            preview: msg.content.substring(0, 200) + '...'
-          });
-        }
-      });
       
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',

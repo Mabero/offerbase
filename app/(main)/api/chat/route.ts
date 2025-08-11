@@ -11,33 +11,20 @@ import { chatRequestSchema, validateRequest, sanitizeString, createValidationErr
 
 export async function POST(request: NextRequest) {
   try {
-    const timestamp = new Date().toISOString();
-    const environment = process.env.NODE_ENV || 'unknown';
-    
-    console.log('🔥 PRODUCTION DEBUG - Chat API Called:', { 
-      timestamp, 
-      environment, 
-      userAgent: request.headers.get('user-agent')?.substring(0, 50) 
-    });
-    console.log('🚀 Chat API: Starting request processing');
-    
     // Parse and validate request body
     const body = await request.json();
-    console.log('📝 Chat API: Request body parsed', { messageLength: body.message?.length, siteId: body.siteId });
     
     // Validate input using Zod schema
     const validation = validateRequest(chatRequestSchema, body);
     if (!validation.success) {
-      console.error('🚨 Validation Error:', validation.error, 'Body received:', JSON.stringify(body, null, 2));
+      console.error('Validation Error:', validation.error);
       return createValidationErrorResponse(validation.error);
     }
 
     const { message, siteId, conversationHistory = [], sessionId } = validation.data;
-    console.log('✅ Chat API: Validation passed');
 
     // Sanitize message content
     const sanitizedMessage = sanitizeString(message);
-    console.log('🧹 Chat API: Message sanitized');
     
     // Sanitize conversation history
     const sanitizedHistory = conversationHistory.map(msg => ({
@@ -84,15 +71,8 @@ export async function POST(request: NextRequest) {
     // Generate AI response using OpenAI with sanitized data
     const response = await generateChatResponse(sanitizedMessage, sanitizedHistory, siteId, chatSessionId || undefined);
     
-    // Extract debug info from response and remove it from the response
-    interface DebugInfo {
-      hasRawResponse?: boolean;
-      rawResponseLength?: number;
-      hasReasoning?: boolean;
-      complianceMarkers?: number;
-    }
-    const responseDebugInfo = (response as Record<string, unknown>)?._debugInfo as DebugInfo || {};
-    delete (response as Record<string, unknown>)._debugInfo; // Clean up internal debug info
+    // Clean up internal debug info from response
+    delete (response as Record<string, unknown>)?._debugInfo;
     
     // Log chat messages if session tracking is available
     if (chatSessionId && supabase) {
@@ -134,13 +114,7 @@ export async function POST(request: NextRequest) {
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
-        'Expires': '0',
-        'X-Debug-Timestamp': timestamp,
-        'X-Debug-Environment': environment,
-        'X-Debug-API-Version': 'v2.1.0-with-reasoning',
-        'X-Debug-Has-Reasoning': responseDebugInfo?.hasReasoning ? 'true' : 'false',
-        'X-Debug-Response-Length': String(responseDebugInfo?.rawResponseLength || 0),
-        'X-Debug-Compliance-Markers': String(responseDebugInfo?.complianceMarkers || 0)
+        'Expires': '0'
       }
     });
     
@@ -217,21 +191,6 @@ async function generateChatResponse(message: string, conversationHistory: { role
     // Build training context from the smart context selection
     const trainingContext = buildOptimizedContext(relevantContext);
     
-    // Debug: Log training context availability
-    console.log(`🔍 Training Context: ${trainingContext ? trainingContext.length : 0} characters, ${relevantContext.length} materials selected`);
-    
-    // More intelligent handling of limited context
-    let contextGuidance = '';
-    if (trainingContext.length < 100) {
-      console.warn('⚠️ Limited training context available - using flexible interpretation');
-      contextGuidance = '\n\nNote: Limited training materials available. Use intelligent interpretation to provide helpful responses based on available information.';
-    } else if (trainingContext.length < 500) {
-      contextGuidance = '\n\nNote: Moderate amount of training materials available. Make reasonable inferences where appropriate.';
-    }
-
-    // Language will be handled naturally by AI based on user input and preferences
-    console.log(`Session ${sessionId}: AI will naturally respond in user's language${chatSettings?.preferred_language ? ` (site preference: ${chatSettings.preferred_language})` : ''}`);
-    
     // Build contextually filtered product catalog - only relevant products
     let productCatalog = '';
     let relevantProducts: typeof affiliateLinks = []; // Move to broader scope
@@ -250,8 +209,6 @@ async function generateChatResponse(message: string, conversationHistory: { role
         }
       });
       
-      console.log(`🔍 Context domains for product filtering:`, Array.from(contextDomains));
-      console.log(`🔍 Context companies for product filtering:`, Array.from(contextCompanies));
       
       // Filter products with more inclusive logic - don't be too restrictive
       relevantProducts = affiliateLinks.filter(link => {
@@ -295,12 +252,10 @@ async function generateChatResponse(message: string, conversationHistory: { role
         return false;
       });
       
-      console.log(`🎯 Filtered products: ${relevantProducts.length} relevant out of ${affiliateLinks.length} total`);
       
       // Safety net: If filtering is too restrictive and no products match, show recent products
       // This ensures AI always has some products to choose from, preventing empty catalogs
       if (relevantProducts.length === 0 && affiliateLinks.length > 0) {
-        console.log('⚠️ No products matched context - using recent products as safety net');
         relevantProducts = affiliateLinks.slice(0, 5); // Show up to 5 most recent products
       }
       
@@ -312,9 +267,6 @@ async function generateChatResponse(message: string, conversationHistory: { role
           productCatalog += `ID: ${link.id} | Title: ${link.title}${contextInfo} | Description: ${link.description || 'No description'}\n`;
         });
         productCatalog += '\nNOTE: Only these products are contextually relevant to the current conversation.';
-        console.log(`📦 PRODUCT CATALOG BUILT:`, productCatalog.substring(0, 300));
-      } else {
-        console.log('⚠️ No contextually relevant products found for current conversation');
       }
     }
     
@@ -328,96 +280,20 @@ async function generateChatResponse(message: string, conversationHistory: { role
       }
     }
     
-    // Build system prompt with AI-native language handling
-    let systemPrompt = buildSystemPrompt(
-      '', // No custom instructions
-      undefined, // contextInfo
-      'moderate', // strictnessLevel
-      chatSettings?.preferred_language // preferredLanguage
-    );
+    // Build system prompt - just the 5 steps, nothing else
+    const systemPrompt = buildSystemPrompt();
     
-    // CRITICAL: Verify key instructions are present before proceeding
-    const requiredInstructions = [
-      'NEVER POSITION YOURSELF AS A SPECIALIST',
-      'WHEN DECLINING UNKNOWN TOPICS',
-      'NO ALTERNATIVE SUGGESTIONS',
-      'I don\'t have specific information about that topic'
-    ];
+    // No additional context guidance - the 5 steps are clear enough
     
-    const missingInstructions = requiredInstructions.filter(instruction => 
-      !systemPrompt.includes(instruction)
-    );
-    
-    if (missingInstructions.length > 0) {
-      console.error('🚨 CRITICAL ERROR: Missing required instructions:', missingInstructions);
-      console.error('🚨 System prompt may be corrupted or outdated');
-      console.error('🚨 First 500 chars of systemPrompt:', systemPrompt.substring(0, 500));
-    } else {
-      console.log('✅ All required instructions are present in system prompt');
-    }
-    
-    // Add context guidance instead of strict refusal
-    systemPrompt += contextGuidance;
-    
-    // Add environment debugging information
+    // Add environment information
     const currentEnvironment = process.env.NODE_ENV || 'unknown';
-    const environmentInfo = `\n\nEnvironment: ${currentEnvironment} | Site ID: ${siteId} | Debug Mode: Active`;
+    const environmentInfo = `\n\nEnvironment: ${currentEnvironment} | Site ID: ${siteId}`;
     
-    // Build final system message content
-    const finalSystemContent = systemPrompt + trainingContext + productCatalog + environmentInfo;
+    // Build final system message content - training materials first, then instructions
+    const finalSystemContent = trainingContext + productCatalog + environmentInfo + '\n\n' + systemPrompt;
     
-    // Debug: Log system prompt length and key parts
-    console.log(`📝 System Prompt: ${systemPrompt.length} chars, Training: ${trainingContext.length} chars, Final: ${finalSystemContent.length} chars`);
-    
-    // Minimal debug for production performance
-    console.log(`🔍 SYSTEM PROMPT: ${finalSystemContent.length} chars, Environment: ${currentEnvironment}`);
-    
-    // Debug: Log validation approach
-    const hasIntelligentGuidelines = finalSystemContent.includes('INTELLIGENT CONTENT GUIDELINES');
-    const hasTrainingMaterials = finalSystemContent.includes('Relevant Training Materials:');
-    console.log(`🔍 Debug: Intelligent guidelines: ${hasIntelligentGuidelines}, Training materials present: ${hasTrainingMaterials}`);
-    
-    // Production: Log only system prompt length for performance
-    // console.log(`🤖 FULL SYSTEM PROMPT SENT TO AI:`, finalSystemContent); // Disabled for speed
-    
-    // Critical Debug: Log specific rule sections for troubleshooting
-    console.log('🔥 CRITICAL RULES CHECK:');
-    console.log('- Multi-domain awareness rules present:', finalSystemContent.includes('CRITICAL: MULTI-DOMAIN AWARENESS RULES'));
-    console.log('- Forbidden phrases section present:', finalSystemContent.includes('FORBIDDEN phrases'));
-    console.log('- Generic response template present:', finalSystemContent.includes("I don't have specific information about that topic"));
-    console.log('- Compliance markers present:', finalSystemContent.includes('Avoiding domain-specific language'));
-    
-    // PRODUCTION DEBUG: Enhanced instruction verification
-    console.log('🚨 PRODUCTION INSTRUCTION DEBUG:');
-    console.log('- NEVER POSITION YOURSELF AS A SPECIALIST present:', finalSystemContent.includes('NEVER POSITION YOURSELF AS A SPECIALIST'));
-    console.log('- WHEN DECLINING UNKNOWN TOPICS present:', finalSystemContent.includes('WHEN DECLINING UNKNOWN TOPICS'));
-    console.log('- NO ALTERNATIVE SUGGESTIONS present:', finalSystemContent.includes('NO ALTERNATIVE SUGGESTIONS'));
-    console.log('- FORBIDDEN phrases list present:', finalSystemContent.includes('FORBIDDEN phrases:'));
-    console.log('- Generic decline response present:', finalSystemContent.includes('I don\'t have specific information about that topic'));
-    console.log('- Environment:', currentEnvironment);
-    
-    // Log critical instruction sections to verify they exist
-    if (finalSystemContent.includes('NEVER POSITION YOURSELF AS A SPECIALIST')) {
-      const specialistSection = finalSystemContent.match(/CRITICAL: NEVER POSITION YOURSELF AS A SPECIALIST:[\s\S]*?(?=\n\n|$)/);
-      console.log('📋 SPECIALIST RULES SECTION:', specialistSection ? specialistSection[0].substring(0, 300) + '...' : 'NOT FOUND');
-    }
-    
-    if (finalSystemContent.includes('WHEN DECLINING UNKNOWN TOPICS')) {
-      const decliningSection = finalSystemContent.match(/CRITICAL: WHEN DECLINING UNKNOWN TOPICS[\s\S]*?(?=\n\n|$)/);
-      console.log('📋 DECLINING RULES SECTION:', decliningSection ? decliningSection[0].substring(0, 300) + '...' : 'NOT FOUND');
-    }
-    
-    // Debug: Log what training materials contain vs user question
-    if (trainingContext.length > 0) {
-      console.log(`📚 Training materials topics:`, trainingContext.substring(0, 500));
-      console.log(`❓ User question:`, message);
-      
-      // Log training material titles/sources for debugging
-      const materialTitles = relevantContext.map(item => item.title).join(', ');
-      console.log(`📋 Training material titles included:`, materialTitles);
-    } else {
-      console.log(`⚠️ NO TRAINING MATERIALS FOUND for question:`, message);
-    }
+    console.log('🔍 Final system prompt length:', finalSystemContent.length);
+    console.log('🔍 First 500 chars:', finalSystemContent.substring(0, 500));
     
     // Build the conversation messages for OpenAI
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -434,14 +310,13 @@ async function generateChatResponse(message: string, conversationHistory: { role
         content: message
       }
     ];
-
+    
   const completion = await openai.responses.create({
-  model: 'gpt-5-nano',                 // use your exact Nano model id
+  model: 'gpt-5-mini',                 // use your exact Nano model id
   input: messages,                      // array of {role, content} is fine
   reasoning: { effort: 'minimal' },     // fastest thinking
-  max_output_tokens: 500,               // increased for product recommendations + JSON
+  max_output_tokens: 800,               // increased to prevent truncation of product responses
   text: {
-    verbosity: 'low',
     format: { type: 'json_object' }     // moved from response_format
   },
   stream: false
@@ -453,8 +328,7 @@ if (!rawResponse) {
   throw new Error('No response from OpenAI');
 }
     
-    // Production: Minimal AI response logging for speed
-    console.log(`🤖 AI response length:`, rawResponse?.length || 0, 'chars');
+    
     
     // Simplified tracking for performance
     const hasReasoning = false;
@@ -476,9 +350,6 @@ if (!rawResponse) {
     const parseResult = parseAIResponse(rawResponse);
     
     if (!parseResult.success) {
-      console.error('❌ JSON Parse Failed:', parseResult.error);
-      console.log('📝 Raw response that failed to parse:', rawResponse?.substring(0, 500));
-      console.log('🔍 Using fallback response handler with affiliateLinks');
       return getFallbackResponseFromText(rawResponse, affiliateLinks || []);
     }
 
@@ -486,8 +357,6 @@ if (!rawResponse) {
     const validationResult = validateAIResponse(parseResult.structured!);
     
     if (!validationResult.isValid) {
-      console.warn('⚠️ Basic structure validation failed, using fallback');
-      console.log('📝 Parsed structure that failed validation:', JSON.stringify(parseResult.structured, null, 2));
       return getFallbackResponseFromText(rawResponse, affiliateLinks || []);
     }
 
@@ -495,8 +364,6 @@ if (!rawResponse) {
     
     // Handle AI-selected products (AI-first approach)
     if (structuredResponse.products && structuredResponse.products.length > 0) {
-      console.log(`🤖 AI Selected Products: ${structuredResponse.products.join(', ')}`);
-      
       // Find selected products by ID from FULL catalog (not filtered subset)
       // BUG FIX: Must look up IDs in affiliateLinks to get correct product info
       const selectedProducts = (affiliateLinks || []).filter(link => 
@@ -504,7 +371,6 @@ if (!rawResponse) {
       );
       
       if (selectedProducts.length > 0) {
-        console.log(`✅ Found ${selectedProducts.length} products from catalog:`, selectedProducts.map(p => `${p.id}: ${p.title}`));
         // Format products with image fallback from training materials
         const links = selectedProducts.map(product => {
           let imageUrl = product.image_url || '';
@@ -535,8 +401,6 @@ if (!rawResponse) {
           links: links,
           _debugInfo: debugInfo
         };
-      } else {
-        console.warn(`⚠️ AI selected products not found in catalog: ${structuredResponse.products.join(', ')}`);
       }
     }
 
@@ -557,7 +421,6 @@ if (!rawResponse) {
         };
       } else {
         // Invalid or inappropriate URL - don't show link
-        console.log(`🚫 Simple Link blocked: Invalid or non-affiliate URL: ${linkUrl}`);
         // Return just the message without any link
         return {
           type: 'message',
@@ -626,13 +489,11 @@ function parseAIResponse(rawResponse: string): AIResponseParseResult {
     const jsonMatch = rawResponse.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}$/);
     if (jsonMatch) {
       jsonString = jsonMatch[0];
-      console.log(`🔍 Extracted JSON from reasoning response:`, jsonString.substring(0, 200));
     } else {
       // Fallback: Try to find any JSON-like structure
       const fallbackMatch = rawResponse.match(/\{[\s\S]*"message"[\s\S]*\}/);
       if (fallbackMatch) {
         jsonString = fallbackMatch[0];
-        console.log(`🔍 Used fallback JSON extraction:`, jsonString.substring(0, 200));
       }
     }
     
@@ -640,16 +501,28 @@ function parseAIResponse(rawResponse: string): AIResponseParseResult {
     
     // Handle both response formats:
     // Format 1: { "message": "...", "products": [...] }
-    // Format 2: { "reasoning": "...", "response": { "message": "...", "products": [...] } }
+    // Format 2: { "reasoning": {...}, "response": { "message": "...", "products": [...] } }
     let actualResponse = parsed;
+    let reasoning = null;
+    
     if (parsed.response && typeof parsed.response === 'object') {
-      console.log('🔍 Detected nested response format, extracting from "response" field');
       actualResponse = parsed.response;
+      reasoning = parsed.reasoning;
+    }
+    
+    // Log the AI's step-by-step reasoning if available
+    if (reasoning) {
+      console.log('\n🧠 AI STEP-BY-STEP REASONING:');
+      console.log(`Step 1 - Training Materials: ${reasoning.step1 || 'Not provided'}`);
+      console.log(`Step 2 - Products: ${reasoning.step2 || 'Not provided'}`);
+      console.log(`Step 3 - Answer Approach: ${reasoning.step3 || 'Not provided'}`);
+      console.log(`Step 4 - Language: ${reasoning.step4 || 'Not provided'}`);
+      console.log(`Step 5 - Final Decision: ${reasoning.step5 || 'Not provided'}`);
+      console.log('');
     }
     
     // Validate required fields
     if (!actualResponse.message) {
-      console.error('Invalid AI response structure:', parsed);
       return {
         success: false,
         error: 'Invalid response structure: missing message field',
@@ -691,24 +564,20 @@ function getFallbackResponseFromText(text: string, affiliateLinks: { id?: string
   const messageMatch = text.match(/"response"\s*:\s*{[^}]*"message"\s*:\s*"([^"]+)"/);
   if (messageMatch) {
     extractedMessage = messageMatch[1];
-    console.log(`🔧 FALLBACK: Extracted message from nested response: ${extractedMessage.substring(0, 100)}`);
   } else {
     // Fallback: try simple message extraction
     const simpleMessageMatch = text.match(/"message"\s*:\s*"([^"]+)"/);
     if (simpleMessageMatch) {
       extractedMessage = simpleMessageMatch[1];
-      console.log(`🔧 FALLBACK: Extracted message from simple format: ${extractedMessage.substring(0, 100)}`);
     }
   }
   
   if (productIdMatch && affiliateLinks && affiliateLinks.length > 0) {
     const selectedId = productIdMatch[1];
-    console.log(`🔧 FALLBACK: Extracted product ID from malformed response: ${selectedId}`);
     
     // Find the specific product by ID
     const selectedProduct = affiliateLinks.find(link => link.id === selectedId);
     if (selectedProduct) {
-      console.log(`✅ FALLBACK: Found product with ID ${selectedId}: ${selectedProduct.title}`);
       return {
         type: 'links',
         message: extractedMessage,
@@ -729,7 +598,6 @@ function getFallbackResponseFromText(text: string, affiliateLinks: { id?: string
                          lowerText.includes('anbefal');
   
   if (shouldShowLinks && affiliateLinks && affiliateLinks.length > 0) {
-    console.warn('⚠️ FALLBACK: Using first product as last resort - may be wrong!');
     const links = affiliateLinks.slice(0, 1).map(link => ({
       name: link.title,
       description: link.description || 'Click to learn more',

@@ -43,35 +43,20 @@ export async function selectRelevantContext(
   // Normalize and extract keywords for consistent results  
   const normalizedQuery = normalizeQuery(query);
   const keywords = extractSimpleKeywords(normalizedQuery);
-  console.log(`🔍 CONTEXT DEBUG - Original query: "${query}"`);
-  console.log(`🔍 CONTEXT DEBUG - Normalized query: "${normalizedQuery}"`);
-  console.log(`🔍 CONTEXT DEBUG - Extracted keywords: [${keywords.join(', ')}]`);
 
   if (keywords.length === 0) {
-    console.log('⚠️ CONTEXT DEBUG - No keywords found, returning recent materials');
-    const fallbackMaterials = await getFallbackMaterials(supabase, siteId, maxItems);
-    console.log(`📋 CONTEXT DEBUG - Fallback materials returned: ${fallbackMaterials.length} items`);
-    fallbackMaterials.forEach((item, index) => {
-      console.log(`   ${index + 1}. "${item.title}" (${item.content.substring(0, 100)}...)`);
-    });
-    return fallbackMaterials;
+    return await getFallbackMaterials(supabase, siteId, maxItems);
   }
 
   // Single database query - let AI decide relevance from results
   const materials = await searchMaterials(supabase, keywords, siteId, maxItems);
-  console.log(`📚 CONTEXT DEBUG - Found ${materials.length} materials containing keywords`);
-  materials.forEach((material, index) => {
-    console.log(`   ${index + 1}. "${material.title}" - Keywords found in content`);
-  });
 
   if (materials.length === 0) {
-    console.log('⚠️ CONTEXT DEBUG - No keyword matches, trying broader search...');
     // Try broader search with individual words if compound search failed
     const broadKeywords = keywords.slice(0, 3); // Use fewer, more general keywords
     const broadResults = await searchMaterials(supabase, broadKeywords, siteId, maxItems);
     
     if (broadResults.length > 0) {
-      console.log(`📚 Broader search found ${broadResults.length} materials`);
       return broadResults.map(material => ({
         title: material.title,
         content: getFullContent(material),
@@ -79,27 +64,15 @@ export async function selectRelevantContext(
       }));
     }
     
-    console.log('⚠️ CONTEXT DEBUG - No matches found even with broader search, returning recent materials');
-    const fallbackMaterials = await getFallbackMaterials(supabase, siteId, maxItems);
-    console.log(`📋 CONTEXT DEBUG - Final fallback materials: ${fallbackMaterials.length} items`);
-    return fallbackMaterials;
+    return await getFallbackMaterials(supabase, siteId, maxItems);
   }
 
   // No scoring or sorting - just return materials as-is, let AI decide
-  console.log(`✅ CONTEXT DEBUG - Returning ${materials.length} materials for AI evaluation`);
-  
-  const finalResults = materials.map(material => ({
+  return materials.map(material => ({
     title: material.title,
     content: getFullContent(material),
     sourceInfo: extractSourceInfo(material)
   }));
-  
-  console.log(`📋 CONTEXT DEBUG - Final materials being sent to AI:`);
-  finalResults.forEach((item, index) => {
-    console.log(`   ${index + 1}. "${item.title}" (${item.content.substring(0, 150)}...)`);
-  });
-
-  return finalResults;
 }
 
 /**
@@ -258,25 +231,59 @@ async function searchMaterials(
   limit: number
 ): Promise<TrainingMaterial[]> {
   try {
-    // Build ILIKE patterns for each keyword
-    const patterns = keywords.map(keyword => `%${keyword}%`);
+    // Prioritize brand/specific keywords over common words
+    const priorityKeywords = keywords.filter(k => k.length >= 4 && !isCommonWord(k));
+    const commonKeywords = keywords.filter(k => k.length < 4 || isCommonWord(k));
     
-    // Enhanced query that searches title, content, AND metadata for domain/company matches
-    const { data: materials, error } = await supabase
-      .from('training_materials')
-      .select('id, title, content, summary, metadata, updated_at')
-      .eq('site_id', siteId)
-      .eq('scrape_status', 'success')
-      .or(
-        // Search in title and content (original)
-        patterns.map(pattern => `title.ilike.${pattern},content.ilike.${pattern},summary.ilike.${pattern}`).join(',')
-      )
-      .order('updated_at', { ascending: false })
-      .limit(limit * 2); // Get more results for metadata filtering
-
-    if (error) {
-      console.error('Database query error:', error);
-      return [];
+    // First try with priority keywords only (more precise search)
+    let materials: any[] = [];
+    
+    if (priorityKeywords.length > 0) {
+      const priorityPatterns = priorityKeywords.map(keyword => `%${keyword}%`);
+      
+      const { data: priorityResults, error: priorityError } = await supabase
+        .from('training_materials')
+        .select('id, title, content, summary, metadata, updated_at, site_id')
+        .eq('site_id', siteId)
+        .eq('scrape_status', 'success')
+        .or(
+          priorityPatterns.map(pattern => `title.ilike.${pattern},content.ilike.${pattern},summary.ilike.${pattern}`).join(',')
+        )
+        .order('updated_at', { ascending: false })
+        .limit(limit);
+        
+      if (priorityError) {
+        console.error('Priority search error:', priorityError);
+      } else {
+        materials = priorityResults || [];
+      }
+    }
+    
+    // If priority search didn't find enough, supplement with common keywords
+    // Also try if priority search found nothing at all (too restrictive)
+    if ((materials.length < limit && commonKeywords.length > 0) || materials.length === 0) {
+      const allPatterns = keywords.map(keyword => `%${keyword}%`);
+      
+      const { data: allResults, error } = await supabase
+        .from('training_materials')
+        .select('id, title, content, summary, metadata, updated_at, site_id')
+        .eq('site_id', siteId)
+        .eq('scrape_status', 'success')
+        .or(
+          allPatterns.map(pattern => `title.ilike.${pattern},content.ilike.${pattern},summary.ilike.${pattern}`).join(',')
+        )
+        .order('updated_at', { ascending: false })
+        .limit(limit * 2);
+        
+      if (error) {
+        console.error('Database query error:', error);
+        return materials; // Return what we have from priority search
+      }
+      
+      // Combine results, prioritizing exact matches
+      const allMaterials = allResults || [];
+      const newMaterials = allMaterials.filter(m => !materials.some(existing => existing.id === m.id));
+      materials = [...materials, ...newMaterials].slice(0, limit);
     }
     
     const results = materials || [];
@@ -303,20 +310,18 @@ async function searchMaterials(
       });
     });
     
-    // Combine content matches with metadata matches, remove duplicates
-    const allMatches = [...results, ...metadataMatches];
-    const uniqueMatches = allMatches.filter((material, index, arr) => 
-      arr.findIndex(m => m.id === material.id) === index
+    // Remove duplicates and prioritize metadata matches
+    // First, get materials that DON'T match metadata
+    const contentOnlyMatches = results.filter(material => 
+      !metadataMatches.some(metaMatch => metaMatch.id === material.id)
     );
     
     // Prioritize metadata matches (likely more relevant for company queries)
     const prioritized = [
-      ...metadataMatches,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ...uniqueMatches.filter((m: any) => !metadataMatches.some((mm: any) => mm.id === m.id))
+      ...metadataMatches,          // Metadata matches first (most relevant)
+      ...contentOnlyMatches        // Content-only matches second
     ].slice(0, limit);
     
-    console.log(`🔍 Found ${results.length} content matches, ${metadataMatches.length} metadata matches, returning ${prioritized.length}`);
     
     return prioritized;
   } catch (error) {
@@ -331,22 +336,18 @@ async function searchMaterials(
  * Limits content to ensure equal weight regardless of original length
  */
 function getFullContent(material: TrainingMaterial): string {
-  const MAX_CONTENT_LENGTH = 800; // Reasonable limit for balanced context
+  // No truncation - send full content to AI
+  // The model can handle it and needs complete information
   
   let content = '';
   
-  // Prefer summary for balanced representation, fall back to truncated content
-  if (material.summary && material.summary.trim().length > 0) {
-    content = material.summary.trim();
-  } else if (material.content && material.content.trim().length > 0) {
+  // Use full content, not summary (summaries miss specific details)
+  if (material.content && material.content.trim().length > 0) {
     content = material.content.trim();
+  } else if (material.summary && material.summary.trim().length > 0) {
+    content = material.summary.trim();
   } else {
     return `Title: ${material.title}\n(No detailed content available)`;
-  }
-  
-  // Truncate if too long to prevent length bias
-  if (content.length > MAX_CONTENT_LENGTH) {
-    content = content.substring(0, MAX_CONTENT_LENGTH) + '...[truncated for balance]';
   }
   
   return content;
@@ -389,15 +390,6 @@ async function getFallbackMaterials(
 }
 
 /**
- * Build domain scope summary to show AI the full range of available materials
- * Prevents AI from incorrectly limiting scope to single domain
- */
-function buildDomainScopeSummary(): string {
-  // Simple, non-confusing scope message
-  return 'IMPORTANT: You are a general assistant that can help with ANY topic. Do NOT position yourself as a specialist in any particular domain, company, or product category. These training materials are just examples of available information - they do not define your expertise or specialization.';
-}
-
-/**
  * Build rich context with source metadata for AI intelligence
  * Give AI structured information about each material's source and relevance
  */
@@ -406,10 +398,7 @@ export function buildOptimizedContext(contextItems: ContextItem[]): string {
     return '';
   }
 
-  // Build domain scope summary for AI awareness
-  const domainSummary = buildDomainScopeSummary();
-  
-  let context = `\n\n${domainSummary}\n\nTraining Materials with Source Intelligence:\n`;
+  let context = `\n\nTraining Materials:\n`;
   
   contextItems.forEach((item, index) => {
     context += `\n${index + 1}. ${item.title}`;
@@ -431,7 +420,25 @@ export function buildOptimizedContext(contextItems: ContextItem[]): string {
     context += `:\n${item.content}\n`;
   });
 
-  console.log(`📝 Built enriched context: ${context.length} characters from ${contextItems.length} materials with source metadata`);
   
   return context;
+}
+
+/**
+ * Check if a word is a common word that should be deprioritized in search
+ */
+function isCommonWord(word: string): boolean {
+  const commonWords = new Set([
+    // English common words
+    'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'man', 'new', 'now', 'old', 'see', 'two', 'way', 'who', 'boy', 'did', 'its', 'let', 'put', 'say', 'she', 'too', 'use',
+    // Norwegian common words
+    'har', 'den', 'det', 'som', 'han', 'med', 'var', 'seg', 'for', 'ikke', 'vil', 'jeg', 'kan', 'hun', 'til', 'på', 'og', 'av', 'er', 'fra', 'deg', 'når', 'hva', 'min', 'din', 'sin', 'vår', 'deres', 'bare', 'enn', 'hvis', 'hvor', 'alle', 'skal', 'selv', 'denne', 'dette', 'disse', 'sånn', 'slik', 'altså', 'eller', 'men', 'så', 'også', 'både', 'enten', 'både', 'hverken',
+    // Common recommendation words
+    'bra', 'good', 'best', 'great', 'recommend', 'suggest', 'anbefale', 'foreslå',
+    // Common question words  
+    'what', 'when', 'where', 'why', 'how', 'which', 'who',
+    'hva', 'når', 'hvor', 'hvorfor', 'hvordan', 'hvilken', 'hvem'
+  ]);
+  
+  return commonWords.has(word.toLowerCase());
 }

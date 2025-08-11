@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createClient } from '@supabase/supabase-js'
+import { cache } from '@/lib/cache'
 
 export async function GET(
   request: NextRequest,
@@ -23,6 +24,7 @@ export async function GET(
       .from('training_materials')
       .select(`
         *,
+        site_id,
         sites!inner (
           user_id
         )
@@ -69,6 +71,7 @@ export async function PUT(
       .from('training_materials')
       .select(`
         *,
+        site_id,
         sites!inner (
           user_id
         )
@@ -82,6 +85,10 @@ export async function PUT(
       return NextResponse.json({ error: 'Training material not found or unauthorized' }, { status: 404 })
     }
 
+    // Clear cache for this site when updating materials
+    const siteId = material.site_id
+    await cache.invalidatePattern(`chat:${siteId}:*`)
+    
     // Update the training material
     const updates: Record<string, unknown> = {
       updated_at: new Date().toISOString()
@@ -143,6 +150,7 @@ export async function DELETE(
       .from('training_materials')
       .select(`
         id,
+        site_id,
         sites!inner (
           id,
           user_id
@@ -156,6 +164,10 @@ export async function DELETE(
       return NextResponse.json({ error: 'Material not found or unauthorized' }, { status: 404 })
     }
 
+    // Clear cache for this site before deleting
+    const siteId = material.site_id
+    await cache.invalidatePattern(`chat:${siteId}:*`)
+    
     // Delete the material
     const { error } = await supabase
       .from('training_materials')

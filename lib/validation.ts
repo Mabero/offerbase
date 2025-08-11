@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 // Maximum message length to prevent token flooding
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_CONVERSATION_HISTORY = 20;
-const MAX_SINGLE_MESSAGE_LENGTH = 2000; // Increased to handle longer AI responses
+const MAX_SINGLE_MESSAGE_LENGTH = 10000; // Increased to handle full training materials
 
 // Chat API request validation schema
 export const chatRequestSchema = z.object({
