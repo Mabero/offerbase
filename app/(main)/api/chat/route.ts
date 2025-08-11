@@ -11,6 +11,10 @@ import { chatRequestSchema, validateRequest, sanitizeString, createValidationErr
 
 export async function POST(request: NextRequest) {
   try {
+    // Check if streaming is requested
+    const url = new URL(request.url);
+    const isStreaming = url.searchParams.get('stream') === 'true';
+    
     // Parse and validate request body
     const body = await request.json();
     
@@ -69,13 +73,18 @@ export async function POST(request: NextRequest) {
     }
     
     // Generate AI response using OpenAI with sanitized data
-    const response = await generateChatResponse(sanitizedMessage, sanitizedHistory, siteId, chatSessionId || undefined);
+    const response = await generateChatResponse(sanitizedMessage, sanitizedHistory, siteId, chatSessionId ?? undefined);
+    
+    // Handle streaming response
+    if (isStreaming) {
+      return handleStreamingResponse(response, chatSessionId, supabase);
+    }
     
     // Clean up internal debug info from response
     delete (response as Record<string, unknown>)?._debugInfo;
     
-    // Log chat messages if session tracking is available
-    if (chatSessionId && supabase) {
+    // Log chat messages if session tracking is available (user message only for non-streaming)
+    if (chatSessionId && supabase && !isStreaming) {
       try {
         // Log user message
         await supabase
@@ -98,6 +107,19 @@ export async function POST(request: NextRequest) {
           
       } catch (error) {
         console.warn('Failed to log chat messages:', error);
+      }
+    } else if (chatSessionId && supabase && isStreaming) {
+      try {
+        // For streaming, only log user message here
+        await supabase
+          .from('chat_messages')
+          .insert([{
+            chat_session_id: chatSessionId,
+            role: 'user',
+            content: sanitizedMessage
+          }]);
+      } catch (error) {
+        console.warn('Failed to log user message:', error);
       }
     }
     
@@ -314,7 +336,7 @@ async function generateChatResponse(message: string, conversationHistory: { role
   const completion = await openai.responses.create({
   model: 'gpt-5-mini',                 // use your exact Nano model id
   input: messages,                      // array of {role, content} is fine
-  reasoning: { effort: 'minimal' },     // fastest thinking
+  reasoning: { effort: 'minimal' as const },     // fastest thinking
   max_output_tokens: 800,               // increased to prevent truncation of product responses
   text: {
     format: { type: 'json_object' }     // moved from response_format
@@ -668,6 +690,103 @@ export async function GET() {
     message: 'Chat API is running',
     timestamp: new Date().toISOString()
   });
+}
+
+// Handle streaming response with NDJSON
+function handleStreamingResponse(response: Record<string, unknown>, chatSessionId: string | undefined, supabase: any) {
+  const encoder = new TextEncoder();
+  
+  const stream = new ReadableStream({
+    start(controller) {
+      try {
+        // Chunk the message text into smaller segments
+        const message = (response.message as string) || '';
+        const words = message.split(' ');
+        const chunkSize = 20; // ~20 words per chunk
+        
+        // Send text chunks
+        for (let i = 0; i < words.length; i += chunkSize) {
+          const chunk = words.slice(i, i + chunkSize).join(' ');
+          if (chunk.trim()) {
+            const textChunk = JSON.stringify({
+              type: 'text_chunk',
+              content: chunk + (i + chunkSize >= words.length ? '' : ' ')
+            }) + '\n';
+            controller.enqueue(encoder.encode(textChunk));
+          }
+        }
+        
+        // Send final response data (products, links, etc.)
+        const finalData = { ...response };
+        delete finalData.message; // Remove message since it was already streamed
+        
+        if (finalData.links && Array.isArray(finalData.links) && finalData.links.length > 0) {
+          const linksChunk = JSON.stringify({
+            type: 'products',
+            data: finalData
+          }) + '\n';
+          controller.enqueue(encoder.encode(linksChunk));
+        } else if (finalData.simple_link) {
+          const linkChunk = JSON.stringify({
+            type: 'simple_link',
+            data: finalData
+          }) + '\n';
+          controller.enqueue(encoder.encode(linkChunk));
+        }
+        
+        // Send completion marker
+        const completeChunk = JSON.stringify({ type: 'complete' }) + '\n';
+        controller.enqueue(encoder.encode(completeChunk));
+        
+        controller.close();
+        
+        // Log to database asynchronously (don't block stream)
+        if (chatSessionId && supabase) {
+          logChatMessages(chatSessionId, response, supabase).catch(error => 
+            console.warn('Failed to log chat messages:', error)
+          );
+        }
+        
+      } catch (error) {
+        console.error('Streaming error:', error);
+        const errorChunk = JSON.stringify({
+          type: 'error',
+          message: 'Stream processing failed'
+        }) + '\n';
+        controller.enqueue(encoder.encode(errorChunk));
+        controller.close();
+      }
+    }
+  });
+  
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'application/x-ndjson',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive'
+    }
+  });
+}
+
+// Extract chat logging to separate function
+async function logChatMessages(chatSessionId: string, response: Record<string, unknown>, supabase: any) {
+  try {
+    // We already logged the user message in the main function
+    // Just log the assistant response
+    const responseMessage = JSON.stringify(response);
+    await supabase
+      .from('chat_messages')
+      .insert([{
+        chat_session_id: chatSessionId,
+        role: 'assistant',
+        content: responseMessage
+      }]);
+  } catch (error) {
+    console.warn('Database logging failed:', error);
+  }
 }
 
 export async function OPTIONS() {
