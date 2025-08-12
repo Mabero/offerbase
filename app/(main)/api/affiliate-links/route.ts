@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Site not found or unauthorized' }, { status: 404 });
     }
 
-    // Fetch affiliate links
+    // Fetch affiliate links (aliases support will be added after migration)
     const { data, error } = await supabase
       .from('affiliate_links')
       .select('id, url, title, description, image_url, button_text, created_at, updated_at')

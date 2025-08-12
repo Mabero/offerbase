@@ -693,6 +693,7 @@ export async function GET() {
 }
 
 // Handle streaming response with NDJSON
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function handleStreamingResponse(response: Record<string, unknown>, chatSessionId: string | undefined, supabase: any) {
   const encoder = new TextEncoder();
   
@@ -772,12 +773,15 @@ function handleStreamingResponse(response: Record<string, unknown>, chatSessionI
 }
 
 // Extract chat logging to separate function
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function logChatMessages(chatSessionId: string, response: Record<string, unknown>, supabase: any) {
   try {
     // We already logged the user message in the main function
     // Just log the assistant response
     const responseMessage = JSON.stringify(response);
-    await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supabaseClient = supabase as any; // Type assertion for supabase client
+    await supabaseClient
       .from('chat_messages')
       .insert([{
         chat_session_id: chatSessionId,

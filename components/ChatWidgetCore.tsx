@@ -1,40 +1,35 @@
-// FILE PURPOSE: Main chat widget UI component - handles messages, typing animation, product boxes
+// FILE PURPOSE: Main chat widget UI component - handles messages with AI SDK streaming
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
 import { PredefinedQuestions } from './PredefinedQuestions';
 import { PredefinedQuestionButton } from '@/types/predefined-questions';
+import ReactMarkdown from 'react-markdown';
 
-// Simple typewriter component
-const TypewriterText = ({ text, isTyping, onTextChange }: { text: string; isTyping: boolean; onTextChange?: () => void }) => {
-  const [displayedText, setDisplayedText] = useState('');
-  
-  useEffect(() => {
-    if (!isTyping) {
-      setDisplayedText(text);
-      return;
-    }
-    
-    let i = 0;
-    const timer = setInterval(() => {
-      setDisplayedText(text.slice(0, i));
-      onTextChange?.(); // Trigger scroll during typing
-      i++;
-      if (i > text.length) {
-        clearInterval(timer);
-      }
-    }, 15); // Fast typing
-    
-    return () => clearInterval(timer);
-  }, [text, isTyping, onTextChange]);
-  
-  return (
-    <span>
-      {displayedText}
-      {isTyping && displayedText.length < text.length && (
-        <span style={{ animation: 'blink 1s infinite' }}>|</span>
-      )}
-    </span>
-  );
+interface AffiliateProduct {
+  id: string;
+  title: string;
+  description: string;
+  url: string;
+  button_text: string;
+  image_url?: string;
+}
+import remarkGfm from 'remark-gfm';
+import rehypeSanitize from 'rehype-sanitize';
+
+// Markdown sanitization schema - allow only safe HTML elements
+const sanitizeSchema = {
+  allowedTags: ['p', 'strong', 'em', 'ul', 'ol', 'li', 'br', 'code', 'pre', 'blockquote'],
+  allowedAttributes: {},
+  disallowedTagsMode: 'discard',
+  allowedSchemes: [],
+  allowedSchemesByTag: {}
 };
+
+// Product matching functions will be moved to dedicated service
+// Keeping this space clean for now
+
+// Typewriter component removed - using real streaming instead
 
 // Types
 export interface ChatSettings {
@@ -76,7 +71,6 @@ export interface BotMessage {
   content: MessageContent;
   id: string;
   timestamp: number;
-  isTyping?: boolean; // For simple typewriter effect
 }
 
 export type Message = UserMessage | BotMessage;
@@ -102,7 +96,7 @@ export interface ChatWidgetCoreProps {
   onWidgetOpen?: () => void;
 }
 
-// Utility function to generate unique message IDs
+// Utility function to generate unique message IDs (legacy - AI SDK handles this)
 const generateMessageId = () => `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
 
@@ -416,6 +410,151 @@ const LinksContainer = ({ links, chatSettings, styles, onLinkClick }: {
   );
 };
 
+// ProductRecommendations component - renders after AI message
+const ProductRecommendations = ({ messageContent, siteId, apiUrl, chatSettings, styles, isStreaming, onProductsLoaded }: {
+  messageContent: string;
+  siteId: string;
+  apiUrl: string;
+  chatSettings: ChatSettings;
+  styles: Record<string, React.CSSProperties>;
+  isStreaming: boolean;
+  onProductsLoaded?: () => void;
+}) => {
+  const [products, setProducts] = useState<AffiliateProduct[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchProducts = async () => {
+      if (!messageContent || messageContent.length === 0 || isStreaming) return;
+      
+      setLoading(true);
+      try {
+        // Fetch affiliate links for this site
+        const response = await fetch(`${apiUrl}/api/affiliate-links?siteId=${siteId}`);
+        if (!response.ok) throw new Error('Failed to fetch products');
+        
+        const { data: allProducts }: { data: AffiliateProduct[] } = await response.json();
+        
+        // Find matching products using simple word-boundary matching
+        const matchedProducts = allProducts.filter((product: AffiliateProduct) => {
+          if (!product.title) return false;
+          
+          // Extract key terms from product title (like G3, G4, etc.)
+          const titleWords = product.title.toLowerCase().split(/\W+/).filter((word: string) => word.length > 0);
+          const contentLower = messageContent.toLowerCase();
+          
+          // Check for word-boundary matches to prevent false positives
+          return titleWords.some((word: string) => {
+            if (word.length < 2) return false; // Skip single letters
+            const regex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+            return regex.test(contentLower);
+          });
+        });
+        
+        setProducts(matchedProducts);
+        
+        // Trigger scroll to bottom when products are loaded
+        if (matchedProducts.length > 0) {
+          // Small delay to ensure DOM is updated
+          setTimeout(() => {
+            onProductsLoaded?.();
+          }, 100);
+        }
+      } catch (error) {
+        console.error('Product matching error:', error);
+        setProducts([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // Only fetch when streaming is complete
+    if (!isStreaming && messageContent) {
+      fetchProducts();
+    }
+  }, [messageContent, siteId, apiUrl, isStreaming, onProductsLoaded]);
+
+  if (loading || products.length === 0) return null;
+
+  return (
+    <div style={{ ...styles.linksContainer, marginTop: '12px' }}>
+      {products.map((product, index) => (
+        <ProductCard
+          key={product.id || `product-${index}`}
+          href={product.url}
+          title={product.title}
+          description={product.description}
+          buttonText={product.button_text || 'View Product'}
+          chatSettings={chatSettings}
+          styles={styles}
+        />
+      ))}
+    </div>
+  );
+};
+
+// ProductCard component for product recommendations
+const ProductCard = ({ href, title, description, buttonText, chatSettings, styles }: {
+  href: string;
+  title: string;
+  description: string;
+  buttonText: string;
+  chatSettings: ChatSettings;
+  styles: Record<string, React.CSSProperties>;
+}) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const [isButtonHovered, setIsButtonHovered] = useState(false);
+  
+  return (
+    <div
+      style={{
+        ...styles.linkCard,
+        ...(isHovered ? styles.linkCardHover : {})
+      }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <h4 
+        style={{
+          ...styles.linkTitle,
+          fontSize: chatSettings?.font_size || '14px'
+        }}
+      >
+        {title}
+      </h4>
+      
+      {description && (
+        <p 
+          style={{
+            ...styles.linkDescription,
+            fontSize: chatSettings?.font_size || '14px'
+          }}
+        >
+          {description}
+        </p>
+      )}
+      
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{
+          ...styles.linkButton,
+          ...(isButtonHovered ? styles.linkButtonHover : {}),
+          backgroundColor: chatSettings?.chat_color || '#000',
+          fontSize: chatSettings?.font_size || '14px',
+          textDecoration: 'none',
+          color: 'white'
+        }}
+        onMouseEnter={() => setIsButtonHovered(true)}
+        onMouseLeave={() => setIsButtonHovered(false)}
+      >
+        {buttonText}
+      </a>
+    </div>
+  );
+};
+
 // LinkCard component
 const LinkCard = ({ link, chatSettings, styles, onLinkClick }: {
   link: Link;
@@ -718,31 +857,140 @@ export function ChatWidgetCore({
     }
   };
 
-  const [messages, setMessages] = useState<Message[]>(getInitialMessages);
-  const [inputMessage, setInputMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  // Local state for input (AI SDK manages loading state)
+  const [input, setInput] = useState('');
+  
+  // Create custom transport with our endpoint
+  const transport = React.useMemo(() => {
+    console.log('🚛 Creating transport with endpoint:', `${apiUrl}/api/chat-ai`);
+    
+    return new DefaultChatTransport({
+      api: `${apiUrl}/api/chat-ai`,
+    });
+  }, [apiUrl]);
+
+  // Use AI SDK's useChat hook for streaming with error handling
+  const { messages: aiMessages, sendMessage, setMessages, error, status } = useChat({
+    transport,
+    onError: (error) => {
+      console.error('AI SDK Error:', error);
+      console.error('Full error object:', JSON.stringify(error, null, 2));
+      // AI SDK manages loading state automatically
+    },
+    onFinish: async ({ message }) => {
+      console.log('✅ AI response completed');
+      // Product matching will be handled in the message rendering phase
+    }
+  });
+  
+  // Derive loading state from AI SDK status - check correct status values
+  const aiLoading = status === 'streaming' || status === 'submitted';
+  
+  // Handle input change
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value);
+  };
+  
+  // Convert AI SDK messages to our Message format with debugging
+  const messages: Message[] = [
+    ...getInitialMessages(),
+    ...aiMessages.map((msg, index) => {
+      // Extract text content from UI message parts
+      const textContent = msg.parts?.filter(part => part.type === 'text')
+        .map(part => part.text).join(' ') || '';
+      
+      // Debug logging for message conversion
+      console.log(`Converting AI message ${index}:`, { role: msg.role, textContent, id: msg.id, parts: msg.parts });
+      
+      if (msg.role === 'user') {
+        return {
+          type: 'user' as const,
+          content: textContent,
+          id: msg.id,
+          timestamp: Date.now()
+        } as UserMessage;
+      } else {
+        // Handle bot messages - check if this is a placeholder or has content
+        const isLastMessage = index === aiMessages.length - 1;
+        const isWaiting = (status === 'submitted' && isLastMessage) || (!textContent && isLastMessage);
+        
+        // Use empty content for placeholder messages to trigger loading display
+        const messageContent = textContent || '';
+        
+        // Clean message rendering - products will be handled by dedicated service
+        
+        return {
+          type: 'bot' as const,
+          content: {
+            type: 'message' as const,
+            message: messageContent
+          },
+          id: msg.id,
+          timestamp: Date.now(),
+          isWaiting // Add waiting flag
+        } as BotMessage & { isWaiting?: boolean };
+      }
+    })
+  ];
+  
+  // Add loading message when user just sent message (status='submitted')
+  // Check if we need to show loading: when submitted and no assistant response yet
+  const lastMessage = aiMessages[aiMessages.length - 1];
+  const needsLoading = status === 'submitted' && (!lastMessage || lastMessage.role === 'user');
+  
+  if (needsLoading) {
+    messages.push({
+      type: 'bot' as const,
+      content: {
+        type: 'message' as const,
+        message: ''
+      },
+      id: 'loading-' + Date.now(),
+      timestamp: Date.now(),
+      isWaiting: true
+    } as BotMessage & { isWaiting?: boolean });
+  }
+  
+  // Add error message if there's an API error
+  if (error) {
+    console.error('Displaying error message to user:', error);
+    messages.push({
+      type: 'bot' as const,
+      content: {
+        type: 'message' as const,
+        message: 'Sorry, there was an error processing your message. Please try again.'
+      },
+      id: 'error-' + Date.now(),
+      timestamp: Date.now()
+    } as BotMessage);
+  }
+
+  // Additional state for non-AI SDK features
+  const [predefinedQuestions, setPredefinedQuestions] = useState<PredefinedQuestionButton[]>([]);
+  const [pageUrl, setPageUrl] = useState<string>('');
+
+  // Keep your existing state that's not replaced by AI SDK
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Keep session management for backward compatibility
   const [sessionId, setSessionId] = useState<string | null>(() => {
-    // Clean up old session format and try to get existing session UUID from localStorage (backend-generated)
     const oldStorageKey = `chat_session_${siteId}`;
     const newStorageKey = `chat_session_uuid_${siteId}`;
     
     if (typeof window !== 'undefined') {
-      // Clean up old format
       localStorage.removeItem(oldStorageKey);
-      
       const existingSessionId = localStorage.getItem(newStorageKey);
       if (existingSessionId) {
         return existingSessionId;
       }
     }
-    
-    // No existing session - will be created by backend on first message
     return null;
   });
+
+  // Legacy helper functions removed - simplified chat management
 
   const scrollToBottom = (force = false) => {
     // Note: Removed mobile detection logic that was blocking scroll in embedded widgets
@@ -755,16 +1003,22 @@ export function ChatWidgetCore({
     }
   };
 
+  // Smart streaming auto-scroll - only during AI streaming, not user interactions
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, isLoadingHistory]);
+    // Only scroll during active AI streaming to follow message growth
+    if (aiLoading) {
+      scrollToBottom();
+    }
+  }, [messages, aiLoading]);
+  
+  // Memoized scroll callback for products to prevent API spam
+  const handleProductsLoaded = useCallback(() => {
+    scrollToBottom(true);
+  }, []);
 
   // Track if history has been loaded to prevent re-loading
   const [historyLoaded, setHistoryLoaded] = useState(false);
   
-  // Predefined questions state
-  const [predefinedQuestions, setPredefinedQuestions] = useState<PredefinedQuestionButton[]>([]);
-  const [pageUrl, setPageUrl] = useState<string>('');
 
   // Restore chat history when sessionId exists
   useEffect(() => {
@@ -807,65 +1061,24 @@ export function ChatWidgetCore({
             if (dbMessage.role === 'user') {
               return {
                 type: 'user',
-                content: dbMessage.content
+                content: dbMessage.content,
+                id: dbMessage.id || generateMessageId(),
+                timestamp: Date.now()
               } as UserMessage;
             } else {
-              // Parse assistant message content - it might be JSON for complex responses
+              // Parse assistant message content
               let messageContent: MessageContent;
               try {
                 const parsed = JSON.parse(dbMessage.content);
-                // Check if it's a structured response with type and message
                 if (parsed && typeof parsed === 'object' && parsed.type && parsed.message) {
-                  // It's a structured response (message, links, simple_link)
-                  messageContent = {
-                    type: parsed.type,
-                    message: parsed.message,
-                    ...(parsed.links && Array.isArray(parsed.links) && { links: parsed.links }),
-                    ...(parsed.simple_link && typeof parsed.simple_link === 'object' && { simple_link: parsed.simple_link })
-                  };
-                  // Debug log for complex content restoration
-                  if (parsed.type === 'links' && parsed.links && Array.isArray(parsed.links)) {
-                    console.log('Restored links message:', { type: parsed.type, linksCount: parsed.links.length, links: parsed.links });
-                  }
-                  if (parsed.type === 'simple_link' && parsed.simple_link) {
-                    console.log('Restored simple_link message:', { type: parsed.type, simple_link: parsed.simple_link });
-                  }
-                } else if (typeof parsed === 'string') {
-                  // It's a simple string that was JSON-stringified
-                  messageContent = {
-                    type: 'message',
-                    message: parsed
-                  };
-                } else if (parsed && typeof parsed === 'object' && !parsed.type && !parsed.message) {
-                  // Check if it's an old format structured response (direct message with links)
-                  if (parsed.links && Array.isArray(parsed.links)) {
-                    messageContent = {
-                      type: 'links',
-                      message: parsed.message || 'Here are some relevant products:',
-                      links: parsed.links
-                    };
-                  } else if (parsed.simple_link && typeof parsed.simple_link === 'object') {
-                    messageContent = {
-                      type: 'simple_link', 
-                      message: parsed.message || 'Here\'s a relevant link:',
-                      simple_link: parsed.simple_link
-                    };
-                  } else {
-                    // Fallback to original content
-                    messageContent = {
-                      type: 'message',
-                      message: dbMessage.content
-                    };
-                  }
+                  messageContent = parsed;
                 } else {
-                  // Fallback to original content
                   messageContent = {
                     type: 'message',
                     message: dbMessage.content
                   };
                 }
               } catch {
-                // It's a plain text message (not JSON)
                 messageContent = {
                   type: 'message',
                   message: dbMessage.content
@@ -874,41 +1087,19 @@ export function ChatWidgetCore({
 
               return {
                 type: 'bot',
-                content: messageContent
+                content: messageContent,
+                id: dbMessage.id || generateMessageId(),
+                timestamp: Date.now()
               } as BotMessage;
             }
           });
 
-          // Set messages, always preserving intro message as first
-          setMessages(prevMessages => {
-            // Get the intro message (should always be first)
-            const introMsg = prevMessages.find(msg => msg.id === 'intro_message') || prevMessages[0];
-            
-            // Always keep intro message as first, then add restored messages
-            if (introMsg && introMsg.type === 'bot') {
-              return [introMsg, ...restoredMessages];
-            } else {
-              // Fallback - create intro message if somehow missing
-              const fallbackIntro: BotMessage = {
-                type: 'bot',
-                content: {
-                  type: 'message',
-                  message: introMessage?.trim() || 
-                          `Hi! I am ${chatSettings?.chat_name || 'Affi'}, your assistant. How can I help you today?`
-                },
-                id: 'intro_message',
-                timestamp: Date.now()
-              };
-              return [fallbackIntro, ...restoredMessages];
-            }
-          });
+          // AI SDK manages its own message state - we can't restore history directly
+          // The intro message is already handled in getInitialMessages()
+          console.log('Chat history found:', chatMessages.length, 'messages (not restored - AI SDK manages state)');
           
-          // Scroll to bottom after messages are set
-          setTimeout(() => {
-            if (messagesContainerRef.current) {
-              messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-            }
-          }, 100); // Small delay to ensure DOM has updated
+          // Scroll to bottom after loading history
+          setTimeout(() => scrollToBottom(), 100);
         }
       } catch (error) {
         console.error('Error restoring chat history:', error);
@@ -960,90 +1151,13 @@ export function ChatWidgetCore({
 
   
   
-  // Track active API requests to prevent multiple simultaneous calls
-  const activeRequestsRef = useRef<Set<string>>(new Set());
-  
-  // Message sequence tracking for ordering guarantee
-  const messageSequenceRef = useRef<number>(0);
-  const processingSequence = useRef<number>(0);
-
-  // Helper functions for request tracking
-  const startRequest = (requestKey: string): boolean => {
-    // Check if request already in progress
-    if (activeRequestsRef.current.has(requestKey)) {
-      return false;
-    }
-    
-    // Add to active requests
-    activeRequestsRef.current.add(requestKey);
-    return true;
-  };
-  
-  const endRequest = (requestKey: string) => {
-    activeRequestsRef.current.delete(requestKey);
-  };
-  
-  // Create request key from user message content
-  const createRequestKey = (userMessage: string): string => {
-    const messageHash = userMessage.trim().toLowerCase().replace(/\s+/g, ' ');
-    return `chat_${messageHash.substring(0, 50)}_${Date.now()}`;
-  };
-  
-  // Helper functions for message sequence management
-  const getNextSequenceNumber = (): number => {
-    messageSequenceRef.current += 1;
-    return messageSequenceRef.current;
-  };
-  
-  const shouldProcessResponse = (responseSequence: number): boolean => {
-    // Process responses in order
-    const expected = processingSequence.current + 1;
-    if (responseSequence === expected) {
-      processingSequence.current = responseSequence;
-      return true;
-    } else {
-      return false;
-    }
-  };
+  // Legacy helper functions removed - AI SDK handles request management
 
 
-  // Centralized function to process AI responses with typing animation
-  const processAIResponse = (data: MessageContent, sequenceNumber?: number) => {
-    // If no sequence number provided, get the next one (for legacy compatibility)
-    const responseSequence = sequenceNumber || getNextSequenceNumber();
-    
-    // Check if we should process this response based on sequence ordering
-    if (!shouldProcessResponse(responseSequence)) {
-      return;
-    }
-    
-    // Add message with simple typewriter effect
-    const messageId = generateMessageId();
-    
-    // Add message with typing flag
-    const newMessage: BotMessage = {
-      type: 'bot',
-      content: data,
-      id: messageId,
-      timestamp: Date.now(),
-      isTyping: true
-    };
-    
-    setMessages(prev => [...prev, newMessage]);
-    
-    // Simple typewriter effect - disable typing after delay
-    setTimeout(() => {
-      setMessages(prev => 
-        prev.map(msg => 
-          msg.id === messageId 
-            ? { ...msg, isTyping: false }
-            : msg
-        )
-      );
-    }, Math.max(data.message.length * 15, 600)); // Fast typing
-  };
+  // Process AI response (for predefined answers only)
+  // processAIResponse is no longer needed - AI SDK handles response processing
 
-  // Handle message actions
+  // Handle message actions (simplified for AI SDK)
   const handleCopyMessage = () => {
     // Message copied - no action needed
   };
@@ -1056,218 +1170,71 @@ export function ChatWidgetCore({
     // TODO: Send feedback to backend
   };
 
-  const handleRetryMessage = async (messageContent: string) => {
+  const handleRetryMessage = async () => {
+    if (aiLoading) return;
     
-    if (isLoading) return; // Prevent multiple simultaneous retries
-    
-    // Get the last user message and resend it
     const lastUserMessage = messages.filter(msg => msg.type === 'user').pop();
-    if (!lastUserMessage) {
-      return;
-    }
+    if (!lastUserMessage) return;
     
-    const userMessage = lastUserMessage.content;
-    const requestKey = createRequestKey(userMessage + '_retry');
-    const sequenceNumber = getNextSequenceNumber();
+    console.log('Retrying message:', lastUserMessage.content);
     
-    // Prevent multiple simultaneous retry requests for the same message
-    if (!startRequest(requestKey)) {
-      return;
-    }
-    
-    // Find and remove the bot's response we want to retry (compatible with older browsers)
-    setMessages(prev => {
-      let lastBotIndex = -1;
-      for (let i = prev.length - 1; i >= 0; i--) {
-        const msg = prev[i];
-        if (msg.type === 'bot') {
-          if (msg.content.type === 'message' && msg.content.message === messageContent) {
-            lastBotIndex = i;
-            break;
-          } else if (msg.content.type === 'links' && msg.content.message === messageContent) {
-            lastBotIndex = i;
-            break;
-          } else if (msg.content.type === 'simple_link' && msg.content.message === messageContent) {
-            lastBotIndex = i;
-            break;
-          }
-        }
-      }
-      
-      if (lastBotIndex !== -1) {
-        return prev.slice(0, lastBotIndex);
-      }
-      return prev;
+    // Find the AI SDK messages to remove (find the last bot message)
+    const filteredMessages = aiMessages.filter((msg, index) => {
+      // Keep all messages except the last assistant message
+      return !(msg.role === 'assistant' && index === aiMessages.length - 1);
     });
     
-    setIsLoading(true);
-    onMessageSent?.(userMessage);
-
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'x-site-id': siteId
-      };
-      
-      if (session?.user?.id) {
-        headers['x-user-id'] = session.user.id;
-      }
-
-      // Build conversation history for the retry (exclude the failed message)
-      const conversationHistory = messages
-        .filter(msg => {
-          if (msg.type === 'bot') {
-            const content = msg.content.message;
-            if (content && typeof content === 'string') {
-              const isIntroMessage = content.includes('Hi! I am') || content.includes('How can I help');
-              const isRetryMessage = content === messageContent;
-              return !isIntroMessage && !isRetryMessage;
-            }
-          }
-          return msg.type === 'user'; // Keep all user messages
-        })
-        .map(msg => ({
-          role: msg.type === 'user' ? 'user' : 'assistant',
-          content: msg.type === 'user' ? msg.content : (msg.content.message || '')
-        }))
-        .filter(msg => msg.content.trim().length > 0);
-      
-      const response = await fetch(`${apiUrl}/api/chat`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ 
-          message: userMessage,
-          siteId: siteId,
-          conversationHistory: conversationHistory,
-          sessionId: sessionId
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
-      }
-
-      const data = await response.json();
-      
-      // Debug logging
-      console.log('AI Retry Response data:', { type: data.type, hasLinks: !!data.links, hasSimpleLink: !!data.simple_link, message: data.message });
-      
-      setIsLoading(false);
-      
-      // Use typing animation for all response types
-      processAIResponse(data, sequenceNumber);
-    } catch (error) {
-      console.error('Error retrying message:', error);
-      setIsLoading(false);
-      setMessages(prev => [...prev, {
-        type: 'bot',
-        content: {
-          type: 'message',
-          message: 'Sorry, I encountered an error while retrying. Please try again.'
+    // Update AI SDK messages
+    setMessages(filteredMessages);
+    
+    // Retry the message with siteId
+    await sendMessage(
+      { text: lastUserMessage.content },
+      {
+        body: {
+          siteId,
         }
-      } as BotMessage]);
-    } finally {
-      // Always end the request tracking
-      endRequest(requestKey);
-    }
+      }
+    );
   };
 
-  // Handle sending messages
-  const handleSendMessage = async () => {
-    if (!inputMessage.trim()) return;
-
-    const userMessage = inputMessage;
-    const requestKey = createRequestKey(userMessage);
-    const sequenceNumber = getNextSequenceNumber();
+  // Handle form submission for AI SDK
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || aiLoading) return;
     
-    // Prevent multiple simultaneous requests for the same message
-    if (!startRequest(requestKey)) {
-      return;
-    }
-    setInputMessage('');
-    setMessages(prev => [...prev, { 
-      type: 'user', 
-      content: userMessage,
-      id: generateMessageId(),
-      timestamp: Date.now()
-    } as UserMessage]);
-    setIsLoading(true);
+    const message = input.trim();
+    console.log('Submitting message:', message);
+    console.log('AI SDK state:', { aiLoading, error: !!error, messagesCount: aiMessages.length });
     
-    // Force scroll to bottom when sending a message
+    setInput('');
+    
+    // Force scroll to bottom
     setTimeout(() => scrollToBottom(true), 100);
     
-    onMessageSent?.(userMessage);
-
+    // Send using AI SDK - pass siteId in body (AI SDK manages loading state)
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'x-site-id': siteId
-      };
+      console.log('🚀 Calling sendMessage with:', { text: message });
+      console.log('🚀 API URL configured as:', `${apiUrl}/api/chat-ai`);
+      console.log('🚀 Current AI SDK state:', { status, error: !!error, messagesCount: aiMessages.length });
+      console.log('🚀 Sending with siteId:', siteId);
       
-      if (session?.user?.id) {
-        headers['x-user-id'] = session.user.id;
-      }
-
-      // Build conversation history (limit to last 18 messages to stay under 20 limit)
-      const conversationHistory = messages
-        .map(msg => ({
-          role: msg.type === 'user' ? 'user' : 'assistant',
-          content: msg.type === 'user' ? msg.content : msg.content.message || ''
-        }))
-        .filter(msg => msg.content.trim().length > 0)
-        .slice(-18); // Keep only the most recent 18 messages
-      
-      
-      const response = await fetch(`${apiUrl}/api/chat`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ 
-          message: userMessage,
-          siteId: siteId,
-          conversationHistory: conversationHistory,
-          sessionId: sessionId // null on first message, UUID on subsequent messages
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
-      }
-
-      const data = await response.json();
-      
-      // Debug logging
-      console.log('AI Response data:', { type: data.type, hasLinks: !!data.links, hasSimpleLink: !!data.simple_link, message: data.message });
-      
-      // Update sessionId if server returned a new one (UUID format)
-      if (data.sessionId) {
-        const storageKey = `chat_session_uuid_${siteId}`;
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(storageKey, data.sessionId);
+      await sendMessage(
+        { text: message },
+        {
+          body: {
+            siteId,
+          }
         }
-        // Update state to use this sessionId for subsequent messages
-        setSessionId(data.sessionId);
-      }
-      
-      setIsLoading(false);
-      
-      // Use typing animation for all response types
-      processAIResponse(data, sequenceNumber);
+      );
+      console.log('✅ sendMessage completed successfully');
     } catch (error) {
-      console.error('Error:', error);
-      setIsLoading(false);
-      setMessages(prev => [...prev, {
-        type: 'bot',
-        content: {
-          type: 'message',
-          message: 'Sorry, I encountered an error. Please try again.'
-        },
-        id: generateMessageId(),
-        timestamp: Date.now()
-      } as BotMessage]);
-    } finally {
-      // Always end the request tracking
-      endRequest(requestKey);
+      console.error('❌ Error sending message:', error);
+      console.error('❌ Error details:', JSON.stringify(error, null, 2));
+      // AI SDK manages loading state, no need to set isLoading false
     }
+    
+    onMessageSent?.(message);
   };
 
   // Load predefined questions for current page URL
@@ -1288,117 +1255,46 @@ export function ChatWidgetCore({
     }
   }, [apiUrl, siteId]);
 
-  // Send a message to AI (used for predefined questions without answers)
+  // Send a message using AI SDK (for predefined questions)  
   const sendMessageToAI = async (userMessage: string) => {
-    const requestKey = createRequestKey(userMessage);
-    const sequenceNumber = getNextSequenceNumber();
+    console.log('Sending predefined message:', userMessage);
     
-    // Prevent multiple simultaneous requests for the same message
-    if (!startRequest(requestKey)) {
-      return;
-    }
-    
-    setIsLoading(true);
-    
-    // Force scroll to bottom when sending a message
-    setTimeout(() => scrollToBottom(true), 100);
-
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'x-site-id': siteId
-      };
-      
-      if (session?.user?.id) {
-        headers['x-user-id'] = session.user.id;
-      }
-
-      // Build conversation history (limit to last 18 messages to stay under 20 limit)
-      const conversationHistory = messages
-        .map(msg => ({
-          role: msg.type === 'user' ? 'user' : 'assistant',
-          content: msg.type === 'user' ? msg.content : msg.content.message || ''
-        }))
-        .filter(msg => msg.content.trim().length > 0)
-        .slice(-18); // Keep only the most recent 18 messages
-      
-      
-      const response = await fetch(`${apiUrl}/api/chat`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ 
-          message: userMessage,
-          siteId: siteId,
-          conversationHistory: conversationHistory,
-          sessionId: sessionId,
-          pageUrl: pageUrl // Include current page URL
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
-      }
-
-      const data = await response.json();
-      
-      // Update sessionId if server returned a new one
-      if (data.sessionId) {
-        const storageKey = `chat_session_uuid_${siteId}`;
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(storageKey, data.sessionId);
+      // Use sendMessage for predefined questions with siteId (AI SDK manages loading state)
+      await sendMessage(
+        { text: userMessage },
+        {
+          body: {
+            siteId,
+          }
         }
-        setSessionId(data.sessionId);
-      }
-      
-      setIsLoading(false);
-      
-      // Use typing animation for all response types
-      processAIResponse(data, sequenceNumber);
+      );
     } catch (error) {
-      console.error('Error:', error);
-      setIsLoading(false);
-      setMessages(prev => [...prev, {
-        type: 'bot',
-        content: {
-          type: 'message',
-          message: 'Sorry, I encountered an error. Please try again.'
-        },
-        id: generateMessageId(),
-        timestamp: Date.now()
-      } as BotMessage]);
-    } finally {
-      // Always end the request tracking
-      endRequest(requestKey);
+      console.error('Error sending predefined message:', error);
+      // AI SDK manages loading state
     }
+    
+    // Scroll to bottom
+    setTimeout(() => scrollToBottom(true), 100);
   };
 
   // Handle predefined question click
-  const handlePredefinedQuestionClick = (question: PredefinedQuestionButton) => {
+  const handlePredefinedQuestionClick = async (question: PredefinedQuestionButton) => {
     // Clear predefined questions immediately when one is clicked
     setPredefinedQuestions([]);
     
-    // Add user message
-    setMessages(prev => [...prev, { 
-      type: 'user', 
-      content: question.question,
-      id: generateMessageId(),
-      timestamp: Date.now()
-    } as UserMessage]);
-    
+    // AI SDK will handle adding the user message automatically
     if (question.answer && question.answer.trim()) {
-      // Has predefined answer - show it with typing animation
-      const sequenceNumber = getNextSequenceNumber();
-      processAIResponse({
-        type: 'message',
-        message: question.answer
-      }, sequenceNumber);
-      
-      // Scroll to bottom
-      setTimeout(() => scrollToBottom(true), 100);
+      // Has predefined answer - but we'll still send through AI for consistency
+      // Let the AI process it rather than showing static answers
+      await sendMessageToAI(question.question);
     } else {
       // No predefined answer - send to AI
-      sendMessageToAI(question.question);
+      await sendMessageToAI(question.question);
     }
+    
+    // Scroll to bottom
+    setTimeout(() => scrollToBottom(true), 100);
     
     // Notify parent
     onMessageSent?.(question.question);
@@ -1444,6 +1340,7 @@ export function ChatWidgetCore({
     }
   }, [pageUrl, siteId, loadPredefinedQuestions]);
 
+
   const renderMessage = (message: Message) => {
     if (message.type === 'user') {
       return (
@@ -1464,7 +1361,8 @@ export function ChatWidgetCore({
 
     // Bot message - consistent structure for all types
     const botContent = message.content;
-    const messageContent = botContent?.message || 'Sorry, I could not understand the response.';
+    const isWaiting = (message as BotMessage & { isWaiting?: boolean })?.isWaiting;
+    const messageContent = botContent?.message || (isWaiting ? '' : 'Sorry, I could not understand the response.');
     
     return (
       <div>
@@ -1482,13 +1380,29 @@ export function ChatWidgetCore({
                 ...(botContent.type === 'links' ? { marginBottom: '12px' } : {})
               }}
             >
-              <p style={styles.messageText}>
-                <TypewriterText 
-                  text={messageContent} 
-                  isTyping={message.isTyping || false}
-                  onTextChange={scrollToBottom}
-                />
-              </p>
+              {/* Show typing indicator if waiting and no content, otherwise show message */}
+              {isWaiting && !messageContent ? (
+                <div style={styles.typingContainer}>
+                  <div style={{...styles.typingDot, ...styles.typingDot1}}></div>
+                  <div style={{...styles.typingDot, ...styles.typingDot2}}></div>
+                  <div style={{...styles.typingDot, ...styles.typingDot3}}></div>
+                </div>
+              ) : (
+                <div style={styles.messageText}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[[rehypeSanitize, sanitizeSchema]]}
+                    components={{
+                      p: ({children}) => <p style={{ margin: 0 }}>{children}</p>,
+                      ul: ({children}) => <ul style={{ margin: '8px 0', paddingLeft: '20px', listStyle: 'disc', listStylePosition: 'outside' }}>{children}</ul>,
+                      ol: ({children}) => <ol style={{ margin: '8px 0', paddingLeft: '20px', listStyle: 'decimal', listStylePosition: 'outside' }}>{children}</ol>,
+                      li: ({children}) => <li style={{ margin: '4px 0' }}>{children}</li>
+                    }}
+                  >
+                    {messageContent}
+                  </ReactMarkdown>
+                </div>
+              )}
               
               {/* Simple link inside message bubble */}
               {botContent.type === 'simple_link' && botContent.simple_link && (
@@ -1518,16 +1432,27 @@ export function ChatWidgetCore({
               )}
             </div>
             
-            {/* Product boxes outside message bubble - hide during typing */}
+            {/* Product boxes outside message bubble */}
             {botContent.type === 'links' && botContent.links && (
-              <div style={{ display: message.isTyping ? 'none' : 'block' }}>
-                <LinksContainer
-                  links={botContent.links}
-                  chatSettings={chatSettings}
-                  styles={styles}
-                  onLinkClick={handleLinkClick}
-                />
-              </div>
+              <LinksContainer
+                links={botContent.links}
+                chatSettings={chatSettings}
+                styles={styles}
+                onLinkClick={handleLinkClick}
+              />
+            )}
+            
+            {/* Product recommendations for AI responses */}
+            {botContent.type === 'message' && !isWaiting && messageContent && (
+              <ProductRecommendations
+                messageContent={messageContent}
+                siteId={siteId}
+                apiUrl={apiUrl}
+                chatSettings={chatSettings}
+                styles={styles}
+                isStreaming={aiLoading}
+                onProductsLoaded={handleProductsLoaded}
+              />
             )}
           </div>
         </div>
@@ -1537,7 +1462,7 @@ export function ChatWidgetCore({
             onCopy={() => handleCopyMessage()}
             onThumbsUp={() => handleThumbsUp()}
             onThumbsDown={() => handleThumbsDown()}
-            onRetry={() => handleRetryMessage(messageContent)}
+            onRetry={() => handleRetryMessage()}
             isVisible={true}
           />
         )}
@@ -1629,9 +1554,7 @@ export function ChatWidgetCore({
           </div>
         ))}
         
-        {isLoading && (
-          <TypingIndicator chatSettings={chatSettings} styles={styles} />
-        )}
+        {/* AI SDK handles loading indicators automatically - no need for manual TypingIndicator */}
         
         
         <div ref={messagesEndRef} />
@@ -1646,12 +1569,11 @@ export function ChatWidgetCore({
           chatSettings={chatSettings}
           isVisible={predefinedQuestions.length > 0 && messages.length === 1 && messages[0].id === 'intro_message'}
         />
-        <div style={styles.inputWrapper}>
+        <form onSubmit={handleSubmit} style={styles.inputWrapper}>
           <input
             type="text"
-            value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !isLoading && !isLoadingHistory && inputMessage.trim() && handleSendMessage()}
+            value={input}
+            onChange={handleInputChange}
             onFocus={() => setIsInputFocused(true)}
             onBlur={() => setIsInputFocused(false)}
             inputMode="text"
@@ -1660,21 +1582,21 @@ export function ChatWidgetCore({
             autoCapitalize="sentences"
             placeholder={isLoadingHistory ? 'Loading conversation...' : (chatSettings?.input_placeholder || 'Type your message...')}
             style={styles.input}
-            disabled={isLoading || isLoadingHistory}
+            disabled={aiLoading || isLoadingHistory}
           />
           <button
-            onClick={handleSendMessage}
-            disabled={isLoading || isLoadingHistory || !inputMessage.trim()}
+            type="submit"
+            disabled={aiLoading || isLoadingHistory || !input.trim()}
             style={{
               ...styles.sendButton,
-              opacity: (isLoading || isLoadingHistory || !inputMessage.trim()) ? 0.5 : 1,
-              cursor: (isLoading || isLoadingHistory || !inputMessage.trim()) ? 'not-allowed' : 'pointer'
+              opacity: (aiLoading || isLoadingHistory || !input.trim()) ? 0.5 : 1,
+              cursor: (aiLoading || isLoadingHistory || !input.trim()) ? 'not-allowed' : 'pointer'
             }}
             aria-label="Send message"
           >
             <SendIcon size={16} color="white" />
           </button>
-        </div>
+        </form>
       </div>
       {/* CSS animations */}
       <style>{`

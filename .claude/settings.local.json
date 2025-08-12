@@ -18,7 +18,8 @@
       "Bash(mv:*)",
       "mcp__ide__getDiagnostics",
       "Bash(grep:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(node:*)"
     ],
     "deny": []
   }

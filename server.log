@@ -1,0 +1,21 @@
+
+> nextjs-project@0.1.0 dev
+> next dev --turbopack
+
+   ▲ Next.js 15.4.1 (Turbopack)
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.1.195:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Compiled middleware in 206ms
+ ✓ Ready in 1152ms
+ ○ Compiling / ...
+ ✓ Compiled / in 2.8s
+ GET / 200 in 3345ms
+npm notice
+npm notice New major version of npm available! 10.9.2 -> 11.5.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.5.2
+npm notice To update run: npm install -g npm@11.5.2
+npm notice
+=== Starting fresh log monitoring ===

@@ -236,7 +236,7 @@ async function searchMaterials(
     const commonKeywords = keywords.filter(k => k.length < 4 || isCommonWord(k));
     
     // First try with priority keywords only (more precise search)
-    let materials: any[] = [];
+    let materials: Array<Record<string, unknown>> = [];
     
     if (priorityKeywords.length > 0) {
       const priorityPatterns = priorityKeywords.map(keyword => `%${keyword}%`);

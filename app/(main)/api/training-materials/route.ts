@@ -228,6 +228,18 @@ async function scrapeContentForMaterial(materialId: string, url: string) {
 
     console.log(`🎉 Training material ${materialId} processed successfully`);
 
+    // Automatically generate embeddings after successful scraping
+    try {
+      console.log(`🔄 Generating embeddings for material: ${materialId}`);
+      const { ContentProcessor } = await import('@/lib/embeddings/processor');
+      const processor = new ContentProcessor();
+      await processor.processTrainingMaterial(materialId);
+      console.log(`✅ Embeddings generated for material: ${materialId}`);
+    } catch (embeddingError) {
+      console.error('❌ Embedding generation failed:', embeddingError);
+      // Don't fail the whole process, just log the error
+    }
+
   } catch (error) {
     console.error('❌ Scraping error:', error);
     

@@ -51,6 +51,7 @@ import {
 
 import { supabase } from '../lib/supabaseClient';
 import ChatWidget from './ChatWidget';
+// ChatWidgetAI removed - using enhanced ChatWidgetCore instead
 
 // Simple language options for the dashboard (AI will handle detection naturally)
 const PREFERRED_LANGUAGE_OPTIONS = [
@@ -211,6 +212,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   const [isSupabaseConfiguredState, setIsSupabaseConfiguredState] = useState<boolean | null>(null);
   const [, setIsLoadingSites] = useState(false);
   const [, setIsLoadingChatSettings] = useState(false);
+  // AI SDK toggle removed - using enhanced ChatWidgetCore directly
 
   // Refs for cleanup
   const isMountedRef = useRef(true);
@@ -1672,6 +1674,21 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                     <p className="text-sm text-gray-600 mb-6">
                       Use the same settings with different widget types. You can deploy both widgets on your site simultaneously.
                     </p>
+                    
+                    {/* AI SDK Toggle */}
+                    <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-medium text-green-900">Enhanced Chat Widget</h4>
+                          <p className="text-sm text-green-700 mt-1">
+                            AI-powered chat with improved streaming, smart responses, and tool integration.
+                          </p>
+                        </div>
+                        <div className="text-green-600 font-semibold">
+                          ✓ Active
+                        </div>
+                      </div>
+                    </div>
                     
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       {/* Floating Chat Widget */}
