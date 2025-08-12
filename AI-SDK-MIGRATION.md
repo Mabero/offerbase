@@ -36,7 +36,7 @@
 
 ## **API Endpoints**
 
-### **Enhanced Endpoint: `/api/chat`**
+### **Enhanced Endpoint: `/api/chat-ai`**
 - ✅ Streaming: Reliable NDJSON streaming
 - ✅ Tools: Product search, context retrieval
 - ✅ AI Integration: OpenAI with existing configuration

@@ -410,24 +410,22 @@ const LinksContainer = ({ links, chatSettings, styles, onLinkClick }: {
   );
 };
 
-// ProductRecommendations component - renders after AI message
-const ProductRecommendations = ({ messageContent, siteId, apiUrl, chatSettings, styles, isStreaming, onProductsLoaded }: {
+// ProductRecommendations component - always renders but controls visibility
+const ProductRecommendations = ({ messageContent, siteId, apiUrl, chatSettings, styles, isVisible, onProductsLoaded }: {
   messageContent: string;
   siteId: string;
   apiUrl: string;
   chatSettings: ChatSettings;
   styles: Record<string, React.CSSProperties>;
-  isStreaming: boolean;
+  isVisible: boolean;
   onProductsLoaded?: () => void;
 }) => {
   const [products, setProducts] = useState<AffiliateProduct[]>([]);
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const fetchProducts = async () => {
-      if (!messageContent || messageContent.length === 0 || isStreaming) return;
+      if (!messageContent || messageContent.length === 0) return;
       
-      setLoading(true);
       try {
         // Fetch affiliate links for this site
         const response = await fetch(`${apiUrl}/api/affiliate-links?siteId=${siteId}`);
@@ -453,28 +451,33 @@ const ProductRecommendations = ({ messageContent, siteId, apiUrl, chatSettings, 
         
         setProducts(matchedProducts);
         
-        // Trigger scroll to bottom when products are loaded
-        if (matchedProducts.length > 0) {
-          // Small delay to ensure DOM is updated
-          setTimeout(() => {
-            onProductsLoaded?.();
-          }, 100);
+        // Trigger scroll when products are loaded and become visible
+        if (matchedProducts.length > 0 && isVisible) {
+          onProductsLoaded?.();
         }
       } catch (error) {
         console.error('Product matching error:', error);
         setProducts([]);
-      } finally {
-        setLoading(false);
       }
     };
 
-    // Only fetch when streaming is complete
-    if (!isStreaming && messageContent) {
+    // Start fetching immediately when message content is available
+    if (messageContent) {
       fetchProducts();
     }
-  }, [messageContent, siteId, apiUrl, isStreaming, onProductsLoaded]);
+  }, [messageContent, siteId, apiUrl, isVisible, onProductsLoaded]);
 
-  if (loading || products.length === 0) return null;
+  // Trigger scroll when visibility changes from hidden to visible
+  useEffect(() => {
+    if (isVisible && products.length > 0) {
+      onProductsLoaded?.();
+    }
+  }, [isVisible, products.length, onProductsLoaded]);
+
+  // Hide if no products or not visible
+  if (!isVisible || products.length === 0) {
+    return null;
+  }
 
   return (
     <div style={{ ...styles.linksContainer, marginTop: '12px' }}>
@@ -1442,15 +1445,15 @@ export function ChatWidgetCore({
               />
             )}
             
-            {/* Product recommendations for AI responses */}
-            {botContent.type === 'message' && !isWaiting && messageContent && (
+            {/* Product recommendations for AI responses - always render but control visibility */}
+            {botContent.type === 'message' && messageContent && (
               <ProductRecommendations
                 messageContent={messageContent}
                 siteId={siteId}
                 apiUrl={apiUrl}
                 chatSettings={chatSettings}
                 styles={styles}
-                isStreaming={aiLoading}
+                isVisible={!aiLoading && !isWaiting}
                 onProductsLoaded={handleProductsLoaded}
               />
             )}

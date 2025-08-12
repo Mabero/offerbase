@@ -8,7 +8,7 @@ const isPublicRoute = createRouteMatcher([
   '/widget(.*)', // Widget page must be public for iframe embedding
   '/api/webhooks/clerk(.*)', // Webhook endpoint must be public
   '/api/analytics(.*)', // Analytics for widget
-  '/api/chat(.*)', // Chat API for widget
+  '/api/chat-ai(.*)', // Chat AI API for widget
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

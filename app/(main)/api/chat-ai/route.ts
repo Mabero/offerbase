@@ -3,7 +3,7 @@ import { openai } from '@ai-sdk/openai';
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createClient } from '@supabase/supabase-js';
-import { buildSystemPrompt } from '@/lib/instructions';
+import { getAIInstructions } from '@/lib/instructions';
 // Import for context handling
 
 // Allow streaming responses up to 30 seconds
@@ -121,26 +121,10 @@ export async function POST(request: NextRequest) {
       materialTitle: r.materialTitle
     }));
     
-    // Enhanced system prompt for vector search context - NO PRODUCTS INCLUDED
-    const simpleSystemPrompt = `You are a helpful AI assistant. Use the provided training materials below to answer user questions accurately and helpfully.
-
-IMPORTANT: The training materials below contain the most relevant information for this specific question. Always prioritize information from these materials when answering.
-
-When users ask for product recommendations, suggestions, or advice:
-- Look for specific products, services, or solutions mentioned in the training materials
-- Recommend items that are explicitly described in the provided context
-- Include details about why you're recommending them based on the training materials
-- If asking about products and the materials contain product information, always provide specific recommendations
-
-Always respond in the user's language.
-Keep responses conversational and helpful.
-Use markdown formatting for lists (- for bullets, 1. for numbered).
-Provide direct, natural answers - do not include reasoning, JSON formatting, or complex structures.
-Be concise but comprehensive in your responses.
-
-If the provided training materials don't contain relevant information, say: "Based on the available training materials, I don't have specific information about that. You may want to check the source materials directly."`;
+    // Get AI instructions from centralized location
+    const baseInstructions = getAIInstructions();
     
-    const fullSystemPrompt = `${simpleSystemPrompt}\n\nRelevant Training Materials:\n${context}`;
+    const fullSystemPrompt = `${baseInstructions}\n\nRelevant Training Materials:\n${context}`;
     
     // Convert UI messages to model messages and add system prompt
     const modelMessages = [
