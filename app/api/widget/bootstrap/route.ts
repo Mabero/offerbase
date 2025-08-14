@@ -118,10 +118,14 @@ export async function GET(request: NextRequest) {
       allowedOrigins = [];
     }
     if (!isOriginAllowed(origin, allowedOrigins)) {
-      console.warn(`Bootstrap failed: origin not allowed`, { 
+      console.error(`🚫 Bootstrap failed: origin not allowed`, { 
         siteId, 
-        origin, 
-        allowedOrigins 
+        providedOrigin: origin,
+        allowedOrigins,
+        rawOriginHeader: request.headers.get('origin'),
+        rawRefererHeader: request.headers.get('referer'),
+        userAgent: request.headers.get('user-agent'),
+        allHeaders: Object.fromEntries(request.headers.entries())
       });
       
       return NextResponse.json(
@@ -181,6 +185,9 @@ export async function GET(request: NextRequest) {
     console.log(`✅ Widget bootstrap successful`, {
       siteId,
       origin,
+      allowedOrigins,
+      rawOriginHeader: request.headers.get('origin'),
+      rawRefererHeader: request.headers.get('referer'),
       clientIP: clientIP.substring(0, 8) + '...', // Partial IP for privacy
       responseTime: Date.now() - startTime
     });
