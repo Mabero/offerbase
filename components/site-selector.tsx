@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@clerk/nextjs'
 import { Button } from '@/components/ui/button'
+import { extractDisplayDomain } from '@/lib/url-utils'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +29,7 @@ import { toast } from 'sonner'
 interface Site {
   id: string
   name: string
+  site_url?: string
   created_at: string
   updated_at: string
 }
@@ -51,6 +53,7 @@ export function SiteSelector({
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [newSiteName, setNewSiteName] = useState('')
+  const [newSiteUrl, setNewSiteUrl] = useState('')
   const [editingSiteId, setEditingSiteId] = useState<string | null>(null)
   const [editSiteName, setEditSiteName] = useState('')
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -117,7 +120,10 @@ export function SiteSelector({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name: newSiteName.trim() }),
+        body: JSON.stringify({ 
+          name: newSiteName.trim(),
+          url: newSiteUrl.trim() || undefined
+        }),
         credentials: 'include',
       })
 
@@ -126,6 +132,7 @@ export function SiteSelector({
       if (response.ok) {
         setSites([data.data, ...(sites || [])])
         setNewSiteName('')
+        setNewSiteUrl('')
         setIsCreating(false)
         onSiteSelect(data.data)
         onSiteChange()
@@ -339,7 +346,14 @@ export function SiteSelector({
                         setDropdownOpen(false)
                       }}
                     >
-                      <span className="text-sm truncate flex-1">{site.name}</span>
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <span className="text-sm font-medium truncate">{site.name}</span>
+                        {site.site_url && (
+                          <span className="text-xs text-muted-foreground truncate">
+                            {extractDisplayDomain(site.site_url)}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-1 ml-2">
                         <Button
                           size="sm"
@@ -368,49 +382,70 @@ export function SiteSelector({
           <DropdownMenuSeparator />
           
           {isCreating ? (
-            <div className="flex items-center gap-1 p-2">
+            <div className="p-2 space-y-2">
               <Input
                 ref={newSiteInputRef}
                 value={newSiteName}
                 onChange={(e) => setNewSiteName(e.target.value)}
                 onKeyDown={(e) => {
                   e.stopPropagation()
-                  if (e.key === 'Enter') {
+                  if (e.key === 'Enter' && !e.shiftKey) {
                     handleCreateSite()
                   } else if (e.key === 'Escape') {
                     setIsCreating(false)
                     setNewSiteName('')
+                    setNewSiteUrl('')
                   }
                 }}
-                placeholder="Site name"
+                placeholder="Site name (required)"
                 className="h-8 text-sm"
                 disabled={actionLoading}
               />
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 w-8 p-0"
-                onClick={handleCreateSite}
-                disabled={actionLoading}
-              >
-                {actionLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Check className="h-4 w-4" />
-                )}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 w-8 p-0"
-                onClick={() => {
-                  setIsCreating(false)
-                  setNewSiteName('')
+              <Input
+                value={newSiteUrl}
+                onChange={(e) => setNewSiteUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation()
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    handleCreateSite()
+                  } else if (e.key === 'Escape') {
+                    setIsCreating(false)
+                    setNewSiteName('')
+                    setNewSiteUrl('')
+                  }
                 }}
+                placeholder="Website URL (optional, e.g. https://example.com)"
+                className="h-8 text-sm"
                 disabled={actionLoading}
-              >
-                <X className="h-4 w-4" />
-              </Button>
+              />
+              <div className="flex items-center justify-end gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 w-8 p-0"
+                  onClick={() => {
+                    setIsCreating(false)
+                    setNewSiteName('')
+                    setNewSiteUrl('')
+                  }}
+                  disabled={actionLoading}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost" 
+                  className="h-8 w-8 p-0"
+                  onClick={handleCreateSite}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Check className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
             </div>
           ) : (
             <DropdownMenuItem

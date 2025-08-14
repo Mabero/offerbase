@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
+import { extractDisplayDomain } from '@/lib/url-utils'
 import {
   Dialog,
   DialogContent,
@@ -27,6 +28,7 @@ import { toast } from 'sonner'
 interface Site {
   id: string
   name: string
+  site_url?: string
   created_at: string
   updated_at: string
 }
@@ -50,6 +52,7 @@ export function SiteSelectionDialog({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [selectedSiteForAction, setSelectedSiteForAction] = useState<Site | null>(null)
   const [newSiteName, setNewSiteName] = useState('')
+  const [newSiteUrl, setNewSiteUrl] = useState('')
   const [editSiteName, setEditSiteName] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
 
@@ -92,17 +95,21 @@ export function SiteSelectionDialog({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name: newSiteName.trim() }),
+        body: JSON.stringify({ 
+          name: newSiteName.trim(),
+          url: newSiteUrl.trim() || undefined
+        }),
         credentials: 'include',
       })
 
       const data = await response.json()
 
       if (response.ok) {
-        setSites([data.site, ...sites])
+        setSites([data.data, ...sites])
         setNewSiteName('')
+        setNewSiteUrl('')
         setCreateDialogOpen(false)
-        onSiteSelect(data.site)
+        onSiteSelect(data.data)
         onSiteChange()
         toast.success('Site created successfully')
       } else {
@@ -251,8 +258,14 @@ export function SiteSelectionDialog({
                         className="text-left w-full hover:text-primary"
                       >
                         <div className="font-medium">{site.name}</div>
-                        <div className="text-sm text-muted-foreground">
-                          Created {new Date(site.created_at).toLocaleDateString()}
+                        <div className="text-sm text-muted-foreground space-y-1">
+                          {site.site_url && (
+                            <div className="flex items-center gap-2">
+                              <span>🌐</span>
+                              <span>{extractDisplayDomain(site.site_url)}</span>
+                            </div>
+                          )}
+                          <div>Created {new Date(site.created_at).toLocaleDateString()}</div>
                         </div>
                       </button>
                     </div>
@@ -295,11 +308,28 @@ export function SiteSelectionDialog({
                 onChange={(e) => setNewSiteName(e.target.value)}
                 placeholder="Enter site name"
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
+                  if (e.key === 'Enter' && !e.shiftKey) {
                     handleCreateSite()
                   }
                 }}
               />
+            </div>
+            <div>
+              <Label htmlFor="site-url">Website URL (Optional)</Label>
+              <Input
+                id="site-url"
+                value={newSiteUrl}
+                onChange={(e) => setNewSiteUrl(e.target.value)}
+                placeholder="https://example.com"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    handleCreateSite()
+                  }
+                }}
+              />
+              <p className="text-sm text-muted-foreground mt-1">
+                Enter your website URL to automatically configure widget permissions
+              </p>
             </div>
             <div className="flex justify-end gap-2">
               <Button
@@ -307,6 +337,7 @@ export function SiteSelectionDialog({
                 onClick={() => {
                   setCreateDialogOpen(false)
                   setNewSiteName('')
+                  setNewSiteUrl('')
                 }}
               >
                 Cancel

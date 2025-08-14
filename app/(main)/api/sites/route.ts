@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createClient } from '@supabase/supabase-js';
+import { processSiteUrl } from '@/lib/url-utils';
 
 // GET /api/sites - Fetch sites for authenticated user
 export async function GET(request: NextRequest) {
@@ -17,10 +18,10 @@ export async function GET(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Query sites
+    // Query sites with URL information
     const { data, error } = await supabase
       .from('sites')
-      .select('id, name, created_at, updated_at')
+      .select('id, name, site_url, created_at, updated_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
@@ -50,10 +51,29 @@ export async function POST(request: NextRequest) {
 
     // Parse request body
     const body = await request.json();
-    const { name } = body;
+    const { name, url } = body;
 
     if (!name || name.trim().length === 0) {
       return NextResponse.json({ error: 'Site name is required' }, { status: 400 });
+    }
+
+    // Process the site URL if provided
+    let processedUrl = null;
+    let allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:3001', 
+      'http://localhost:3002'
+    ];
+
+    if (url && url.trim().length > 0) {
+      const urlResult = processSiteUrl(url.trim());
+      
+      if (!urlResult.isValid) {
+        return NextResponse.json({ error: urlResult.error }, { status: 400 });
+      }
+      
+      processedUrl = urlResult.normalizedUrl;
+      allowedOrigins = urlResult.allowedOrigins || allowedOrigins;
     }
 
     // Create simple Supabase client
@@ -62,11 +82,16 @@ export async function POST(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Insert new site
+    // Insert new site with URL and allowed origins
     const { data, error } = await supabase
       .from('sites')
-      .insert([{ name: name.trim(), user_id: userId }])
-      .select('id, name, created_at, updated_at')
+      .insert([{ 
+        name: name.trim(), 
+        user_id: userId,
+        site_url: processedUrl,
+        allowed_origins: JSON.stringify(allowedOrigins)
+      }])
+      .select('id, name, site_url, created_at, updated_at')
       .single();
 
     if (error) {
