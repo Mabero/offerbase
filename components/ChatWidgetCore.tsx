@@ -92,6 +92,7 @@ export interface ChatWidgetCoreProps {
   apiUrl?: string;
   isEmbedded?: boolean;
   widgetType?: 'floating' | 'inline';
+  parentOrigin?: string | null;
   onLinkClick?: (link: Link) => void;
   onMessageSent?: (message: string) => void;
   onWidgetOpen?: () => void;
@@ -793,6 +794,7 @@ export function ChatWidgetCore({
   apiUrl = '',
   isEmbedded = false,
   widgetType = 'floating',
+  parentOrigin = null,
   onLinkClick,
   onMessageSent,
   onWidgetOpen
@@ -1018,7 +1020,7 @@ export function ChatWidgetCore({
   };
 
   // Widget authentication - handles JWT tokens and API security
-  const widgetAuth = useWidgetAuth(siteId, apiUrl);
+  const widgetAuth = useWidgetAuth(siteId, apiUrl, parentOrigin);
   
   // Local state for input (AI SDK manages loading state)
   const [input, setInput] = useState('');

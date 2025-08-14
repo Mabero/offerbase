@@ -25,6 +25,7 @@ function WidgetContent() {
   const apiUrl = searchParams?.get('apiUrl') ? decodeURIComponent(searchParams.get('apiUrl')!) : (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
   const embedded = searchParams?.get('embedded') === 'true';
   const widgetType = searchParams?.get('widgetType') || 'floating';
+  const parentOrigin = searchParams?.get('parentOrigin') ? decodeURIComponent(searchParams.get('parentOrigin')!) : null;
 
   // Load settings dynamically
   useEffect(() => {
@@ -94,6 +95,7 @@ function WidgetContent() {
         apiUrl={apiUrl}
         isEmbedded={embedded}
         widgetType={widgetType as 'floating' | 'inline'}
+        parentOrigin={parentOrigin}
       />
     </div>
   );

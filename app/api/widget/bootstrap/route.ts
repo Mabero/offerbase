@@ -3,7 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { 
   createSiteToken, 
   getRequestOrigin, 
-  isOriginAllowed, 
+  isOriginAllowed,
+  isWidgetRequestAllowed, 
   getCORSHeaders,
   rateLimiter,
   getRateLimitKey,
@@ -37,6 +38,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const siteId = searchParams.get('siteId');
+    const parentOrigin = searchParams.get('parentOrigin');
     const origin = getRequestOrigin(request);
 
     // Validate required parameters
@@ -117,19 +119,22 @@ export async function GET(request: NextRequest) {
       console.warn('Unexpected allowed_origins format:', typeof site.allowed_origins);
       allowedOrigins = [];
     }
-    if (!isOriginAllowed(origin, allowedOrigins)) {
-      console.error(`🚫 Bootstrap failed: origin not allowed`, { 
+    // Validate request using dual-origin validation
+    const validationResult = isWidgetRequestAllowed(origin, parentOrigin, allowedOrigins);
+    if (!validationResult.allowed) {
+      console.error(`🚫 Bootstrap failed: ${validationResult.reason}`, { 
         siteId, 
         providedOrigin: origin,
+        parentOrigin,
         allowedOrigins,
         rawOriginHeader: request.headers.get('origin'),
         rawRefererHeader: request.headers.get('referer'),
         userAgent: request.headers.get('user-agent'),
-        allHeaders: Object.fromEntries(request.headers.entries())
+        validationReason: validationResult.reason
       });
       
       return NextResponse.json(
-        { error: 'Origin not allowed for this site' }, 
+        { error: validationResult.reason || 'Origin not allowed for this site' }, 
         { 
           status: 403,
           headers: getCORSHeaders(origin, allowedOrigins)
@@ -185,6 +190,7 @@ export async function GET(request: NextRequest) {
     console.log(`✅ Widget bootstrap successful`, {
       siteId,
       origin,
+      parentOrigin,
       allowedOrigins,
       rawOriginHeader: request.headers.get('origin'),
       rawRefererHeader: request.headers.get('referer'),

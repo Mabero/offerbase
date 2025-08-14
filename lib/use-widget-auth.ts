@@ -34,7 +34,7 @@ export interface UseWidgetAuthReturn {
  * Widget authentication hook
  * Automatically bootstraps and manages JWT tokens for secure API access
  */
-export function useWidgetAuth(siteId: string, apiUrl: string): UseWidgetAuthReturn {
+export function useWidgetAuth(siteId: string, apiUrl: string, parentOrigin?: string | null): UseWidgetAuthReturn {
   const [config, setConfig] = useState<WidgetConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +48,13 @@ export function useWidgetAuth(siteId: string, apiUrl: string): UseWidgetAuthRetu
 
       console.log('🔐 Bootstrapping widget authentication for site:', siteId);
 
-      const response = await fetch(`${apiUrl}/api/widget/bootstrap?siteId=${encodeURIComponent(siteId)}`, {
+      // Build URL with parent origin if provided
+      let bootstrapUrl = `${apiUrl}/api/widget/bootstrap?siteId=${encodeURIComponent(siteId)}`;
+      if (parentOrigin) {
+        bootstrapUrl += `&parentOrigin=${encodeURIComponent(parentOrigin)}`;
+      }
+      
+      const response = await fetch(bootstrapUrl, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -80,7 +86,7 @@ export function useWidgetAuth(siteId: string, apiUrl: string): UseWidgetAuthRetu
     } finally {
       setIsLoading(false);
     }
-  }, [siteId, apiUrl]); // Removed config to prevent re-render loops
+  }, [siteId, apiUrl, parentOrigin]); // Removed config to prevent re-render loops
 
   // Schedule token refresh before expiration
   const scheduleRefresh = useCallback((expiresAt: number) => {

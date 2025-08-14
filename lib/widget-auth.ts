@@ -121,6 +121,44 @@ export function isOriginAllowed(origin: string | null, allowedOrigins: string[])
 }
 
 /**
+ * Validate widget request with dual-origin check for iframe security
+ * Supports both direct API access and iframe-based widget access
+ */
+export function isWidgetRequestAllowed(
+  origin: string | null, 
+  parentOrigin: string | null, 
+  allowedOrigins: string[]
+): { allowed: boolean; reason?: string } {
+  // If no origin provided, deny
+  if (!origin) {
+    return { allowed: false, reason: 'No origin header' };
+  }
+
+  // Check if request comes from offerbase.co (the iframe)
+  const isFromOfferbase = origin.includes('offerbase.co');
+  
+  if (isFromOfferbase) {
+    // For iframe requests, validate the parent origin
+    if (!parentOrigin) {
+      return { allowed: false, reason: 'Iframe request missing parent origin' };
+    }
+    
+    if (!isOriginAllowed(parentOrigin, allowedOrigins)) {
+      return { allowed: false, reason: `Parent origin ${parentOrigin} not in allowed origins` };
+    }
+    
+    return { allowed: true };
+  } else {
+    // For direct API requests, validate the origin normally
+    if (!isOriginAllowed(origin, allowedOrigins)) {
+      return { allowed: false, reason: `Origin ${origin} not in allowed origins` };
+    }
+    
+    return { allowed: true };
+  }
+}
+
+/**
  * CORS headers for widget endpoints
  */
 export function getCORSHeaders(origin: string | null, allowedOrigins: string[]): Record<string, string> {
