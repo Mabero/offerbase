@@ -164,8 +164,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Create JWT token
-    const token = createSiteToken(siteId, origin);
+    // Create JWT token with parent origin information
+    const token = createSiteToken(siteId, origin, parentOrigin);
     const expiresAt = Date.now() + (10 * 60 * 1000); // 10 minutes
 
     // Prepare widget configuration

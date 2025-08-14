@@ -5,7 +5,8 @@ import { extractContextKeywords, extractQueryKeywords, type TrainingChunk } from
 import { 
   verifySiteToken, 
   getRequestOrigin, 
-  isOriginAllowed, 
+  isOriginAllowed,
+  isWidgetRequestAllowed, 
   getCORSHeaders,
   rateLimiter,
   getRateLimitKey,
@@ -374,9 +375,17 @@ export async function POST(request: NextRequest) {
 
     // Double-check origin is still allowed (defense in depth)
     const allowedOrigins: string[] = site.allowed_origins || [];
-    if (!isOriginAllowed(origin, allowedOrigins)) {
+    const validationResult = isWidgetRequestAllowed(origin, decodedToken.parentOrigin, allowedOrigins);
+    if (!validationResult.allowed) {
+      console.error(`🚫 Product match failed: ${validationResult.reason}`, { 
+        siteId, 
+        origin,
+        parentOrigin: decodedToken.parentOrigin,
+        allowedOrigins,
+        validationReason: validationResult.reason
+      });
       return NextResponse.json(
-        { error: 'Origin not allowed' }, 
+        { error: validationResult.reason || 'Origin not allowed' }, 
         { 
           status: 403,
           headers: getCORSHeaders(origin, allowedOrigins)

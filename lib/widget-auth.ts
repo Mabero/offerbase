@@ -10,6 +10,7 @@ import { NextRequest } from 'next/server';
 export interface SiteToken {
   siteId: string;
   origin: string;
+  parentOrigin?: string | null;
   scope: 'products:read';
   exp: number;
   iat: number;
@@ -46,11 +47,12 @@ function getJWTSecret(): string {
 /**
  * Create a short-lived JWT token for widget authentication
  */
-export function createSiteToken(siteId: string, origin: string): string {
+export function createSiteToken(siteId: string, origin: string, parentOrigin?: string | null): string {
   const now = Math.floor(Date.now() / 1000);
   const payload: SiteToken = {
     siteId,
     origin,
+    parentOrigin,
     scope: 'products:read',
     exp: now + (10 * 60), // 10 minutes
     iat: now
