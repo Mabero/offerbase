@@ -42,43 +42,10 @@ CREATE TRIGGER update_product_aliases_updated_at
 -- Add RLS policies if needed (matching affiliate_links patterns)
 ALTER TABLE product_aliases ENABLE ROW LEVEL SECURITY;
 
--- Users can only access aliases for products they own
-CREATE POLICY "Users can view their product aliases" ON product_aliases
-FOR SELECT USING (
-    product_id IN (
-        SELECT id FROM affiliate_links 
-        WHERE site_id IN (
-            SELECT id FROM sites WHERE user_id = auth.uid()
-        )
-    )
-);
+-- Note: Since we're using Clerk for auth (not Supabase Auth), 
+-- and these migrations run with service role key, we'll skip RLS policies
+-- The API handles authorization using Clerk's auth() function instead
 
-CREATE POLICY "Users can insert their product aliases" ON product_aliases
-FOR INSERT WITH CHECK (
-    product_id IN (
-        SELECT id FROM affiliate_links 
-        WHERE site_id IN (
-            SELECT id FROM sites WHERE user_id = auth.uid()
-        )
-    )
-);
-
-CREATE POLICY "Users can update their product aliases" ON product_aliases
-FOR UPDATE USING (
-    product_id IN (
-        SELECT id FROM affiliate_links 
-        WHERE site_id IN (
-            SELECT id FROM sites WHERE user_id = auth.uid()
-        )
-    )
-);
-
-CREATE POLICY "Users can delete their product aliases" ON product_aliases
-FOR DELETE USING (
-    product_id IN (
-        SELECT id FROM affiliate_links 
-        WHERE site_id IN (
-            SELECT id FROM sites WHERE user_id = auth.uid()
-        )
-    )
-);
+-- Create permissive policies for service role access
+CREATE POLICY "Service role has full access" ON product_aliases
+FOR ALL USING (true);

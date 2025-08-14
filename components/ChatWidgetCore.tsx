@@ -5,6 +5,7 @@ import { DefaultChatTransport } from 'ai';
 import { PredefinedQuestions } from './PredefinedQuestions';
 import { PredefinedQuestionButton } from '@/types/predefined-questions';
 import ReactMarkdown from 'react-markdown';
+import { useWidgetAuth, authenticatedFetch } from '@/lib/use-widget-auth';
 
 interface AffiliateProduct {
   id: string;
@@ -410,77 +411,222 @@ const LinksContainer = ({ links, chatSettings, styles, onLinkClick }: {
   );
 };
 
-// ProductRecommendations component - always renders but controls visibility
-const ProductRecommendations = ({ messageContent, siteId, apiUrl, chatSettings, styles, isVisible, onProductsLoaded }: {
+// ProductRecommendations component - uses server-side matching for precision with JWT authentication
+const ProductRecommendations = ({ messageContent, streamingContent, messageId, userMessage, siteId, apiUrl, chatSettings, styles, isVisible, onProductsLoaded, preFetchedProducts, widgetToken, onTokenExpired, pageContext }: {
   messageContent: string;
+  streamingContent?: string;
+  messageId: string;
+  userMessage?: string;
   siteId: string;
   apiUrl: string;
   chatSettings: ChatSettings;
   styles: Record<string, React.CSSProperties>;
   isVisible: boolean;
   onProductsLoaded?: () => void;
+  preFetchedProducts?: { userMessage: string; products: AffiliateProduct[] } | null;
+  widgetToken?: string | null;
+  onTokenExpired?: () => Promise<void>;
+  pageContext?: { title?: string; description?: string; url?: string };
 }) => {
   const [products, setProducts] = useState<AffiliateProduct[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const fetchTriggeredRef = useRef<string>('');
+  
+  // Clarification state
+  const [clarificationData, setClarificationData] = useState<{
+    shouldAsk: boolean;
+    confidence: number;
+    reason: string;
+    options: Array<{
+      category: string;
+      products: AffiliateProduct[];
+      displayName: string;
+    }>;
+  } | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  // Simplified fetch function to prevent AI SDK loops
+  const fetchProducts = useCallback(async (contentToMatch: string) => {
+    // Prevent multiple fetches for the same message
+    if (fetchTriggeredRef.current === messageId || isLoading) return;
+    
+    // Need at least 3 words to start meaningful product matching
+    const wordCount = contentToMatch.trim().split(/\s+/).length;
+    if (wordCount < 3) return;
+    
+    // Need authentication token
+    if (!widgetToken) {
+      console.warn('No widget token available for product fetching');
+      return;
+    }
+    
+    fetchTriggeredRef.current = messageId;
+    setIsLoading(true);
+    
+    try {
+      console.log('🔍 Fetching products with context for:', contentToMatch);
+      
+      // Fetch products with contextual matching (training chunks will be fetched by the API)
+      const response = await authenticatedFetch(
+        `${apiUrl}/api/products/match`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            query: userMessage?.trim() || contentToMatch.trim(), // Original user query
+            aiText: contentToMatch.trim(), // AI response for exact matching
+            pageContext: pageContext && (pageContext.title || pageContext.description) ? pageContext : undefined, // Page title, description, and URL for context
+            limit: 12
+          })
+        },
+        widgetToken,
+        onTokenExpired
+      );
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Request failed: ${response.status}`);
+      }
+      
+      const responseData = await response.json();
+      const { data: matchedProducts, clarification } = responseData;
+      
+      console.log(`🎯 Found ${matchedProducts?.length || 0} products`);
+      
+      // Handle clarification if needed
+      if (clarification?.shouldAsk && clarification.options?.length > 0) {
+        console.log(`❓ Clarification needed (confidence: ${clarification.confidence}):`, clarification.reason);
+        setClarificationData(clarification);
+        setProducts([]); // Don't show products yet
+      } else {
+        console.log(`✅ High confidence (${clarification?.confidence || 'N/A'}), showing products directly`);
+        setClarificationData(null);
+        setProducts(matchedProducts || []);
+      }
+      
+    } catch (error) {
+      console.error('Product matching error:', error);
+      setProducts([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [messageId, userMessage, widgetToken, apiUrl, isLoading, onTokenExpired, pageContext]);
+
+  // Handle category selection for clarification
+  const handleCategorySelection = useCallback((category: string) => {
+    if (!clarificationData) return;
+    
+    const selectedOption = clarificationData.options.find(opt => opt.category === category);
+    if (selectedOption) {
+      // Log user clarification choice for analytics
+      const clarificationTelemetry = {
+        messageId,
+        userMessage: userMessage?.trim(),
+        clarificationReason: clarificationData.reason,
+        confidence: clarificationData.confidence,
+        availableOptions: clarificationData.options.map(opt => ({
+          category: opt.category,
+          displayName: opt.displayName,
+          productCount: opt.products.length
+        })),
+        selectedCategory: category,
+        selectedDisplayName: selectedOption.displayName,
+        resultingProducts: selectedOption.products.length,
+        timestamp: Date.now()
+      };
+      
+      console.log(`✅ User clarification choice:`, clarificationTelemetry);
+      // TODO: Send to analytics service
+      // analyticsService.track('clarification_selected', clarificationTelemetry);
+      
+      setProducts(selectedOption.products);
+      setClarificationData(null);
+      setSelectedCategory(category);
+      
+      // Scroll to show the products
+      setTimeout(() => onProductsLoaded?.(), 100);
+    }
+  }, [clarificationData, onProductsLoaded, messageId, userMessage]);
 
   useEffect(() => {
-    const fetchProducts = async () => {
-      if (!messageContent || messageContent.length === 0) return;
-      
-      try {
-        // Fetch affiliate links for this site
-        const response = await fetch(`${apiUrl}/api/affiliate-links?siteId=${siteId}`);
-        if (!response.ok) throw new Error('Failed to fetch products');
-        
-        const { data: allProducts }: { data: AffiliateProduct[] } = await response.json();
-        
-        // Find matching products using simple word-boundary matching
-        const matchedProducts = allProducts.filter((product: AffiliateProduct) => {
-          if (!product.title) return false;
-          
-          // Extract key terms from product title (like G3, G4, etc.)
-          const titleWords = product.title.toLowerCase().split(/\W+/).filter((word: string) => word.length > 0);
-          const contentLower = messageContent.toLowerCase();
-          
-          // Check for word-boundary matches to prevent false positives
-          return titleWords.some((word: string) => {
-            if (word.length < 2) return false; // Skip single letters
-            const regex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-            return regex.test(contentLower);
-          });
-        });
-        
-        setProducts(matchedProducts);
-        
-        // Trigger scroll when products are loaded and become visible
-        if (matchedProducts.length > 0 && isVisible) {
-          onProductsLoaded?.();
-        }
-      } catch (error) {
-        console.error('Product matching error:', error);
-        setProducts([]);
-      }
-    };
-
-    // Start fetching immediately when message content is available
-    if (messageContent) {
-      fetchProducts();
+    // Only fetch products after AI response is complete (not during streaming)
+    if (status === 'streaming') {
+      return; // Don't fetch during streaming to prevent AI SDK loops
     }
-  }, [messageContent, siteId, apiUrl, isVisible, onProductsLoaded]);
+    
+    // First check if we have pre-fetched products for this user message
+    if (preFetchedProducts && userMessage && preFetchedProducts.userMessage === userMessage.trim()) {
+      // Using pre-fetched products
+      setProducts(preFetchedProducts.products);
+      fetchTriggeredRef.current = messageId; // Mark as processed
+      return;
+    }
 
-  // Trigger scroll when visibility changes from hidden to visible
+    // Use final message content only after streaming is complete
+    const contentToUse = messageContent;
+    if (contentToUse && status !== 'streaming') {
+      fetchProducts(contentToUse);
+    }
+  }, [messageId, messageContent, fetchProducts, preFetchedProducts, userMessage]);
+
+  // Trigger scroll when products become visible
   useEffect(() => {
     if (isVisible && products.length > 0) {
-      onProductsLoaded?.();
+      setTimeout(() => onProductsLoaded?.(), 50);
     }
   }, [isVisible, products.length, onProductsLoaded]);
 
-  // Hide if no products or not visible
-  if (!isVisible || products.length === 0) {
-    return null;
+  // Show clarification UI if needed
+  if (clarificationData?.shouldAsk && clarificationData.options.length > 0) {
+    return (
+      <div style={{ 
+        ...styles.linksContainer, 
+        marginTop: '12px',
+        padding: '12px',
+        border: '1px solid #e2e8f0',
+        borderRadius: '8px',
+        backgroundColor: '#f8fafc'
+      }}>
+        <div style={{ marginBottom: '8px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+          I found products in multiple categories. Which are you interested in?
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {clarificationData.options.map((option) => (
+            <button
+              key={option.category}
+              onClick={() => handleCategorySelection(option.category)}
+              style={{
+                padding: '8px 12px',
+                border: '1px solid #d1d5db',
+                borderRadius: '6px',
+                backgroundColor: '#fff',
+                color: '#374151',
+                fontSize: '13px',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.backgroundColor = '#f3f4f6';
+                e.currentTarget.style.borderColor = '#9ca3af';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.backgroundColor = '#fff';
+                e.currentTarget.style.borderColor = '#d1d5db';
+              }}
+            >
+              {option.displayName} ({option.products.length})
+            </button>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div style={{ ...styles.linksContainer, marginTop: '12px' }}>
+    <div style={{ 
+      ...styles.linksContainer, 
+      marginTop: '12px',
+      display: (!isVisible || products.length === 0) ? 'none' : 'flex'
+    }}>
       {products.map((product, index) => (
         <ProductCard
           key={product.id || `product-${index}`}
@@ -627,6 +773,17 @@ const LinkCard = ({ link, chatSettings, styles, onLinkClick }: {
   );
 };
 
+// Helper function to create stable timestamps from message IDs
+const hashStringToNumber = (str: string): number => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash);
+};
+
 // Main ChatWidget component
 export function ChatWidgetCore({
   session,
@@ -642,7 +799,7 @@ export function ChatWidgetCore({
 }: ChatWidgetCoreProps) {
   
   // Initialize messages with intro message if available
-  const getInitialMessages = (): Message[] => {
+  const getInitialMessages = useCallback((): Message[] => {
     // Always include intro message as the first message if it exists
     const introMsg = introMessage?.trim() || 
                     `Hi! I am ${chatSettings?.chat_name || 'Affi'}, your assistant. How can I help you today?`;
@@ -656,7 +813,7 @@ export function ChatWidgetCore({
       id: 'intro_message',
       timestamp: Date.now()
     } as BotMessage];
-  };
+  }, [introMessage, chatSettings?.chat_name]);
 
   // Define reusable style objects
   const styles: Record<string, React.CSSProperties> = {
@@ -860,8 +1017,22 @@ export function ChatWidgetCore({
     }
   };
 
+  // Widget authentication - handles JWT tokens and API security
+  const widgetAuth = useWidgetAuth(siteId, apiUrl);
+  
   // Local state for input (AI SDK manages loading state)
   const [input, setInput] = useState('');
+  
+  // Track streaming content for parallel product fetching
+  const streamingContentRef = useRef<string>('');
+  const currentMessageIdRef = useRef<string>('');
+  const lastUserMessageRef = useRef<string>('');
+  
+  // Store pre-fetched products from user message for instant display
+  const [preFetchedProducts, setPreFetchedProducts] = useState<{
+    userMessage: string;
+    products: AffiliateProduct[];
+  } | null>(null);
   
   // Create custom transport with our endpoint
   const transport = React.useMemo(() => {
@@ -872,18 +1043,14 @@ export function ChatWidgetCore({
     });
   }, [apiUrl]);
 
-  // Use AI SDK's useChat hook for streaming with error handling
+  // Use AI SDK's useChat hook with minimal configuration to prevent loops
   const { messages: aiMessages, sendMessage, setMessages, error, status } = useChat({
     transport,
     onError: (error) => {
       console.error('AI SDK Error:', error);
-      console.error('Full error object:', JSON.stringify(error, null, 2));
-      // AI SDK manages loading state automatically
-    },
-    onFinish: async ({ message }) => {
-      console.log('✅ AI response completed');
-      // Product matching will be handled in the message rendering phase
+      // Don't do anything else that could trigger re-renders
     }
+    // Remove onFinish to prevent potential loop triggers
   });
   
   // Derive loading state from AI SDK status - check correct status values
@@ -894,83 +1061,96 @@ export function ChatWidgetCore({
     setInput(e.target.value);
   };
   
-  // Convert AI SDK messages to our Message format with debugging
-  const messages: Message[] = [
-    ...getInitialMessages(),
-    ...aiMessages.map((msg, index) => {
-      // Extract text content from UI message parts
-      const textContent = msg.parts?.filter(part => part.type === 'text')
-        .map(part => part.text).join(' ') || '';
-      
-      // Debug logging for message conversion
-      console.log(`Converting AI message ${index}:`, { role: msg.role, textContent, id: msg.id, parts: msg.parts });
-      
-      if (msg.role === 'user') {
-        return {
-          type: 'user' as const,
-          content: textContent,
-          id: msg.id,
-          timestamp: Date.now()
-        } as UserMessage;
-      } else {
-        // Handle bot messages - check if this is a placeholder or has content
-        const isLastMessage = index === aiMessages.length - 1;
-        const isWaiting = (status === 'submitted' && isLastMessage) || (!textContent && isLastMessage);
+  // Convert AI SDK messages to our Message format with stable approach
+  const messages: Message[] = React.useMemo(() => {
+    const baseMessages = [
+      ...getInitialMessages(),
+      ...aiMessages.map((msg, index) => {
+        // Extract text content from UI message parts
+        const textContent = msg.parts?.filter(part => part.type === 'text')
+          .map(part => part.text).join(' ') || '';
         
-        // Use empty content for placeholder messages to trigger loading display
-        const messageContent = textContent || '';
+        // Use message ID hash for stable timestamp to prevent re-renders
+        const stableTimestamp = msg.id ? hashStringToNumber(msg.id) : Date.now();
         
-        // Clean message rendering - products will be handled by dedicated service
-        
-        return {
-          type: 'bot' as const,
-          content: {
-            type: 'message' as const,
-            message: messageContent
-          },
-          id: msg.id,
-          timestamp: Date.now(),
-          isWaiting // Add waiting flag
-        } as BotMessage & { isWaiting?: boolean };
-      }
-    })
-  ];
-  
-  // Add loading message when user just sent message (status='submitted')
-  // Check if we need to show loading: when submitted and no assistant response yet
-  const lastMessage = aiMessages[aiMessages.length - 1];
-  const needsLoading = status === 'submitted' && (!lastMessage || lastMessage.role === 'user');
-  
-  if (needsLoading) {
-    messages.push({
-      type: 'bot' as const,
-      content: {
-        type: 'message' as const,
-        message: ''
-      },
-      id: 'loading-' + Date.now(),
-      timestamp: Date.now(),
-      isWaiting: true
-    } as BotMessage & { isWaiting?: boolean });
-  }
-  
-  // Add error message if there's an API error
-  if (error) {
-    console.error('Displaying error message to user:', error);
-    messages.push({
-      type: 'bot' as const,
-      content: {
-        type: 'message' as const,
-        message: 'Sorry, there was an error processing your message. Please try again.'
-      },
-      id: 'error-' + Date.now(),
-      timestamp: Date.now()
-    } as BotMessage);
-  }
+        if (msg.role === 'user') {
+          return {
+            type: 'user' as const,
+            content: textContent,
+            id: msg.id,
+            timestamp: stableTimestamp
+          } as UserMessage;
+        } else {
+          // Handle bot messages - check if this is a placeholder or has content
+          const isLastMessage = index === aiMessages.length - 1;
+          const isWaiting = (status === 'submitted' && isLastMessage) || (!textContent && isLastMessage);
+          
+          // Use empty content for placeholder messages to trigger loading display
+          const messageContent = textContent || '';
+          
+          // Track streaming content for the current message
+          if (isLastMessage && status === 'streaming' && textContent) {
+            streamingContentRef.current = textContent;
+            currentMessageIdRef.current = msg.id;
+          }
+          
+          return {
+            type: 'bot' as const,
+            content: {
+              type: 'message' as const,
+              message: messageContent
+            },
+            id: msg.id,
+            timestamp: stableTimestamp,
+            isWaiting // Add waiting flag
+          } as BotMessage & { isWaiting?: boolean };
+        }
+      })
+    ];
+
+    // Add loading message when user just sent message (status='submitted')
+    const lastMessage = aiMessages[aiMessages.length - 1];
+    const needsLoading = status === 'submitted' && (!lastMessage || lastMessage.role === 'user');
+    
+    if (needsLoading) {
+      baseMessages.push({
+        type: 'bot' as const,
+        content: {
+          type: 'message' as const,
+          message: ''
+        },
+        id: 'loading-temp',
+        timestamp: Date.now(), // This is OK since it's temporary
+        isWaiting: true
+      } as BotMessage & { isWaiting?: boolean });
+    }
+    
+    // Add error message if there's an API error
+    if (error) {
+      console.error('Displaying error message to user:', error);
+      baseMessages.push({
+        type: 'bot' as const,
+        content: {
+          type: 'message' as const,
+          message: 'Sorry, there was an error processing your message. Please try again.'
+        },
+        id: 'error-temp',
+        timestamp: Date.now()
+      } as BotMessage);
+    }
+    
+    return baseMessages;
+  }, [aiMessages, status, error, getInitialMessages]);
+
 
   // Additional state for non-AI SDK features
   const [predefinedQuestions, setPredefinedQuestions] = useState<PredefinedQuestionButton[]>([]);
   const [pageUrl, setPageUrl] = useState<string>('');
+  const [pageContext, setPageContext] = useState<{
+    title?: string;
+    description?: string;
+    url?: string;
+  }>({});
 
   // Keep your existing state that's not replaced by AI SDK
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -1201,6 +1381,69 @@ export function ChatWidgetCore({
     );
   };
 
+  // Pre-fetch products disabled - interferes with context-aware matching
+  const preFetchProducts = async (userMessage: string) => {
+    console.log('🚫 Pre-fetching disabled to allow context-aware matching');
+    return;
+    
+    // Need at least 3 words to start meaningful product matching
+    const wordCount = userMessage.trim().split(/\s+/).length;
+    if (wordCount < 3) return;
+    
+    // Need authentication token
+    if (!widgetAuth.token) {
+      console.error('❌ No widget token available for product pre-fetching');
+      return;
+    }
+    
+    try {
+      console.log('🔍 Pre-fetching products for:', userMessage, 'with token:', widgetAuth.token?.substring(0, 20) + '...');
+      
+      const response = await authenticatedFetch(
+        `${apiUrl}/api/products/match`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            query: userMessage.trim(),
+            limit: 12
+            // Note: Pre-fetching uses basic keyword extraction from query
+            // Main product matching after AI response will use training chunks + AI text
+          })
+        },
+        widgetAuth.token,
+        widgetAuth.refresh
+      );
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Pre-fetch failed: ${response.status}`);
+      }
+      
+      const responseData = await response.json();
+      const matchedProducts = responseData.data;
+      
+      console.log('📦 API Response:', {
+        success: responseData.success,
+        count: responseData.count,
+        products: matchedProducts?.length || 0,
+        aiFiltered: responseData.aiFiltered,
+        firstProduct: matchedProducts?.[0]?.title
+      });
+      
+      // Store products with the user message for instant display
+      setPreFetchedProducts({
+        userMessage: userMessage.trim(),
+        products: matchedProducts || []
+      });
+      
+      console.log('✅ Pre-fetched', matchedProducts?.length || 0, 'products for:', userMessage.trim());
+      
+    } catch (error) {
+      console.error('❌ Product pre-fetch error:', error);
+      setPreFetchedProducts({ userMessage: userMessage.trim(), products: [] });
+    }
+  };
+
   // Handle form submission for AI SDK
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1211,6 +1454,12 @@ export function ChatWidgetCore({
     console.log('AI SDK state:', { aiLoading, error: !!error, messagesCount: aiMessages.length });
     
     setInput('');
+    
+    // Track the user message for product matching
+    lastUserMessageRef.current = message;
+    
+    // Start product pre-fetching in parallel with AI streaming
+    preFetchProducts(message);
     
     // Force scroll to bottom
     setTimeout(() => scrollToBottom(true), 100);
@@ -1303,43 +1552,40 @@ export function ChatWidgetCore({
     onMessageSent?.(question.question);
   };
 
-  // Get current page URL
+  // Get simple page context for relevance boosting
   useEffect(() => {
-    const getCurrentPageUrl = () => {
+    const getSimplePageContext = () => {
       if (typeof window === 'undefined') return;
       
-      if (isEmbedded && window.parent !== window) {
-        // Widget is embedded, get parent URL
-        try {
-          window.parent.postMessage({ type: 'GET_PAGE_URL' }, '*');
-        } catch (error) {
-          // Fallback to current URL if postMessage fails
-          console.warn('Failed to get parent URL:', error);
-          setPageUrl(window.location.href);
-        }
-        
-        // Listen for URL response from parent
-        const handleMessage = (event: MessageEvent) => {
-          if (event.data.type === 'PAGE_URL_RESPONSE') {
-            setPageUrl(event.data.url);
-          }
-        };
-        
-        window.addEventListener('message', handleMessage);
-        return () => window.removeEventListener('message', handleMessage);
-      } else {
-        // Direct access, use current URL
-        setPageUrl(window.location.href);
+      // Simple approach: extract current page context
+      const context = {
+        url: window.location.href,
+        title: document.title || '',
+        description: document.querySelector('meta[name="description"]')?.getAttribute('content') || ''
+      };
+      
+      // For embedded widgets, try to get referrer URL
+      if (isEmbedded && window.parent !== window && document.referrer) {
+        context.url = document.referrer;
       }
+      
+      setPageUrl(context.url);
+      setPageContext(context);
+      
+      console.log('📍 Simple page context extracted:', { 
+        url: context.url, 
+        hasTitle: !!context.title, 
+        hasDescription: !!context.description 
+      });
     };
     
-    getCurrentPageUrl();
+    getSimplePageContext();
   }, [isEmbedded]);
 
   // Load predefined questions when page URL changes
   useEffect(() => {
     if (pageUrl && siteId) {
-      loadPredefinedQuestions(pageUrl);
+      loadPredefinedQuestions(pageUrl!);
     }
   }, [pageUrl, siteId, loadPredefinedQuestions]);
 
@@ -1446,15 +1692,22 @@ export function ChatWidgetCore({
             )}
             
             {/* Product recommendations for AI responses - always render but control visibility */}
-            {botContent.type === 'message' && messageContent && (
+            {botContent.type === 'message' && (
               <ProductRecommendations
                 messageContent={messageContent}
+                streamingContent={currentMessageIdRef.current === message.id ? streamingContentRef.current : undefined}
+                messageId={message.id}
+                userMessage={lastUserMessageRef.current}
                 siteId={siteId}
                 apiUrl={apiUrl}
                 chatSettings={chatSettings}
                 styles={styles}
-                isVisible={!aiLoading && !isWaiting}
+                isVisible={status !== 'streaming' && messageContent.length > 0}
                 onProductsLoaded={handleProductsLoaded}
+                preFetchedProducts={preFetchedProducts}
+                widgetToken={widgetAuth.token}
+                onTokenExpired={widgetAuth.refresh}
+                pageContext={pageContext}
               />
             )}
           </div>

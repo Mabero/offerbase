@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createClient } from '@supabase/supabase-js';
+import { generateSmartAliases } from '@/lib/alias-generator';
 
 // GET /api/affiliate-links - Fetch affiliate links for a site
 export async function GET(request: NextRequest) {
@@ -112,6 +113,36 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('Affiliate link creation error:', error);
       return NextResponse.json({ error: 'Failed to create affiliate link', details: error }, { status: 500 });
+    }
+
+    // Auto-generate aliases for better product matching
+    if (data && data.id) {
+      try {
+        const aliases = generateSmartAliases(title);
+        console.log(`Generated ${aliases.length} aliases for "${title}":`, aliases);
+        
+        if (aliases.length > 0) {
+          // Prepare bulk insert for aliases
+          const aliasInserts = aliases.map(alias => ({
+            product_id: data.id,
+            alias: alias
+          }));
+          
+          // Insert aliases (ignore errors as they're non-critical)
+          const { error: aliasError } = await supabase
+            .from('product_aliases')
+            .insert(aliasInserts);
+          
+          if (aliasError) {
+            console.warn('Failed to create aliases (non-critical):', aliasError);
+          } else {
+            console.log(`Successfully created ${aliases.length} aliases for product ${data.id}`);
+          }
+        }
+      } catch (aliasGenerationError) {
+        // Don't fail the product creation if alias generation fails
+        console.error('Alias generation error (non-critical):', aliasGenerationError);
+      }
     }
 
     return NextResponse.json({ success: true, data }, { status: 201 });

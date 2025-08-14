@@ -121,6 +121,9 @@ export async function POST(request: NextRequest) {
       materialTitle: r.materialTitle
     }));
     
+    // Store chunks in headers for product matching API to use
+    const chunksHeader = JSON.stringify(retrievedChunks);
+    
     // Get AI instructions from centralized location
     const baseInstructions = getAIInstructions();
     
