@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
         name: name.trim(), 
         user_id: userId,
         site_url: processedUrl,
-        allowed_origins: JSON.stringify(allowedOrigins)
+        allowed_origins: allowedOrigins
       }])
       .select('id, name, site_url, created_at, updated_at')
       .single();

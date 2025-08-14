@@ -100,7 +100,23 @@ export async function GET(request: NextRequest) {
     }
 
     // Validate origin against site's allowed origins
-    const allowedOrigins: string[] = site.allowed_origins || [];
+    // Defensive parsing - handles both array and string formats from database
+    let allowedOrigins: string[] = [];
+    
+    if (Array.isArray(site.allowed_origins)) {
+      allowedOrigins = site.allowed_origins;
+    } else if (typeof site.allowed_origins === 'string') {
+      try {
+        const parsed = JSON.parse(site.allowed_origins);
+        allowedOrigins = Array.isArray(parsed) ? parsed : [];
+      } catch (error) {
+        console.error('Failed to parse allowed_origins as JSON:', error);
+        allowedOrigins = [];
+      }
+    } else if (site.allowed_origins) {
+      console.warn('Unexpected allowed_origins format:', typeof site.allowed_origins);
+      allowedOrigins = [];
+    }
     if (!isOriginAllowed(origin, allowedOrigins)) {
       console.warn(`Bootstrap failed: origin not allowed`, { 
         siteId, 
