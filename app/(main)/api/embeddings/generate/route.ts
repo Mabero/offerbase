@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
         .eq('id', materialId)
         .single();
       
-      if (error || !material || material.sites.user_id !== userId) {
+      if (error || !material || (material.sites as any).user_id !== userId) {
         return NextResponse.json(
           { error: 'Material not found or unauthorized' },
           { status: 404 }
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
         );
       }
       
-      const unauthorized = materials.some(m => m.sites.user_id !== userId);
+      const unauthorized = materials.some(m => (m.sites as any).user_id !== userId);
       if (unauthorized) {
         return NextResponse.json(
           { error: 'One or more materials unauthorized' },

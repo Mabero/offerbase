@@ -1410,7 +1410,7 @@ export function ChatWidgetCore({
             // Main product matching after AI response will use training chunks + AI text
           })
         },
-        widgetAuth.token,
+        widgetAuth.token!,
         widgetAuth.refresh
       );
       

@@ -277,12 +277,12 @@ async function searchMaterials(
         
       if (error) {
         console.error('Database query error:', error);
-        return materials; // Return what we have from priority search
+        return materials as unknown as TrainingMaterial[]; // Return what we have from priority search
       }
       
       // Combine results, prioritizing exact matches
       const allMaterials = allResults || [];
-      const newMaterials = allMaterials.filter(m => !materials.some(existing => existing.id === m.id));
+      const newMaterials = allMaterials.filter((m: any) => !materials.some(existing => existing.id === m.id));
       materials = [...materials, ...newMaterials].slice(0, limit);
     }
     
@@ -323,7 +323,7 @@ async function searchMaterials(
     ].slice(0, limit);
     
     
-    return prioritized;
+    return prioritized as unknown as TrainingMaterial[];
   } catch (error) {
     console.error('Search materials error:', error);
     return [];

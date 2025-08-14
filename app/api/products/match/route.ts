@@ -104,7 +104,7 @@ async function applyPageContextBoost(
   }
   
   // Get alias map for smart tokenization
-  const aliasMap = siteId ? await getAliasMap(siteId) : new Set();
+  const aliasMap: Set<string> = siteId ? await getAliasMap(siteId) : new Set<string>();
   
   // Tokenize page content intelligently  
   const pageText = `${pageContext.title || ''} ${pageContext.description || ''}`;
@@ -478,7 +478,7 @@ export async function POST(request: NextRequest) {
     console.log('🎯 Contextual matching result:', {
       error: error,
       resultCount: matchedProducts?.length || 0,
-      matchTypes: matchedProducts?.map(p => p.match_type) || [],
+      matchTypes: matchedProducts?.map((p: any) => p.match_type) || [],
       contextKeywords: finalContextKeywords
     });
 
