@@ -375,7 +375,7 @@ export async function POST(request: NextRequest) {
 
     // Double-check origin is still allowed (defense in depth)
     const allowedOrigins: string[] = site.allowed_origins || [];
-    const validationResult = isWidgetRequestAllowed(origin, decodedToken.parentOrigin, allowedOrigins);
+    const validationResult = isWidgetRequestAllowed(origin, decodedToken.parentOrigin || null, allowedOrigins);
     if (!validationResult.allowed) {
       console.error(`🚫 Product match failed: ${validationResult.reason}`, { 
         siteId, 
