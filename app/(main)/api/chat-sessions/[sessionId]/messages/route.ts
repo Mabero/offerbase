@@ -72,12 +72,105 @@ export async function GET(
   }
 }
 
+export async function POST(
+  request: NextRequest,
+  context: { params: Promise<{ sessionId: string }> }
+) {
+  try {
+    const { sessionId } = await context.params
+    const { id, role, content } = await request.json()
+
+    if (!id || !role || !content) {
+      return NextResponse.json({ error: 'Missing required fields: id, role, content' }, { 
+        status: 400,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-site-id',
+        }
+      })
+    }
+
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+    
+    // Verify the session exists
+    const { data: session, error: sessionError } = await supabase
+      .from('chat_sessions')
+      .select('id')
+      .eq('id', sessionId)
+      .single()
+
+    if (sessionError || !session) {
+      return NextResponse.json({ error: 'Session not found' }, { 
+        status: 404,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-site-id',
+        }
+      })
+    }
+
+    // Save the message (use upsert to handle duplicates)
+    const { data: message, error: messageError } = await supabase
+      .from('chat_messages')
+      .upsert({
+        id,
+        chat_session_id: sessionId,
+        role,
+        content,
+        created_at: new Date().toISOString()
+      }, {
+        onConflict: 'id'
+      })
+      .select('*')
+      .single()
+
+    if (messageError) {
+      console.error('Error saving chat message:', messageError)
+      return NextResponse.json({ 
+        error: 'Failed to save message',
+        details: process.env.NODE_ENV === 'development' ? messageError.message : 'Check server logs'
+      }, { 
+        status: 500,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-site-id',
+        }
+      })
+    }
+
+    return NextResponse.json({ message }, { 
+      status: 201,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-site-id',
+      }
+    })
+  } catch (error) {
+    console.error('Error in POST /api/chat-sessions/[sessionId]/messages:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { 
+      status: 500,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-site-id',
+      }
+    })
+  }
+}
+
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-site-id',
       'Access-Control-Max-Age': '86400',
     },

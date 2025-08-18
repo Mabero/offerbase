@@ -1587,21 +1587,32 @@ export function ChatWidgetCore({
     if (!sessionId) {
       try {
         console.log('🆕 Creating new chat session for first message');
+        
+        // Generate unique session identifier for anonymous users
+        const userSessionId = `anon_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+        
         const response = await fetch(`${apiUrl}/api/chat-sessions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ siteId })
+          body: JSON.stringify({ 
+            siteId,
+            userSessionId,
+            userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown',
+            ipAddress: null // Let server determine
+          })
         });
 
         if (response.ok) {
-          const { sessionId: newSessionId } = await response.json();
+          const { session } = await response.json();
+          const newSessionId = session.id;
           setSessionId(newSessionId);
           localStorage.setItem(`chat_session_uuid_${siteId}`, newSessionId);
           console.log('✅ Created session:', newSessionId);
         } else {
-          console.error('Failed to create chat session:', response.statusText);
+          const errorText = await response.text();
+          console.error('Failed to create chat session:', response.statusText, errorText);
         }
       } catch (error) {
         console.error('Error creating chat session:', error);
