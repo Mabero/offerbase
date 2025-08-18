@@ -114,17 +114,14 @@ export async function POST(
       })
     }
 
-    // Save the message (use upsert to handle duplicates)
+    // Save the message - let database generate UUID, use AI SDK id as reference
     const { data: message, error: messageError } = await supabase
       .from('chat_messages')
-      .upsert({
-        id,
+      .insert({
         chat_session_id: sessionId,
         role,
         content,
         created_at: new Date().toISOString()
-      }, {
-        onConflict: 'id'
       })
       .select('*')
       .single()
