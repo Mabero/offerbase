@@ -197,6 +197,21 @@ const RetryIcon = ({ size = 14, color = 'currentColor' }: { size?: number; color
   </svg>
 );
 
+const ChevronDownIcon = ({ size = 20, color = 'currentColor' }: { size?: number; color?: string }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="m6 9 6 6 6-6"/>
+  </svg>
+);
+
 const MessageActions = ({ 
   messageContent, 
   onCopy, 
@@ -1030,6 +1045,9 @@ export function ChatWidgetCore({
   const currentMessageIdRef = useRef<string>('');
   const lastUserMessageRef = useRef<string>('');
   
+  // Input ref for maintaining focus after sending messages
+  const inputRef = useRef<HTMLInputElement>(null);
+  
   // Store pre-fetched products from user message for instant display
   const [preFetchedProducts, setPreFetchedProducts] = useState<{
     userMessage: string;
@@ -1157,8 +1175,10 @@ export function ChatWidgetCore({
   // Keep your existing state that's not replaced by AI SDK
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
+  const [isAtBottom, setIsAtBottom] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const latestUserMessageRef = useRef<HTMLDivElement>(null);
   
   // Keep session management for backward compatibility
   const [sessionId, setSessionId] = useState<string | null>(() => {
@@ -1185,20 +1205,58 @@ export function ChatWidgetCore({
     // Scroll the messages container instead of the entire page
     if (messagesContainerRef.current) {
       messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      // Update state to hide scroll button
+      setIsAtBottom(true);
     }
   };
 
-  // Smart streaming auto-scroll - only during AI streaming, not user interactions
+  // Removed auto-scroll during bot typing to let users read long responses from the start
+
+  // Track if user is at bottom of chat
+  const handleScroll = useCallback(() => {
+    if (!messagesContainerRef.current) return;
+    
+    const container = messagesContainerRef.current;
+    const isAtBottomNow = container.scrollHeight - container.scrollTop - container.clientHeight < 10;
+    setIsAtBottom(isAtBottomNow);
+  }, []);
+
+  // Attach scroll listener
   useEffect(() => {
-    // Only scroll during active AI streaming to follow message growth
-    if (aiLoading) {
-      scrollToBottom();
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', handleScroll);
+      return () => container.removeEventListener('scroll', handleScroll);
     }
-  }, [messages, aiLoading]);
+  }, [handleScroll]);
+
+  // Smart scroll during bot streaming - follow bot message but respect user message position
+  useEffect(() => {
+    if (status === 'streaming' && latestUserMessageRef.current && messagesContainerRef.current) {
+      const container = messagesContainerRef.current;
+      const userMessage = latestUserMessageRef.current;
+      
+      // Get positions
+      const containerRect = container.getBoundingClientRect();
+      const userMessageRect = userMessage.getBoundingClientRect();
+      
+      // Check if user message is still visible at top (or close to top)
+      const userMessageTop = userMessageRect.top - containerRect.top;
+      const isUserMessageNearTop = userMessageTop <= 50; // Allow some margin
+      
+      // Only auto-scroll if user message isn't at the top yet
+      if (!isUserMessageNearTop) {
+        container.scrollTo({
+          top: container.scrollTop + (userMessageRect.top - containerRect.top),
+          behavior: 'smooth'
+        });
+      }
+    }
+  }, [messages, status]); // Trigger on message changes during streaming
   
-  // Memoized scroll callback for products to prevent API spam
+  // Memoized scroll callback for products - removed auto-scroll to let users control their position
   const handleProductsLoaded = useCallback(() => {
-    scrollToBottom(true);
+    // No auto-scroll when products load - user controls scroll position
   }, []);
 
   // Track if history has been loaded to prevent re-loading
@@ -1241,50 +1299,34 @@ export function ChatWidgetCore({
 
         if (chatMessages.length > 0) {
           
-          // Convert database messages to UI message format
-          const restoredMessages: Message[] = chatMessages.map((dbMessage: { role: string; content: string; created_at: string; id: string }) => {
-            if (dbMessage.role === 'user') {
-              return {
-                type: 'user',
-                content: dbMessage.content,
-                id: dbMessage.id || generateMessageId(),
-                timestamp: Date.now()
-              } as UserMessage;
-            } else {
-              // Parse assistant message content
-              let messageContent: MessageContent;
-              try {
-                const parsed = JSON.parse(dbMessage.content);
-                if (parsed && typeof parsed === 'object' && parsed.type && parsed.message) {
-                  messageContent = parsed;
-                } else {
-                  messageContent = {
-                    type: 'message',
-                    message: dbMessage.content
-                  };
-                }
-              } catch {
-                messageContent = {
-                  type: 'message',
-                  message: dbMessage.content
-                };
+          // Convert database messages to AI SDK format
+          const aiSdkMessages = chatMessages.map((dbMessage: { role: string; content: string; created_at: string; id: string }) => {
+            // Extract text content for AI SDK
+            let textContent = dbMessage.content;
+            try {
+              // If content is JSON (bot messages), extract the message text
+              const parsed = JSON.parse(dbMessage.content);
+              if (parsed && typeof parsed === 'object' && parsed.message) {
+                textContent = parsed.message;
               }
-
-              return {
-                type: 'bot',
-                content: messageContent,
-                id: dbMessage.id || generateMessageId(),
-                timestamp: Date.now()
-              } as BotMessage;
+            } catch {
+              // If not JSON, use content as-is (user messages)
+              textContent = dbMessage.content;
             }
+
+            return {
+              id: dbMessage.id,
+              role: dbMessage.role as 'user' | 'assistant',
+              content: textContent,
+              parts: [{ type: 'text' as const, text: textContent }]
+            };
           });
 
-          // AI SDK manages its own message state - we can't restore history directly
-          // The intro message is already handled in getInitialMessages()
-          console.log('Chat history found:', chatMessages.length, 'messages (not restored - AI SDK manages state)');
+          // Restore chat history to AI SDK state
+          console.log('Chat history found:', chatMessages.length, 'messages - restoring to AI SDK');
+          setMessages(aiSdkMessages);
           
-          // Scroll to bottom after loading history
-          setTimeout(() => scrollToBottom(), 100);
+          // No auto-scroll after loading history - let user see from where they left off
         }
       } catch (error) {
         console.error('Error restoring chat history:', error);
@@ -1296,7 +1338,59 @@ export function ChatWidgetCore({
     }
 
     restoreChatHistory();
-  }, [sessionId, apiUrl, siteId, historyLoaded]); // Only include necessary dependencies
+  }, [sessionId, apiUrl, siteId, historyLoaded, setMessages]); // Include setMessages dependency
+
+  // Save new messages to database in real-time
+  useEffect(() => {
+    const saveNewMessages = async () => {
+      if (!sessionId || aiMessages.length === 0) return;
+
+      // Get the latest message that hasn't been saved yet
+      const latestMessage = aiMessages[aiMessages.length - 1];
+      
+      // Skip if no valid message content
+      if (!latestMessage.id) return;
+
+      try {
+        console.log('💾 Saving message to database:', latestMessage.id);
+        
+        // Extract text content from AI SDK message parts
+        let messageContent = '';
+        if (latestMessage.parts) {
+          messageContent = latestMessage.parts
+            .filter(part => part.type === 'text')
+            .map(part => part.text)
+            .join(' ');
+        }
+        
+        // Skip if no actual content to save
+        if (!messageContent.trim()) return;
+
+        const response = await fetch(`${apiUrl}/api/chat-sessions/${sessionId}/messages`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-site-id': siteId
+          },
+          body: JSON.stringify({
+            id: latestMessage.id,
+            role: latestMessage.role,
+            content: messageContent
+          })
+        });
+
+        if (!response.ok) {
+          console.error('Failed to save message:', response.statusText);
+        }
+      } catch (error) {
+        console.error('Error saving message:', error);
+      }
+    };
+
+    // Debounce message saving to avoid spamming during streaming
+    const timeoutId = setTimeout(saveNewMessages, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [aiMessages, sessionId, apiUrl, siteId]);
 
   // Handle link clicks
   const handleLinkClick = (link: Link) => {
@@ -1378,6 +1472,7 @@ export function ChatWidgetCore({
       {
         body: {
           siteId,
+          introMessage: chatSettings?.intro_message || introMessage
         }
       }
     );
@@ -1457,15 +1552,62 @@ export function ChatWidgetCore({
     
     setInput('');
     
+    // Refocus input to maintain fluid chat experience (like standard chat apps)
+    inputRef.current?.focus();
+    
     // Track the user message for product matching
     lastUserMessageRef.current = message;
     
     // Start product pre-fetching in parallel with AI streaming
     preFetchProducts(message);
     
-    // Force scroll to bottom
-    setTimeout(() => scrollToBottom(true), 100);
+    // Scroll to the user's message (precise positioning at very top)
+    setTimeout(() => {
+      if (latestUserMessageRef.current && messagesContainerRef.current) {
+        const container = messagesContainerRef.current;
+        const messageElement = latestUserMessageRef.current;
+        const containerRect = container.getBoundingClientRect();
+        const messageRect = messageElement.getBoundingClientRect();
+        
+        // Calculate scroll position to put message at the very top
+        const targetScrollTop = container.scrollTop + (messageRect.top - containerRect.top);
+        
+        // Smooth scroll to position
+        container.scrollTo({
+          top: targetScrollTop,
+          behavior: 'smooth'
+        });
+        
+        // Update isAtBottom state since we're not at bottom anymore
+        setIsAtBottom(false);
+      }
+    }, 200);
     
+    // Create session on first message if none exists
+    if (!sessionId) {
+      try {
+        console.log('🆕 Creating new chat session for first message');
+        const response = await fetch(`${apiUrl}/api/chat-sessions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ siteId })
+        });
+
+        if (response.ok) {
+          const { sessionId: newSessionId } = await response.json();
+          setSessionId(newSessionId);
+          localStorage.setItem(`chat_session_uuid_${siteId}`, newSessionId);
+          console.log('✅ Created session:', newSessionId);
+        } else {
+          console.error('Failed to create chat session:', response.statusText);
+        }
+      } catch (error) {
+        console.error('Error creating chat session:', error);
+      }
+    }
+
     // Send using AI SDK - pass siteId in body (AI SDK manages loading state)
     try {
       console.log('🚀 Calling sendMessage with:', { text: message });
@@ -1478,6 +1620,7 @@ export function ChatWidgetCore({
         {
           body: {
             siteId,
+            introMessage: chatSettings?.intro_message || introMessage
           }
         }
       );
@@ -1520,6 +1663,7 @@ export function ChatWidgetCore({
         {
           body: {
             siteId,
+            introMessage: chatSettings?.intro_message || introMessage
           }
         }
       );
@@ -1528,8 +1672,7 @@ export function ChatWidgetCore({
       // AI SDK manages loading state
     }
     
-    // Scroll to bottom
-    setTimeout(() => scrollToBottom(true), 100);
+    // No auto-scroll - let user control their scroll position
   };
 
   // Handle predefined question click
@@ -1547,8 +1690,27 @@ export function ChatWidgetCore({
       await sendMessageToAI(question.question);
     }
     
-    // Scroll to bottom
-    setTimeout(() => scrollToBottom(true), 100);
+    // Scroll to the user's message (precise positioning at very top)
+    setTimeout(() => {
+      if (latestUserMessageRef.current && messagesContainerRef.current) {
+        const container = messagesContainerRef.current;
+        const messageElement = latestUserMessageRef.current;
+        const containerRect = container.getBoundingClientRect();
+        const messageRect = messageElement.getBoundingClientRect();
+        
+        // Calculate scroll position to put message at the very top
+        const targetScrollTop = container.scrollTop + (messageRect.top - containerRect.top);
+        
+        // Smooth scroll to position
+        container.scrollTo({
+          top: targetScrollTop,
+          behavior: 'smooth'
+        });
+        
+        // Update isAtBottom state since we're not at bottom anymore
+        setIsAtBottom(false);
+      }
+    }, 200);
     
     // Notify parent
     onMessageSent?.(question.question);
@@ -1704,7 +1866,10 @@ export function ChatWidgetCore({
                 apiUrl={apiUrl}
                 chatSettings={chatSettings}
                 styles={styles}
-                isVisible={status !== 'streaming' && messageContent.length > 0}
+                isVisible={
+                  messageContent.length > 0 && 
+                  !(status === 'streaming' && currentMessageIdRef.current === message.id)
+                }
                 onProductsLoaded={handleProductsLoaded}
                 preFetchedProducts={preFetchedProducts}
                 widgetToken={widgetAuth.token}
@@ -1806,17 +1971,61 @@ export function ChatWidgetCore({
         
         
         {/* Render messages */}
-        {messages.map((message, index) => (
-          <div key={message.id || `message-${index}`}>
-            {renderMessage(message)}
-          </div>
-        ))}
+        {messages.map((message, index) => {
+          // Find the last user message to add ref
+          const isLatestUserMessage = message.type === 'user' && 
+            index === messages.map(m => m.type).lastIndexOf('user');
+            
+          return (
+            <div 
+              key={message.id || `message-${index}`}
+              ref={isLatestUserMessage ? latestUserMessageRef : null}
+            >
+              {renderMessage(message)}
+            </div>
+          );
+        })}
         
         {/* AI SDK handles loading indicators automatically - no need for manual TypingIndicator */}
         
         
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Scroll to bottom button */}
+      {!isAtBottom && (
+        <button
+          onClick={() => scrollToBottom()}
+          style={{
+            position: 'absolute',
+            bottom: '90px', // Above input area with more space
+            right: '24px', // More left margin
+            width: '36px', // Smaller size
+            height: '36px',
+            borderRadius: '50%',
+            backgroundColor: '#ffffff',
+            border: '1px solid #e1e5e9',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            transition: 'all 0.2s ease'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = '#f8f9fa';
+            e.currentTarget.style.transform = 'scale(1.05)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = '#ffffff';
+            e.currentTarget.style.transform = 'scale(1)';
+          }}
+          title="Scroll to bottom"
+        >
+          <ChevronDownIcon size={18} color="#6b7280" />
+        </button>
+      )}
 
       {/* Input Area */}
       <div style={styles.inputContainer}>
@@ -1829,6 +2038,7 @@ export function ChatWidgetCore({
         />
         <form onSubmit={handleSubmit} style={styles.inputWrapper}>
           <input
+            ref={inputRef}
             type="text"
             value={input}
             onChange={handleInputChange}

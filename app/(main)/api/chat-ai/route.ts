@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     console.log('🔍 Received request body:', JSON.stringify(body, null, 2));
     
-    const { messages, siteId } = body;
+    const { messages, siteId, introMessage } = body;
     
     // Basic validation with detailed logging
     console.log('🔍 Validation check:', { 
@@ -127,7 +127,12 @@ export async function POST(request: NextRequest) {
     // Get AI instructions from centralized location
     const baseInstructions = getAIInstructions();
     
-    const fullSystemPrompt = `${baseInstructions}\n\nRelevant Training Materials:\n${context}`;
+    // Add intro message context if provided
+    const introContext = introMessage 
+      ? `\n\nIMPORTANT: You initially greeted the user with: "${introMessage}". Keep this context in mind when responding to their messages.\n`
+      : '';
+    
+    const fullSystemPrompt = `${baseInstructions}${introContext}\n\nRelevant Training Materials:\n${context}`;
     
     // Convert UI messages to model messages and add system prompt
     const modelMessages = [
