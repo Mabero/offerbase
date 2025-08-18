@@ -127,23 +127,15 @@ export async function POST(request: NextRequest) {
     // Get AI instructions from centralized location
     const baseInstructions = getAIInstructions();
     
-    const fullSystemPrompt = `${baseInstructions}\n\nRelevant Training Materials:\n${context}`;
+    // Simple intro context in system prompt - no complex logic needed
+    const fullSystemPrompt = introMessage 
+      ? `${baseInstructions}\n\nContext: You are continuing a conversation where you initially greeted the user with: "${introMessage}"\n\nRelevant Training Materials:\n${context}`
+      : `${baseInstructions}\n\nRelevant Training Materials:\n${context}`;
     
-    // Convert UI messages to model messages and add system prompt
-    let conversationMessages = convertToModelMessages(messages);
-    
-    // If this is the first user message and we have an intro message, prepend it as an assistant message
-    if (introMessage && conversationMessages.length === 1 && conversationMessages[0].role === 'user') {
-      console.log('🎯 Adding intro message to conversation history:', introMessage);
-      conversationMessages = [
-        { role: 'assistant' as const, content: introMessage },
-        ...conversationMessages
-      ];
-    }
-    
+    // Convert UI messages to model messages - no manipulation needed
     const modelMessages = [
       { role: 'system' as const, content: fullSystemPrompt },
-      ...conversationMessages
+      ...convertToModelMessages(messages)
     ];
     
     // Stream the response using AI SDK - products handled separately
