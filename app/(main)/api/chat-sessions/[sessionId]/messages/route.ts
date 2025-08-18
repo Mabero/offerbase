@@ -114,17 +114,14 @@ export async function POST(
       })
     }
 
-    // Save the message (try with AI SDK id first)
+    // Save the message - let database generate UUID, AI SDK id is not used for persistence
     const { data: message, error: messageError } = await supabase
       .from('chat_messages')
-      .upsert({
-        id,
+      .insert({
         chat_session_id: sessionId,
         role,
         content,
         created_at: new Date().toISOString()
-      }, {
-        onConflict: 'id'
       })
       .select('*')
       .single()
@@ -136,7 +133,7 @@ export async function POST(
         details: messageError.details,
         hint: messageError.hint,
         code: messageError.code,
-        attemptedData: { id, chat_session_id: sessionId, role, content }
+        attemptedData: { chat_session_id: sessionId, role, content }
       })
       return NextResponse.json({ 
         error: 'Failed to save message',
