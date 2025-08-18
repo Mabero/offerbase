@@ -114,23 +114,34 @@ export async function POST(
       })
     }
 
-    // Save the message - let database generate UUID, use AI SDK id as reference
+    // Save the message (try with AI SDK id first)
     const { data: message, error: messageError } = await supabase
       .from('chat_messages')
-      .insert({
+      .upsert({
+        id,
         chat_session_id: sessionId,
         role,
         content,
         created_at: new Date().toISOString()
+      }, {
+        onConflict: 'id'
       })
       .select('*')
       .single()
 
     if (messageError) {
-      console.error('Error saving chat message:', messageError)
+      console.error('Error saving chat message:', {
+        error: messageError,
+        message: messageError.message,
+        details: messageError.details,
+        hint: messageError.hint,
+        code: messageError.code,
+        attemptedData: { id, chat_session_id: sessionId, role, content }
+      })
       return NextResponse.json({ 
         error: 'Failed to save message',
-        details: process.env.NODE_ENV === 'development' ? messageError.message : 'Check server logs'
+        details: process.env.NODE_ENV === 'development' ? messageError.message : 'Check server logs',
+        errorCode: messageError.code
       }, { 
         status: 500,
         headers: {
