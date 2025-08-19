@@ -161,25 +161,3 @@ export function generateSmartAliases(title: string): string[] {
     .slice(0, 10); // Cap at 10 aliases for database performance
 }
 
-/**
- * Test function to verify alias generation
- */
-export function testAliasGeneration() {
-  const testCases = [
-    "IVISKIN G4 IPL Hair-Removal Device - Professional Grade",
-    "Deep Tissue Massage (60 min) - Therapeutic",
-    "JavaScript Masterclass 2024: From Zero to Hero",
-    "Tax Consultation - Small Business (1hr Session)",
-    "iPhone 15 Pro Max - 256GB (Space Gray)",
-    "Chiropractic Adjustment - Full Spine",
-    "CBD Oil 1000mg - Full Spectrum",
-    "WordPress Website Development (5 Pages)",
-    "Series-X Gaming Console Bundle",
-    "Yoga Class - Beginners (90 minutes)",
-  ];
-  
-  testCases.forEach(title => {
-    console.log(`\nTitle: "${title}"`);
-    console.log("Aliases:", generateSmartAliases(title));
-  });
-}

@@ -46,7 +46,6 @@ export function useWidgetAuth(siteId: string, apiUrl: string, parentOrigin?: str
       setIsLoading(true);
       setError(null);
 
-      console.log('🔐 Bootstrapping widget authentication for site:', siteId);
 
       // Build URL with parent origin if provided
       let bootstrapUrl = `${apiUrl}/api/widget/bootstrap?siteId=${encodeURIComponent(siteId)}`;
@@ -68,7 +67,6 @@ export function useWidgetAuth(siteId: string, apiUrl: string, parentOrigin?: str
       }
 
       const widgetConfig: WidgetConfig = await response.json();
-      console.log('✅ Widget authentication successful, token expires at:', new Date(widgetConfig.expiresAt));
 
       setConfig(widgetConfig);
       scheduleRefresh(widgetConfig.expiresAt);
@@ -77,7 +75,6 @@ export function useWidgetAuth(siteId: string, apiUrl: string, parentOrigin?: str
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Bootstrap failed';
-      console.error('❌ Widget bootstrap failed:', errorMessage);
       setError(errorMessage);
       setConfig(null);
       
@@ -98,10 +95,8 @@ export function useWidgetAuth(siteId: string, apiUrl: string, parentOrigin?: str
     const refreshAt = Math.max(expiresAt - (2 * 60 * 1000), Date.now() + 1000);
     const delay = refreshAt - Date.now();
 
-    console.log(`⏱️  Scheduling token refresh in ${Math.round(delay / 1000)} seconds`);
 
     refreshTimeoutRef.current = setTimeout(() => {
-      console.log('🔄 Auto-refreshing widget token');
       bootstrap();
     }, delay);
   }, [bootstrap]);
@@ -179,7 +174,6 @@ export async function authenticatedFetch(
 
   // Handle token expiration
   if (response.status === 401 && onTokenExpired) {
-    console.log('🔄 Token expired, attempting refresh');
     await onTokenExpired();
     
     // Note: In practice, you'd want to retry the original request with the new token

@@ -6,6 +6,7 @@ import { PredefinedQuestions } from './PredefinedQuestions';
 import { PredefinedQuestionButton } from '@/types/predefined-questions';
 import ReactMarkdown from 'react-markdown';
 import { useWidgetAuth, authenticatedFetch } from '@/lib/use-widget-auth';
+import { detectIntent } from '@/lib/ai/intent-detector';
 
 interface AffiliateProduct {
   id: string;
@@ -428,7 +429,7 @@ const LinksContainer = ({ links, chatSettings, styles, onLinkClick }: {
 };
 
 // ProductRecommendations component - uses server-side matching for precision with JWT authentication
-const ProductRecommendations = ({ messageContent, streamingContent, messageId, userMessage, siteId, apiUrl, chatSettings, styles, isVisible, onProductsLoaded, preFetchedProducts, widgetToken, onTokenExpired, pageContext }: {
+const ProductRecommendations = ({ messageContent, streamingContent, messageId, userMessage, siteId, apiUrl, chatSettings, styles, isVisible, isLatestMessage, onProductsLoaded, preFetchedProducts, widgetToken, onTokenExpired, pageContext }: {
   messageContent: string;
   streamingContent?: string;
   messageId: string;
@@ -438,6 +439,7 @@ const ProductRecommendations = ({ messageContent, streamingContent, messageId, u
   chatSettings: ChatSettings;
   styles: Record<string, React.CSSProperties>;
   isVisible: boolean;
+  isLatestMessage?: boolean;
   onProductsLoaded?: () => void;
   preFetchedProducts?: { userMessage: string; products: AffiliateProduct[] } | null;
   widgetToken?: string | null;
@@ -446,7 +448,12 @@ const ProductRecommendations = ({ messageContent, streamingContent, messageId, u
 }) => {
   const [products, setProducts] = useState<AffiliateProduct[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const fetchTriggeredRef = useRef<string>('');
+  
+  // Frontend deduplication and rate limiting
+  const fetchCache = useRef(new Map<string, AffiliateProduct[]>());
+  const lastFetchTime = useRef(0);
   
   // Clarification state
   const [clarificationData, setClarificationData] = useState<{
@@ -466,9 +473,41 @@ const ProductRecommendations = ({ messageContent, streamingContent, messageId, u
     // Prevent multiple fetches for the same message
     if (fetchTriggeredRef.current === messageId || isLoading) return;
     
-    // Need at least 3 words to start meaningful product matching
+    // Create cache key from message content
+    const cacheKey = `${messageId}-${contentToMatch.slice(0, 100)}`;
+    
+    // Check if we already fetched for this content
+    if (fetchCache.current.has(cacheKey)) {
+      const cachedProducts = fetchCache.current.get(cacheKey);
+      if (cachedProducts) {
+        setProducts(cachedProducts);
+        fetchTriggeredRef.current = messageId; // Mark as processed
+        return;
+      }
+    }
+    
+    // Rate limit: max 1 fetch per 2 seconds
+    const now = Date.now();
+    if (now - lastFetchTime.current < 2000) {
+      return;
+    }
+    lastFetchTime.current = now;
+    
+    // Check minimum word count from config (default 1 word)
+    const minWords = parseInt(process.env.NEXT_PUBLIC_PRODUCT_MIN_WORDS || '1');
     const wordCount = contentToMatch.trim().split(/\s+/).length;
-    if (wordCount < 3) return;
+    if (wordCount < minWords) {
+      return;
+    }
+
+    // Intent detection - use original user query for better intent detection
+    const queryForIntent = userMessage?.trim() || contentToMatch.trim();
+    const intentResult = detectIntent(queryForIntent);
+    
+    // Skip product fetch if intent suggests we shouldn't show products
+    if (!intentResult.shouldShowProducts) {
+      return;
+    }
     
     // Need authentication token
     if (!widgetToken) {
@@ -480,7 +519,6 @@ const ProductRecommendations = ({ messageContent, streamingContent, messageId, u
     setIsLoading(true);
     
     try {
-      console.log('🔍 Fetching products with context for:', contentToMatch);
       
       // Fetch products with contextual matching (training chunks will be fetched by the API)
       const response = await authenticatedFetch(
@@ -506,17 +544,16 @@ const ProductRecommendations = ({ messageContent, streamingContent, messageId, u
       const responseData = await response.json();
       const { data: matchedProducts, clarification } = responseData;
       
-      console.log(`🎯 Found ${matchedProducts?.length || 0} products`);
-      
       // Handle clarification if needed
       if (clarification?.shouldAsk && clarification.options?.length > 0) {
-        console.log(`❓ Clarification needed (confidence: ${clarification.confidence}):`, clarification.reason);
         setClarificationData(clarification);
         setProducts([]); // Don't show products yet
       } else {
-        console.log(`✅ High confidence (${clarification?.confidence || 'N/A'}), showing products directly`);
         setClarificationData(null);
         setProducts(matchedProducts || []);
+        
+        // Cache the successful result
+        fetchCache.current.set(cacheKey, matchedProducts || []);
       }
       
     } catch (error) {
@@ -550,7 +587,6 @@ const ProductRecommendations = ({ messageContent, streamingContent, messageId, u
         timestamp: Date.now()
       };
       
-      console.log(`✅ User clarification choice:`, clarificationTelemetry);
       // TODO: Send to analytics service
       // analyticsService.track('clarification_selected', clarificationTelemetry);
       
@@ -578,11 +614,12 @@ const ProductRecommendations = ({ messageContent, streamingContent, messageId, u
     }
 
     // Use final message content only after streaming is complete
+    // Skip product fetching if we're loading chat history OR not the latest message
     const contentToUse = messageContent;
-    if (contentToUse && status !== 'streaming') {
+    if (contentToUse && status !== 'streaming' && !isLoadingHistory && isLatestMessage) {
       fetchProducts(contentToUse);
     }
-  }, [messageId, messageContent, fetchProducts, preFetchedProducts, userMessage]);
+  }, [messageId, messageContent, fetchProducts, preFetchedProducts, userMessage, isLoadingHistory, isLatestMessage]);
 
   // Trigger scroll when products become visible
   useEffect(() => {
@@ -1056,10 +1093,12 @@ export function ChatWidgetCore({
   
   // Create custom transport with our endpoint
   const transport = React.useMemo(() => {
-    console.log('🚛 Creating transport with endpoint:', `${apiUrl}/api/chat-ai`);
+    // Handle empty apiUrl - use current origin for relative URLs
+    const finalApiUrl = apiUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+    const fullEndpoint = `${finalApiUrl}/api/chat-ai`;
     
     return new DefaultChatTransport({
-      api: `${apiUrl}/api/chat-ai`,
+      api: fullEndpoint,
     });
   }, [apiUrl]);
 
@@ -1254,6 +1293,13 @@ export function ChatWidgetCore({
     }
   }, [messages, status]); // Trigger on message changes during streaming
   
+  // Clear currentMessageIdRef when streaming completes to fix product visibility
+  useEffect(() => {
+    if (status !== 'streaming') {
+      currentMessageIdRef.current = '';
+    }
+  }, [status]);
+
   // Memoized scroll callback for products - removed auto-scroll to let users control their position
   const handleProductsLoaded = useCallback(() => {
     // No auto-scroll when products load - user controls scroll position
@@ -1323,8 +1369,10 @@ export function ChatWidgetCore({
           });
 
           // Restore chat history to AI SDK state
-          console.log('Chat history found:', chatMessages.length, 'messages - restoring to AI SDK');
+          setIsLoadingHistory(true);
           setMessages(aiSdkMessages);
+          // Clear history loading flag after a short delay to allow messages to settle
+          setTimeout(() => setIsLoadingHistory(false), 100);
           
           // No auto-scroll after loading history - let user see from where they left off
         }
@@ -1352,7 +1400,6 @@ export function ChatWidgetCore({
       if (!latestMessage.id) return;
 
       try {
-        console.log('💾 Saving message to database:', latestMessage.id);
         
         // Extract text content from AI SDK message parts
         let messageContent = '';
@@ -1455,7 +1502,6 @@ export function ChatWidgetCore({
     const lastUserMessage = messages.filter(msg => msg.type === 'user').pop();
     if (!lastUserMessage) return;
     
-    console.log('Retrying message:', lastUserMessage.content);
     
     // Find the AI SDK messages to remove (find the last bot message)
     const filteredMessages = aiMessages.filter((msg, index) => {
@@ -1480,7 +1526,6 @@ export function ChatWidgetCore({
 
   // Pre-fetch products disabled - interferes with context-aware matching
   const preFetchProducts = async (userMessage: string) => {
-    console.log('🚫 Pre-fetching disabled to allow context-aware matching');
     return;
     
     // Need at least 3 words to start meaningful product matching
@@ -1489,12 +1534,10 @@ export function ChatWidgetCore({
     
     // Need authentication token
     if (!widgetAuth.token) {
-      console.error('❌ No widget token available for product pre-fetching');
       return;
     }
     
     try {
-      console.log('🔍 Pre-fetching products for:', userMessage, 'with token:', widgetAuth.token?.substring(0, 20) + '...');
       
       const response = await authenticatedFetch(
         `${apiUrl}/api/products/match`,
@@ -1519,24 +1562,13 @@ export function ChatWidgetCore({
       const responseData = await response.json();
       const matchedProducts = responseData.data;
       
-      console.log('📦 API Response:', {
-        success: responseData.success,
-        count: responseData.count,
-        products: matchedProducts?.length || 0,
-        aiFiltered: responseData.aiFiltered,
-        firstProduct: matchedProducts?.[0]?.title
-      });
-      
       // Store products with the user message for instant display
       setPreFetchedProducts({
         userMessage: userMessage.trim(),
         products: matchedProducts || []
       });
       
-      console.log('✅ Pre-fetched', matchedProducts?.length || 0, 'products for:', userMessage.trim());
-      
     } catch (error) {
-      console.error('❌ Product pre-fetch error:', error);
       setPreFetchedProducts({ userMessage: userMessage.trim(), products: [] });
     }
   };
@@ -1547,8 +1579,6 @@ export function ChatWidgetCore({
     if (!input.trim() || aiLoading) return;
     
     const message = input.trim();
-    console.log('Submitting message:', message);
-    console.log('AI SDK state:', { aiLoading, error: !!error, messagesCount: aiMessages.length });
     
     setInput('');
     
@@ -1586,7 +1616,6 @@ export function ChatWidgetCore({
     // Create session on first message if none exists
     if (!sessionId) {
       try {
-        console.log('🆕 Creating new chat session for first message');
         
         // Generate unique session identifier for anonymous users
         const userSessionId = `anon_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
@@ -1609,7 +1638,6 @@ export function ChatWidgetCore({
           const newSessionId = session.id;
           setSessionId(newSessionId);
           localStorage.setItem(`chat_session_uuid_${siteId}`, newSessionId);
-          console.log('✅ Created session:', newSessionId);
         } else {
           const errorText = await response.text();
           console.error('Failed to create chat session:', response.statusText, errorText);
@@ -1621,11 +1649,6 @@ export function ChatWidgetCore({
 
     // Send using AI SDK - pass siteId in body (AI SDK manages loading state)
     try {
-      console.log('🚀 Calling sendMessage with:', { text: message });
-      console.log('🚀 API URL configured as:', `${apiUrl}/api/chat-ai`);
-      console.log('🚀 Current AI SDK state:', { status, error: !!error, messagesCount: aiMessages.length });
-      console.log('🚀 Sending with siteId:', siteId);
-      
       await sendMessage(
         { text: message },
         {
@@ -1635,10 +1658,7 @@ export function ChatWidgetCore({
           }
         }
       );
-      console.log('✅ sendMessage completed successfully');
     } catch (error) {
-      console.error('❌ Error sending message:', error);
-      console.error('❌ Error details:', JSON.stringify(error, null, 2));
       // AI SDK manages loading state, no need to set isLoading false
     }
     
@@ -1665,8 +1685,6 @@ export function ChatWidgetCore({
 
   // Send a message using AI SDK (for predefined questions)  
   const sendMessageToAI = async (userMessage: string) => {
-    console.log('Sending predefined message:', userMessage);
-    
     try {
       // Use sendMessage for predefined questions with siteId (AI SDK manages loading state)
       await sendMessage(
@@ -1746,12 +1764,6 @@ export function ChatWidgetCore({
       
       setPageUrl(context.url);
       setPageContext(context);
-      
-      console.log('📍 Simple page context extracted:', { 
-        url: context.url, 
-        hasTitle: !!context.title, 
-        hasDescription: !!context.description 
-      });
     };
     
     getSimplePageContext();
@@ -1765,7 +1777,7 @@ export function ChatWidgetCore({
   }, [pageUrl, siteId, loadPredefinedQuestions]);
 
 
-  const renderMessage = (message: Message) => {
+  const renderMessage = (message: Message, isLatestBotMessage = false) => {
     if (message.type === 'user') {
       return (
         <div style={styles.messageRowUser}>
@@ -1881,6 +1893,7 @@ export function ChatWidgetCore({
                   messageContent.length > 0 && 
                   !(status === 'streaming' && currentMessageIdRef.current === message.id)
                 }
+                isLatestMessage={isLatestBotMessage}
                 onProductsLoaded={handleProductsLoaded}
                 preFetchedProducts={preFetchedProducts}
                 widgetToken={widgetAuth.token}
@@ -1985,14 +1998,18 @@ export function ChatWidgetCore({
         {messages.map((message, index) => {
           // Find the last user message to add ref
           const isLatestUserMessage = message.type === 'user' && 
-            index === messages.map(m => m.type).lastIndexOf('user');
+            index === messages.findLastIndex(m => m.type === 'user');
+          
+          // Find the latest bot message for product fetching
+          const isLatestBotMessage = message.type === 'bot' && 
+            index === messages.findLastIndex(m => m.type === 'bot');
             
           return (
             <div 
               key={message.id || `message-${index}`}
               ref={isLatestUserMessage ? latestUserMessageRef : null}
             >
-              {renderMessage(message)}
+              {renderMessage(message, isLatestBotMessage)}
             </div>
           );
         })}

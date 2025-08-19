@@ -37,8 +37,6 @@ export function extractContextKeywords(
     .slice(0, maxKeywords)
     .map(([word]) => word);
 
-  console.log('🔍 Extracted context keywords:', keywords);
-  
   return keywords;
 }
 
@@ -142,25 +140,3 @@ export function normalizeText(text: string): string {
     .trim();
 }
 
-/**
- * Test function to verify keyword extraction works correctly
- */
-export function testKeywordExtraction() {
-  const testChunks: TrainingChunk[] = [
-    {
-      content: "IVISKIN G3 er en IPL hårfjerning enhet som bruker laser teknologi for permanent hårfjerning på huden",
-      materialTitle: "IPL Hårfjerning Guide"
-    },
-    {
-      content: "Laser hårfjerning med IPL teknologi er effektiv for mørke hår på lys hud. G4 modellen har mer kraft",  
-      materialTitle: "Laser Guide"
-    }
-  ];
-  
-  const keywords = extractContextKeywords(testChunks, "er iviskin g3 bra?");
-  
-  console.log('🧪 Test extraction result:', keywords);
-  console.log('Expected keywords like: ipl, hårfjerning, laser, iviskin, g3, g4');
-  
-  return keywords;
-}

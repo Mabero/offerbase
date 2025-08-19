@@ -32,7 +32,6 @@ export async function filterProductsWithAI(
 ): Promise<Product[]> {
   // If AI filtering is disabled, return all products
   if (!enableAI || !process.env.OPENAI_API_KEY) {
-    console.log('AI filtering disabled or no API key, returning all candidates');
     return products;
   }
 
@@ -47,8 +46,6 @@ export async function filterProductsWithAI(
   }
 
   try {
-    console.log(`🤖 AI filtering ${products.length} products for query: "${userQuery}"`);
-    
     // Create product context for AI
     const productContext = products.map(p => ({
       id: p.id,
@@ -67,12 +64,7 @@ export async function filterProductsWithAI(
       temperature: 0.1, // Low temperature for consistent filtering
     });
 
-    const { relevant_ids, reasoning } = result.object;
-
-    console.log(`🎯 AI filtered to ${relevant_ids.length} relevant products`);
-    if (reasoning) {
-      console.log(`💭 AI reasoning: ${reasoning}`);
-    }
+    const { relevant_ids } = result.object;
 
     // Return only the products that AI deemed relevant
     const filteredProducts = products.filter(product => 
@@ -81,8 +73,7 @@ export async function filterProductsWithAI(
 
     return filteredProducts;
 
-  } catch (error) {
-    console.error('❌ AI filtering error (falling back to all products):', error);
+  } catch {
     // Graceful fallback - return all products if AI filtering fails
     return products;
   }
@@ -104,18 +95,23 @@ ${products.map((p, i) =>
 ).join('\n\n')}
 
 FILTERING RULES:
-1. Only return products that are genuinely relevant to the user's search intent
-2. Consider CONTEXT - "G4 hair removal" should NOT match "G4 vacuum cleaner" 
-3. Look at the full query, not just individual keywords
-4. If the user mentions a specific category (hair removal, vacuum, gaming, etc.), filter by that context
+1. **IMPORTANT: When in doubt, INCLUDE the product** - It's better to show a slightly less relevant product than to miss a good match
+2. Consider CONTEXT when it's very clear - "G4 hair removal device" should NOT match "G4 vacuum cleaner"
+3. Look at the full query intent, not just individual keywords
+4. If the user mentions a specific category AND it clearly conflicts with a product, filter it out
 5. Brand names are important - "IVISKIN G4" is different from "Dyson G4"
-6. If in doubt, include the product (be slightly generous rather than overly restrictive)
+6. For evaluative queries ("is X good", "X vs Y"), be MORE generous - users want to see options
+7. Only filter OUT products when there's a clear category mismatch
 
 Examples of good filtering:
 - Query "G4 hair removal" → Include "IVISKIN G4 Hair Removal", exclude "G4 Gaming Console"  
 - Query "iPhone case" → Include phone accessories, exclude iPhone devices themselves
-- Query "massage therapy" → Include massage services, exclude massage chairs/products
-- Query "tax consultation" → Include tax services, exclude tax software
+- Query "Is Wix good?" → Include ALL Wix products (evaluative intent = be generous)
+- Query "Wix vs Squarespace" → Include both Wix AND Squarespace products
+- Query "best website builder" → Include ALL website builders (don't filter by brand)
+- Query "website builder alternatives" → Include ALL website builders
+- Query "massage therapy" → Include massage services, exclude massage chairs/products ONLY if very clear mismatch
+- Query "Wix" → Include ALL Wix products (simple brand mention = show everything)
 
 Return ONLY the relevant product IDs and brief reasoning for your decisions.`;
 }
@@ -134,49 +130,6 @@ export function shouldEnableAIFiltering(): boolean {
  * Get the configured AI model for filtering (allows switching models easily)
  */
 export function getFilteringModel(): string {
-  return process.env.AI_FILTER_MODEL || 'gpt-3.5-turbo';
+  return process.env.AI_FILTER_MODEL || 'gpt-4o-mini';
 }
 
-/**
- * Test function to verify AI filtering works correctly
- */
-export async function testAIFiltering() {
-  const testProducts: Product[] = [
-    {
-      id: '1',
-      title: 'IVISKIN G4 IPL Hair Removal Device',
-      description: 'Professional grade hair removal using IPL technology',
-      url: 'https://example.com/iviskin-g4',
-      button_text: 'View Product'
-    },
-    {
-      id: '2', 
-      title: 'Dyson G4 Vacuum Cleaner',
-      description: 'Powerful cordless vacuum with G4 motor technology',
-      url: 'https://example.com/dyson-g4',
-      button_text: 'View Product'
-    },
-    {
-      id: '3',
-      title: 'Samsung G4 Gaming Monitor',
-      description: '4K gaming monitor with G4 display technology',
-      url: 'https://example.com/samsung-g4',
-      button_text: 'View Product'
-    }
-  ];
-
-  const testQueries = [
-    'G4 hair removal device',
-    'G4 vacuum cleaner', 
-    'G4 gaming monitor',
-    'IVISKIN G4',
-    'just G4'
-  ];
-
-  for (const query of testQueries) {
-    console.log(`\n=== Testing query: "${query}" ===`);
-    const filtered = await filterProductsWithAI(testProducts, query, true);
-    console.log(`Results: ${filtered.length} products`);
-    filtered.forEach(p => console.log(`- ${p.title}`));
-  }
-}

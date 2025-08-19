@@ -135,7 +135,7 @@ ENABLE_AI_PRODUCT_FILTERING=false
 ### Model Selection
 ```bash
 # Use GPT-3.5 Turbo (default, cheapest)
-AI_FILTER_MODEL=gpt-3.5-turbo
+AI_FILTER_MODEL=gpt-4o-mini
 
 # Use GPT-4 (more accurate, more expensive)
 AI_FILTER_MODEL=gpt-4o-mini

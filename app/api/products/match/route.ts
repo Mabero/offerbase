@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { filterProductsWithAI, shouldEnableAIFiltering } from '@/lib/ai/product-filter';
 import { extractContextKeywords, extractQueryKeywords, type TrainingChunk } from '@/lib/context-keywords';
+import { productConfig, logProductConfig } from '@/lib/config/products';
+import { detectIntent, extractBrandMentions } from '@/lib/ai/intent-detector';
 import { 
   verifySiteToken, 
   getRequestOrigin, 
@@ -47,7 +49,7 @@ const supabase = createClient(
 );
 
 /**
- * Smart tokenization that preserves important alphanumeric codes like G3, G4
+ * Smart tokenization that preserves important alphanumeric codes
  */
 function tokenizeForContextMatching(text: string, aliasMap?: Set<string>): string[] {
   return text
@@ -60,7 +62,7 @@ function tokenizeForContextMatching(text: string, aliasMap?: Set<string>): strin
     .filter(token => {
       // Keep tokens that are:
       // 1. Length >= 3 (normal words)
-      // 2. Length >= 2 with digits (G3, 4K, etc.)
+      // 2. Length >= 2 with digits (4K, etc.)
       // 3. In alias map (known product codes)
       return token.length >= 3 || 
              (token.length >= 2 && /\d/.test(token)) ||
@@ -221,47 +223,18 @@ function calculateConfidenceScore(
  * Generate clarification options from ambiguous products
  */
 function generateClarificationOptions(products: MatchedProduct[]): ClarificationOption[] {
-  // Group products by likely categories
-  const categories = new Map<string, MatchedProduct[]>();
-  
-  products.forEach(product => {
-    // Simple category extraction based on common keywords
-    const title = product.title.toLowerCase();
-    let category = 'other';
-    
-    if (title.includes('vacuum') || title.includes('cleaner')) {
-      category = 'vacuum';
-    } else if (title.includes('hair') || title.includes('ipl') || title.includes('laser')) {
-      category = 'hair_removal';
-    } else if (title.includes('beauty') || title.includes('skin')) {
-      category = 'beauty';
-    }
-    
-    if (!categories.has(category)) {
-      categories.set(category, []);
-    }
-    categories.get(category)!.push(product);
-  });
-  
-  // Convert to clarification options
+  // Simple generic grouping - just return all products as one group
   const options: ClarificationOption[] = [];
-  for (const [category, categoryProducts] of categories) {
-    const displayNames = {
-      vacuum: 'Vacuum Cleaners',
-      hair_removal: 'Hair Removal Devices', 
-      beauty: 'Beauty Products',
-      other: 'Other Products'
-    };
-    
+  
+  if (products.length > 0) {
     options.push({
-      category,
-      products: categoryProducts,
-      displayName: displayNames[category as keyof typeof displayNames] || 'Other Products'
+      category: 'products',
+      products: products,
+      displayName: 'Products'
     });
   }
   
-  // Sort by number of products (most relevant first)
-  return options.sort((a, b) => b.products.length - a.products.length);
+  return options;
 }
 
 // Handle CORS preflight requests
@@ -338,6 +311,33 @@ export async function POST(request: NextRequest) {
       pageContext // Page title, description, URL for enhanced context
     } = body;
     const siteId = decodedToken.siteId; // Use siteId from token, not request body
+    
+    // Initialize config
+    if (productConfig.debug) {
+      logProductConfig();
+    }
+    
+    // Detect intent early to help with debugging
+    let intentResult = null;
+    if (productConfig.intent.enabled && query) {
+      intentResult = detectIntent(query.trim());
+      
+      // Early exit if intent suggests no products should be shown
+      if (!intentResult.shouldShowProducts) {
+        return NextResponse.json({
+          success: true,
+          data: [],
+          query: query.trim(),
+          count: 0,
+          candidatesCount: 0,
+          aiFiltered: false,
+          intentSuppressed: true,
+          intentReason: intentResult.reason
+        }, {
+          headers: getCORSHeaders(origin, allowedOrigins)
+        });
+      }
+    }
     
     if (!query) {
       return NextResponse.json(
@@ -444,7 +444,6 @@ export async function POST(request: NextRequest) {
           materialTitle: r.materialTitle
         }));
         
-        console.log(`🧠 Fetched ${contextChunks.length} training chunks for context matching`);
       } catch (searchError) {
         console.warn('Failed to fetch training chunks for context:', searchError);
         contextChunks = [];
@@ -464,14 +463,6 @@ export async function POST(request: NextRequest) {
     
     const candidateLimit = Math.min(limit * 2, 20);
     
-    // DEBUG: Log parameters for new contextual matching
-    console.log('🧠 Calling contextual product matching:', {
-      p_site_id: siteId,
-      p_query: query.trim(),
-      p_ai_text: aiText ? aiText.substring(0, 100) + '...' : query,
-      p_context_keywords: finalContextKeywords,
-      p_limit: candidateLimit
-    });
     
     // Use new contextual matching function
     const { data: matchedProducts, error } = await supabase
@@ -483,13 +474,6 @@ export async function POST(request: NextRequest) {
         p_limit: candidateLimit
       });
 
-    // DEBUG: Log contextual matching result
-    console.log('🎯 Contextual matching result:', {
-      error: error,
-      resultCount: matchedProducts?.length || 0,
-      matchTypes: matchedProducts?.map((p: any) => p.match_type) || [],
-      contextKeywords: finalContextKeywords
-    });
 
     if (error) {
       console.error('Product matching RPC error:', error);
@@ -580,9 +564,7 @@ export async function POST(request: NextRequest) {
     
     if (enableAI && candidates.length > 1) {
       try {
-        console.log(`🧠 AI filtering ${candidates.length} candidates for: "${query}"`);
         finalProducts = await filterProductsWithAI(candidates, query.trim(), true);
-        console.log(`✅ AI filtered down to ${finalProducts.length} relevant products`);
       } catch (aiError) {
         console.warn('AI filtering failed, using all candidates:', aiError);
         finalProducts = candidates; // Graceful fallback
@@ -593,8 +575,8 @@ export async function POST(request: NextRequest) {
     const config: PageContextConfig = {
       enabled: true, // TODO: Get from site settings or feature flag
       boostFactor: 0.15,
-      marginThreshold: 0.10,
-      confidenceThreshold: 0.7
+      marginThreshold: productConfig.confidence.marginThreshold,
+      confidenceThreshold: productConfig.confidence.threshold
     };
 
     // Limit final results to requested amount before processing
@@ -655,7 +637,6 @@ export async function POST(request: NextRequest) {
       origin
     };
 
-    console.log(`✅ Product match telemetry:`, telemetryData);
     
     // TODO: Send to analytics service in production
     // await analyticsService.track('product_match', telemetryData);

@@ -10,34 +10,13 @@ import { getAIInstructions } from '@/lib/instructions';
 export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
-  console.log('🎯 /api/chat-ai endpoint hit!');
-  console.log('🎯 Request URL:', request.url);
-  console.log('🎯 Request method:', request.method);
   
   try {
     // Parse the request body - AI SDK sends { messages: UIMessage[], siteId: string }
     const body = await request.json();
-    console.log('🔍 Received request body:', JSON.stringify(body, null, 2));
-    
     const { messages, siteId, introMessage } = body;
     
-    // Basic validation with detailed logging
-    console.log('🔍 Validation check:', { 
-      siteId: !!siteId, 
-      siteIdValue: siteId,
-      messages: messages?.length,
-      messagesIsArray: Array.isArray(messages),
-      bodyKeys: Object.keys(body)
-    });
-    
     if (!siteId || !messages || !Array.isArray(messages)) {
-      console.error('❌ Invalid request format:', { 
-        siteId: !!siteId, 
-        siteIdValue: siteId,
-        messages: messages?.length,
-        messagesIsArray: Array.isArray(messages),
-        bodyKeys: Object.keys(body)
-      });
       return new Response(
         JSON.stringify({ error: 'Missing required fields: siteId and messages' }),
         { 
@@ -79,11 +58,6 @@ export async function POST(request: NextRequest) {
     const currentQuery = messages[messages.length - 1]?.content || 
       messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || '';
     
-    console.log('🔍 Vector Search Debug:');
-    console.log('  - Current query:', currentQuery);
-    console.log('  - Conversation history:', conversationHistory);
-    console.log('  - Site ID:', siteId);
-    
     // Perform hybrid search with reranking
     const searchResults = await searchService.searchWithContext(
       currentQuery,
@@ -97,23 +71,12 @@ export async function POST(request: NextRequest) {
       }
     );
     
-    console.log('📊 Search Results:');
-    console.log('  - Results found:', searchResults.length);
-    searchResults.forEach((r, i) => {
-      console.log(`  - Result ${i + 1}: similarity=${r.similarity.toFixed(3)}, source="${r.materialTitle}"`);
-      console.log(`    Content preview: "${r.content.substring(0, 100)}..."`);
-    });
-    
     // Build context from search results
     const context = searchResults.length > 0
       ? searchResults
           .map(r => `[Source: ${r.materialTitle}]\n${r.content}`)
           .join('\n\n---\n\n')
       : 'No relevant training materials found for this query.';
-    
-    console.log('📝 Context being sent to AI:');
-    console.log('  - Context length:', context.length);
-    console.log('  - Context preview:', context.substring(0, 200) + '...');
 
     // Store search results for product recommendation
     const retrievedChunks = searchResults.map(r => ({
@@ -127,10 +90,12 @@ export async function POST(request: NextRequest) {
     // Get AI instructions from centralized location
     const baseInstructions = getAIInstructions();
     
-    // Simple intro context in system prompt - no complex logic needed
-    const fullSystemPrompt = introMessage 
-      ? `${baseInstructions}\n\nContext: You are continuing a conversation where you initially greeted the user with: "${introMessage}"\n\nRelevant Training Materials:\n${context}`
-      : `${baseInstructions}\n\nRelevant Training Materials:\n${context}`;
+    // Add intro message context if provided - use strong instruction language
+    const introContext = introMessage 
+      ? `\n\nIMPORTANT: You initially greeted the user with: "${introMessage}". Keep this context in mind and maintain consistency with your previous behavior in this conversation.\n`
+      : '';
+    
+    const fullSystemPrompt = `${baseInstructions}${introContext}\n\nRelevant Training Materials:\n${context}`;
     
     // Convert UI messages to model messages - no manipulation needed
     const modelMessages = [
@@ -147,9 +112,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Return the UI message stream response
-    const streamResponse = result.toUIMessageStreamResponse();
-    
-    return streamResponse;
+    return result.toUIMessageStreamResponse();
     
   } catch (error) {
     console.error('Chat API error:', error);
