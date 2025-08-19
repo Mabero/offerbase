@@ -334,7 +334,7 @@ export async function POST(request: NextRequest) {
           intentSuppressed: true,
           intentReason: intentResult.reason
         }, {
-          headers: getCORSHeaders(origin, allowedOrigins)
+          headers: getCORSHeaders(origin, [])
         });
       }
     }
