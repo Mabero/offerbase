@@ -1307,6 +1307,8 @@ export function ChatWidgetCore({
 
   // Track if history has been loaded to prevent re-loading
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  // Track message IDs that were restored from DB to prevent duplicate saves
+  const [restoredMessageIds] = useState(new Set<string>());
   
 
   // Restore chat history when sessionId exists
@@ -1345,8 +1347,11 @@ export function ChatWidgetCore({
 
         if (chatMessages.length > 0) {
           
-          // Convert database messages to AI SDK format
+          // Convert database messages to AI SDK format and track as restored
           const aiSdkMessages = chatMessages.map((dbMessage: { role: string; content: string; created_at: string; id: string }) => {
+            // Track this message as restored to prevent duplicate saving
+            restoredMessageIds.add(dbMessage.id);
+            
             // Extract text content for AI SDK
             let textContent = dbMessage.content;
             try {
@@ -1368,11 +1373,8 @@ export function ChatWidgetCore({
             };
           });
 
-          // Restore chat history to AI SDK state
-          setIsLoadingHistory(true);
+          // Restore chat history to AI SDK state (no loading flag needed)
           setMessages(aiSdkMessages);
-          // Clear history loading flag after a short delay to allow messages to settle
-          setTimeout(() => setIsLoadingHistory(false), 100);
           
           // No auto-scroll after loading history - let user see from where they left off
         }
@@ -1380,7 +1382,6 @@ export function ChatWidgetCore({
         console.error('Error restoring chat history:', error);
         // Continue with fresh conversation on error
       } finally {
-        setIsLoadingHistory(false);
         setHistoryLoaded(true); // Mark history as attempted/loaded
       }
     }
@@ -1388,19 +1389,22 @@ export function ChatWidgetCore({
     restoreChatHistory();
   }, [sessionId, apiUrl, siteId, historyLoaded, setMessages]); // Include setMessages dependency
 
-  // Save new messages to database in real-time
+  // Save only truly new messages to database in real-time
   useEffect(() => {
     const saveNewMessages = async () => {
       if (!sessionId || aiMessages.length === 0) return;
 
-      // Get the latest message that hasn't been saved yet
-      const latestMessage = aiMessages[aiMessages.length - 1];
+      // Find messages that haven't been restored from DB and haven't been saved yet
+      const unsavedMessages = aiMessages.filter(msg => 
+        msg.id && !restoredMessageIds.has(msg.id)
+      );
       
-      // Skip if no valid message content
-      if (!latestMessage.id) return;
+      if (unsavedMessages.length === 0) return;
+      
+      // Get the latest unsaved message
+      const latestMessage = unsavedMessages[unsavedMessages.length - 1];
 
       try {
-        
         // Extract text content from AI SDK message parts
         let messageContent = '';
         if (latestMessage.parts) {
@@ -1428,6 +1432,9 @@ export function ChatWidgetCore({
 
         if (!response.ok) {
           console.error('Failed to save message:', response.statusText);
+        } else {
+          // Mark message as saved to prevent duplicate saves
+          restoredMessageIds.add(latestMessage.id);
         }
       } catch (error) {
         console.error('Error saving message:', error);
@@ -1437,7 +1444,7 @@ export function ChatWidgetCore({
     // Debounce message saving to avoid spamming during streaming
     const timeoutId = setTimeout(saveNewMessages, 1000);
     return () => clearTimeout(timeoutId);
-  }, [aiMessages, sessionId, apiUrl, siteId]);
+  }, [aiMessages, sessionId, apiUrl, siteId, restoredMessageIds]);
 
   // Handle link clicks
   const handleLinkClick = (link: Link) => {
