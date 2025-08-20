@@ -1382,6 +1382,7 @@ export function ChatWidgetCore({
         console.error('Error restoring chat history:', error);
         // Continue with fresh conversation on error
       } finally {
+        setIsLoadingHistory(false); // Clear loading state
         setHistoryLoaded(true); // Mark history as attempted/loaded
       }
     }
