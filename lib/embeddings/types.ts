@@ -30,6 +30,16 @@ export interface EmbeddingProvider {
    * Get the provider name
    */
   getProviderName(): string;
+  
+  /**
+   * Get debug information for text normalization (optional)
+   */
+  getDebugInfo?(originalText: string): {
+    original: string;
+    normalized: string;
+    hash: string;
+    changed: boolean;
+  };
 }
 
 export interface Reranker {

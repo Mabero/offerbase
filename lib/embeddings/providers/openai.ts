@@ -1,4 +1,5 @@
 import { EmbeddingProvider, EmbeddingProviderError } from '../types';
+import { defaultEmbeddingNormalizer, TextNormalizer } from '../text-normalizer';
 
 export class OpenAIEmbeddingProvider implements EmbeddingProvider {
   private apiKey: string;
@@ -6,6 +7,7 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
   private dimension: number;
   private maxTokens: number;
   private batchSize: number = 100; // OpenAI supports up to 2048 texts per request
+  private normalizer: TextNormalizer;
   
   constructor(apiKey?: string, model: string = 'text-embedding-3-small') {
     this.apiKey = apiKey || process.env.OPENAI_API_KEY || '';
@@ -14,6 +16,7 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
     }
     
     this.model = model;
+    this.normalizer = defaultEmbeddingNormalizer;
     
     // Set dimensions based on model
     switch (model) {
@@ -36,6 +39,9 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
   
   async generateEmbedding(text: string): Promise<number[]> {
     try {
+      // Normalize text for consistent embedding generation
+      const normalizedText = this.normalizer.normalize(text);
+      
       const response = await fetch('https://api.openai.com/v1/embeddings', {
         method: 'POST',
         headers: {
@@ -44,7 +50,7 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
         },
         body: JSON.stringify({
           model: this.model,
-          input: text,
+          input: normalizedText,
           encoding_format: 'float',
         }),
       });
@@ -76,6 +82,9 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
     for (let i = 0; i < texts.length; i += this.batchSize) {
       const batch = texts.slice(i, i + this.batchSize);
       
+      // Normalize all texts in the batch
+      const normalizedBatch = batch.map(text => this.normalizer.normalize(text));
+      
       try {
         const response = await fetch('https://api.openai.com/v1/embeddings', {
           method: 'POST',
@@ -85,7 +94,7 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
           },
           body: JSON.stringify({
             model: this.model,
-            input: batch,
+            input: normalizedBatch,
             encoding_format: 'float',
           }),
         });
@@ -148,5 +157,23 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
    */
   exceedsTokenLimit(text: string): boolean {
     return this.estimateTokens(text) > this.maxTokens;
+  }
+  
+  /**
+   * Get debug information for text normalization
+   */
+  getDebugInfo(originalText: string): {
+    original: string;
+    normalized: string;
+    hash: string;
+    changed: boolean;
+  } {
+    const normalized = this.normalizer.normalize(originalText);
+    return {
+      original: originalText,
+      normalized,
+      hash: this.normalizer.getDebugHash(originalText),
+      changed: originalText !== normalized,
+    };
   }
 }

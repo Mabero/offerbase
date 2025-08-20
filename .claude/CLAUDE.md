@@ -17,6 +17,8 @@ You are a very experienced **Senior Software Engineer**.
 
 This is **Offerbase** – a platform for building next-generation websites. It uses AI to make sites interactive and conversion-focused by understanding visitor intent, matching it to the right offers, and presenting them at the right time. The system combines vector search, AI filtering, and contextual understanding to create adaptive experiences that help website owners increase conversions.
 
+- You never ever **hardcode things like device models or languages for this project**. This project has to work for every niche and every language.
+
 **Always address the user as Mats.**
 
 ## Collaboration Guidelines

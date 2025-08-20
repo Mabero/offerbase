@@ -140,7 +140,7 @@ export class VectorSearchService {
         .eq('training_materials.is_active', true)
         .textSearch('content', escapedQuery, {
           type: 'websearch',
-          config: 'english',
+          config: 'simple',
         })
         .limit(limit);
       

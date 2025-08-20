@@ -38,54 +38,140 @@ export async function POST(request: NextRequest) {
     const { VectorSearchService } = await import('@/lib/embeddings/search');
     const searchService = new VectorSearchService();
     
-    // Get conversation context from recent messages
-    const conversationHistory = messages
-      .slice(-3) // Last 3 messages
-      .map((msg: any) => {
-        // Extract text content from message parts
-        if (typeof msg.content === 'string') return msg.content;
-        if (msg.parts) {
-          return msg.parts
-            .filter((part: any) => part.type === 'text')
-            .map((part: any) => part.text)
-            .join(' ');
-        }
-        return '';
-      })
-      .filter(Boolean);
+    // Note: Conversation history removed to prevent query contamination
+    // Direct search ensures consistent, predictable results
     
     // Get the current user message
     const currentQuery = messages[messages.length - 1]?.content || 
       messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || '';
     
-    // Perform hybrid search with reranking
-    const searchResults = await searchService.searchWithContext(
-      currentQuery,
-      conversationHistory,
-      siteId,
-      {
-        vectorWeight: 0.6, // Balance vector and keyword search
-        limit: 10, // Get more chunks to work with
-        useReranker: false, // Disable reranker for debugging (since no Cohere key)
-        similarityThreshold: 0.1, // Lower threshold to get more results
-      }
-    );
+    // Perform hybrid search with configurable threshold
+    let searchResults: any[] = [];
+    let vectorResults: any[] = [];
+    let queryEmbeddingDebug: number[] = [];
+    let topVectorScore = 0;
+    let topHybridScore = 0;
+    try {
+      const startTime = Date.now();
+      
+      // Debug: Generate and log the query embedding with normalization info
+      const { EmbeddingProviderFactory } = await import('@/lib/embeddings/factory');
+      const embeddingProvider = EmbeddingProviderFactory.fromEnvironment();
+      
+      // Get normalization debug info
+      const debugInfo = embeddingProvider.getDebugInfo ? 
+        embeddingProvider.getDebugInfo(currentQuery) : 
+        { 
+          original: currentQuery, 
+          normalized: currentQuery, 
+          hash: 'no-hash', 
+          changed: false 
+        };
+      
+      queryEmbeddingDebug = await embeddingProvider.generateEmbedding(currentQuery);
+      console.log('[DEBUG] Query embedding generated:', {
+        originalQuery: debugInfo.original,
+        normalizedQuery: debugInfo.normalized,
+        textHash: debugInfo.hash,
+        wasNormalized: debugInfo.changed,
+        embeddingLength: queryEmbeddingDebug.length,
+        firstFewValues: queryEmbeddingDebug.slice(0, 5).map(v => v.toFixed(6)),
+        embeddingSum: queryEmbeddingDebug.reduce((a, b) => a + b, 0).toFixed(6)
+      });
+      
+      // Run both vector and keyword searches separately for better debugging
+      const [vectorSearchResults, hybridResults] = await Promise.all([
+        searchService.vectorSearch(
+          await embeddingProvider.generateEmbedding(currentQuery),
+          siteId,
+          10
+        ),
+        searchService.hybridSearch(
+          currentQuery, // Use clean query without context contamination
+          siteId,
+          {
+            vectorWeight: 0.6, // Balance vector and keyword search
+            limit: 10, // Get more chunks to work with
+            useReranker: false, // Disable reranker for debugging (since no Cohere key)
+            similarityThreshold: Number(process.env.RAG_SIMILARITY_THRESHOLD ?? 0.3),
+          }
+        )
+      ]);
+      
+      // Use hybrid results but track both scores
+      searchResults = hybridResults;
+      vectorResults = vectorSearchResults;
+      topVectorScore = vectorResults[0]?.similarity ?? 0;
+      topHybridScore = searchResults[0]?.similarity ?? 0;
+      const searchTime = Date.now() - startTime;
+      
+      console.log('[DEBUG] Hybrid search completed:', {
+        originalQuery: debugInfo.original.substring(0, 50),
+        normalizedQuery: debugInfo.normalized.substring(0, 50),
+        textHash: debugInfo.hash,
+        searchTimeMs: searchTime,
+        vectorResults: vectorResults.length,
+        hybridResults: searchResults.length,
+        topVectorScore: topVectorScore.toFixed(3),
+        topHybridScore: topHybridScore.toFixed(3),
+        vectorBoostedHybrid: topHybridScore > topVectorScore,
+        firstChunkTitle: searchResults[0]?.materialTitle || 'none',
+        siteId,
+        success: true,
+        embeddingSum: queryEmbeddingDebug.reduce((a, b) => a + b, 0).toFixed(6)
+      });
+    } catch (error) {
+      console.error('[ERROR] Vector search failed:', {
+        originalQuery: currentQuery.substring(0, 50),
+        error: error instanceof Error ? error.message : String(error),
+        siteId,
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      searchResults = []; // Fallback to empty results
+    }
     
-    // Build context from search results
-    const context = searchResults.length > 0
-      ? searchResults
-          .map(r => `[Source: ${r.materialTitle}]\n${r.content}`)
-          .join('\n\n---\n\n')
-      : 'No relevant training materials found for this query.';
+    // Determine routing using hybrid decision rule
+    const topSimilarity = searchResults[0]?.similarity ?? 0;
+    const minSimilarity = Number(process.env.RAG_MIN_SIMILARITY ?? 0.55);
+    const maxChunks = Number(process.env.RAG_MAX_CHUNKS ?? 6);
+    
+    // Hybrid decision rule: refuse only when BOTH vector and hybrid search fail
+    const vectorFailed = topVectorScore < minSimilarity;
+    const hybridFailed = topSimilarity < minSimilarity;
+    
+    // If either vector OR hybrid search succeeds, we have relevant materials
+    // This allows keyword search to boost results even when vector search fails
+    const hasRelevantMaterials = !vectorFailed || !hybridFailed;
 
-    // Store search results for product recommendation
-    const retrievedChunks = searchResults.map(r => ({
-      content: r.content,
-      materialTitle: r.materialTitle
-    }));
-    
-    // Store chunks in headers for product matching API to use
-    const chunksHeader = JSON.stringify(retrievedChunks);
+    // Telemetry for monitoring and debugging
+    console.log('[Chat AI] Route Decision:', {
+      query: currentQuery.substring(0, 50),
+      topVectorScore: topVectorScore.toFixed(3),
+      topHybridScore: topSimilarity.toFixed(3),
+      minSimilarity,
+      vectorFailed,
+      hybridFailed,
+      resultsFound: searchResults.length,
+      route: hasRelevantMaterials ? 'answer' : 'refuse',
+      siteId,
+      timestamp: new Date().toISOString()
+    });
+
+    // Debug the hybrid decision logic
+    console.log('[DEBUG] Hybrid Decision Logic:', {
+      hasRelevantMaterials,
+      vectorFailed: `${topVectorScore.toFixed(3)} < ${minSimilarity} = ${vectorFailed}`,
+      hybridFailed: `${topSimilarity.toFixed(3)} < ${minSimilarity} = ${hybridFailed}`,
+      decision: `!${vectorFailed} || !${hybridFailed} = ${hasRelevantMaterials}`
+    });
+
+    // Store search results for product recommendation (only if relevant) - for future integration
+    // const retrievedChunks = hasRelevantMaterials 
+    //   ? searchResults.slice(0, maxChunks).map(r => ({
+    //       content: r.content,
+    //       materialTitle: r.materialTitle
+    //     }))
+    //   : [];
     
     // Get AI instructions from centralized location
     const baseInstructions = getAIInstructions();
@@ -94,8 +180,74 @@ export async function POST(request: NextRequest) {
     const introContext = introMessage 
       ? `\n\nIMPORTANT: You initially greeted the user with: "${introMessage}". Keep this context in mind and maintain consistency with your previous behavior in this conversation.\n`
       : '';
+
+    // Use vector results as fallback when hybrid search fails but vector succeeds
+    const chunksToUse = searchResults.length > 0 ? searchResults : vectorResults;
     
-    const fullSystemPrompt = `${baseInstructions}${introContext}\n\nRelevant Training Materials:\n${context}`;
+    if (!hasRelevantMaterials) {
+      // REFUSE MODE: Ultra-constrained generation
+      console.log('[Chat AI] Refuse mode - constrained generation', {
+        query: currentQuery.substring(0, 50),
+        topSimilarity: topSimilarity.toFixed(3),
+        siteId,
+      });
+
+      // Extract just the current user message for context
+      const userMessage = messages[messages.length - 1];
+      
+      // Create minimal message set with strict refusal instruction
+      const refusalMessages = [
+        {
+          role: 'system' as const,
+          content: 'You must respond in the same language as the user\'s question with a polite message that you don\'t have information about that topic. Keep it brief and natural. Examples: English: "I don\'t have specific information about that topic." Norwegian: "Jeg har ikke spesifikk informasjon om det temaet." Do not add explanations or mention training materials.'
+        },
+        {
+          role: 'user' as const,
+          content: typeof userMessage.content === 'string' 
+            ? userMessage.content 
+            : userMessage.parts?.find((p: { type: string; text: string }) => p.type === 'text')?.text || ''
+        }
+      ];
+
+      // Stream with maximum constraints
+      const result = streamText({
+        model: openai('gpt-4o-mini'),
+        messages: refusalMessages,
+        temperature: 0,          // Completely deterministic
+        maxOutputTokens: 50,     // Just enough for the refusal message
+      });
+
+      // Add telemetry headers for monitoring
+      const response = result.toUIMessageStreamResponse();
+      response.headers.set('X-Route-Mode', 'refuse');
+      response.headers.set('X-Top-Similarity', topSimilarity.toString());
+      
+      return response;
+    }
+
+    // ANSWER MODE: Include training materials
+    console.log('[Chat AI] Answer mode - including training materials', {
+      query: currentQuery.substring(0, 50),
+      chunksIncluded: chunksToUse.slice(0, maxChunks).length,
+      usingVectorFallback: searchResults.length === 0 && vectorResults.length > 0,
+      siteId,
+    });
+    
+    // Debug: Show what chunks are actually being retrieved
+    console.log('[DEBUG] Retrieved chunks:');
+    chunksToUse.slice(0, maxChunks).forEach((chunk, i) => {
+      console.log(`  ${i + 1}. [${chunk.similarity?.toFixed(3)}] ${chunk.materialTitle} - "${chunk.content.substring(0, 100)}..."`);
+    });
+    
+    const relevantChunks = chunksToUse
+      .slice(0, maxChunks)
+      .map(r => `[Source: ${r.materialTitle}]\n${r.content}`)
+      .join('\n\n---\n\n');
+      
+    const fullSystemPrompt = `${baseInstructions}${introContext}\n\nRelevant Training Materials:\n${relevantChunks}`;
+    
+    // Debug: Show the actual system prompt being sent to AI
+    console.log('[DEBUG] System prompt being sent to AI (first 800 chars):', fullSystemPrompt.substring(0, 800) + '...');
     
     // Convert UI messages to model messages - no manipulation needed
     const modelMessages = [
