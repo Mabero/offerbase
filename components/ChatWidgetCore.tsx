@@ -1376,6 +1376,9 @@ export function ChatWidgetCore({
       const timeoutId = setTimeout(() => {
         console.log('[PRODUCT DEBUG] Message completed after debounce:', messageId);
         setCompletedMessageIds(prev => new Set(prev).add(messageId));
+        
+        // Refocus input after streaming completes (like standard chat apps)
+        inputRef.current?.focus();
       }, 100); // 100ms debounce to allow for final content updates
       
       // Clear the ref immediately to prevent duplicate processing
@@ -1688,10 +1691,7 @@ export function ChatWidgetCore({
     
     setInput('');
     
-    // Refocus input after React re-renders (like standard chat apps)
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 10);
+    // Note: Input will be refocused when AI streaming completes
     
     // Track the user message for product matching
     lastUserMessageRef.current = message;
