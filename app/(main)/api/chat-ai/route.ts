@@ -183,7 +183,7 @@ export async function POST(request: NextRequest) {
     
     // Determine routing using hybrid decision rule
     const topSimilarity = searchResults[0]?.similarity ?? 0;
-    const minSimilarity = Number(process.env.RAG_MIN_SIMILARITY ?? 0.55);
+    const minSimilarity = Number(process.env.MIN_SIMILARITY_THRESHOLD ?? 0.3);
     const maxChunks = Number(process.env.RAG_MAX_CHUNKS ?? 6);
     
     // Hybrid decision rule: refuse only when BOTH vector and hybrid search fail
