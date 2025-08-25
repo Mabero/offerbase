@@ -1688,8 +1688,10 @@ export function ChatWidgetCore({
     
     setInput('');
     
-    // Refocus input to maintain fluid chat experience (like standard chat apps)
-    inputRef.current?.focus();
+    // Refocus input after React re-renders (like standard chat apps)
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 10);
     
     // Track the user message for product matching
     lastUserMessageRef.current = message;
