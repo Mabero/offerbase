@@ -83,7 +83,7 @@ export async function resolveOfferHint(
     
     // EXPLICIT SCORING (Requirement #4 from plan)
     // Compute total_score = alias_score * 1.0 + fts_score * 0.7
-    const candidates: OfferCandidate[] = data.map(row => ({
+    const candidates: OfferCandidate[] = data.map((row: any) => ({
       offer_id: row.offer_id,
       title: row.title,
       brand: row.brand,
