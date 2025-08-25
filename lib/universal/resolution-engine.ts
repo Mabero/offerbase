@@ -43,6 +43,7 @@ export interface Candidate {
     term_matches: string[];
     category_boost: number;
   };
+  content: string;
 }
 
 /**
@@ -86,10 +87,24 @@ export async function resolveQuery(
     );
     const searchLatency = timer.endSearch();
 
-    // PHASE 4: Decision logic
-    const decision = makeResolutionDecision(searchResults, ambiguity);
+    // PHASE 4: Convert SearchResult to Candidate format
+    const candidates: Candidate[] = searchResults.map(result => ({
+      id: result.chunkId,
+      title: result.materialTitle,
+      category: result.metadata?.category,
+      brand: result.metadata?.brand,
+      model: result.metadata?.model,
+      base_score: result.base_score,
+      final_score: result.final_score,
+      score_source: result.score_source,
+      boosts_applied: result.boosts_applied,
+      content: result.content
+    }));
 
-    // PHASE 5: Execute decision
+    // PHASE 5: Decision logic
+    const decision = makeResolutionDecision(candidates, ambiguity);
+
+    // PHASE 6: Execute decision
     let result: ResolutionResult;
     
     switch (decision.type) {
