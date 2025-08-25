@@ -181,27 +181,30 @@ export async function POST(request: NextRequest) {
       searchResults = []; // Fallback to empty results
     }
     
-    // Determine routing using hybrid decision rule
+    // Determine routing using smart veto system
     const topSimilarity = searchResults[0]?.similarity ?? 0;
-    const minSimilarity = Number(process.env.RAG_SIMILARITY_THRESHOLD ?? 0.3);
     const maxChunks = Number(process.env.RAG_MAX_CHUNKS ?? 6);
     
-    // Hybrid decision rule: refuse only when BOTH vector and hybrid search fail
-    const vectorFailed = topVectorScore < minSimilarity;
-    const hybridFailed = topSimilarity < minSimilarity;
+    // Smart veto system: Vector suggests, keyword vetos nonsense
+    const vectorSuggestThreshold = Number(process.env.VECTOR_SUGGEST_THRESHOLD ?? 0.22);
+    const keywordVetoThreshold = Number(process.env.KEYWORD_VETO_THRESHOLD ?? 0.03);
     
-    // If either vector OR hybrid search succeeds, we have relevant materials
+    const vectorSuggests = topVectorScore > vectorSuggestThreshold;
+    const keywordVetos = topSimilarity < keywordVetoThreshold;
+    
+    // Answer only if vector suggests AND keyword doesn't veto
     // BUT: if post-filter eliminated all chunks, force clean refusal
-    const hasRelevantMaterials = (!vectorFailed || !hybridFailed) && !useCleanRefusal;
+    const hasRelevantMaterials = vectorSuggests && !keywordVetos && !useCleanRefusal;
 
     // Telemetry for monitoring and debugging
     console.log('[Chat AI] Route Decision:', {
       query: currentQuery.substring(0, 50),
       topVectorScore: topVectorScore.toFixed(3),
       topHybridScore: topSimilarity.toFixed(3),
-      minSimilarity,
-      vectorFailed,
-      hybridFailed,
+      vectorSuggestThreshold,
+      keywordVetoThreshold,
+      vectorSuggests,
+      keywordVetos,
       resultsFound: searchResults.length,
       route: hasRelevantMaterials ? 'answer' : 'refuse',
       // Offer system telemetry
@@ -213,12 +216,12 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString()
     });
 
-    // Debug the hybrid decision logic
-    console.log('[DEBUG] Hybrid Decision Logic:', {
+    // Debug the veto system logic
+    console.log('[DEBUG] Veto System Logic:', {
       hasRelevantMaterials,
-      vectorFailed: `${topVectorScore.toFixed(3)} < ${minSimilarity} = ${vectorFailed}`,
-      hybridFailed: `${topSimilarity.toFixed(3)} < ${minSimilarity} = ${hybridFailed}`,
-      decision: `!${vectorFailed} || !${hybridFailed} = ${hasRelevantMaterials}`
+      vectorSuggests: `${topVectorScore.toFixed(3)} > ${vectorSuggestThreshold} = ${vectorSuggests}`,
+      keywordVetos: `${topSimilarity.toFixed(3)} < ${keywordVetoThreshold} = ${keywordVetos}`,
+      decision: `${vectorSuggests} && !${keywordVetos} = ${hasRelevantMaterials}`
     });
 
     // Store search results for product recommendation (only if relevant) - for future integration
