@@ -1691,7 +1691,10 @@ export function ChatWidgetCore({
     
     setInput('');
     
-    // Note: Input will be refocused when AI streaming completes
+    // Force focus after clearing input
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
     
     // Track the user message for product matching
     lastUserMessageRef.current = message;
