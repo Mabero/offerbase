@@ -136,15 +136,16 @@ export function isWidgetRequestAllowed(
     return { allowed: false, reason: 'No origin header' };
   }
 
-  // Check if request comes from offerbase.co (the iframe)
+  // Check if request comes from offerbase.co (the iframe or dashboard)
   const isFromOfferbase = origin.includes('offerbase.co');
   
   if (isFromOfferbase) {
-    // For iframe requests, validate the parent origin
+    // For dashboard testing (no parentOrigin), allow offerbase.co directly
     if (!parentOrigin) {
-      return { allowed: false, reason: 'Iframe request missing parent origin' };
+      return { allowed: true, reason: 'Dashboard testing mode' };
     }
     
+    // For iframe requests, validate the parent origin
     if (!isOriginAllowed(parentOrigin, allowedOrigins)) {
       return { allowed: false, reason: `Parent origin ${parentOrigin} not in allowed origins` };
     }
