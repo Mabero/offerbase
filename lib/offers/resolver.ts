@@ -95,7 +95,7 @@ export async function resolveOfferHint(
       alias_score: row.alias_score || 0,
       fts_score: row.fts_score || 0,
       total_score: (row.alias_score || 0) * 1.0 + (row.fts_score || 0) * 0.7
-    })).sort((a, b) => b.total_score - a.total_score);
+    })).sort((a: any, b: any) => b.total_score - a.total_score);
     
     // Decision logic with explicit thresholds
     let decision: OfferDecision;
