@@ -38,6 +38,7 @@
     "ioredis": "^5.7.0",
     "jsonwebtoken": "^9.0.2",
     "language-detector": "^1.0.1",
+    "lru-cache": "^11.1.0",
     "lucide-react": "^0.511.0",
     "next": "15.4.1",
     "openai": "^5.10.1",

@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
     let topHybridScore = 0;
     let useCleanRefusal = false;
     let filterUsed = false;
+    let searchTelemetry: any = null;
     try {
       const startTime = Date.now();
       
@@ -99,30 +100,57 @@ export async function POST(request: NextRequest) {
         embeddingSum: queryEmbeddingDebug.reduce((a, b) => a + b, 0).toFixed(6)
       });
       
-      // Run both vector and keyword searches separately for better debugging
-      const [vectorSearchResults, hybridResults] = await Promise.all([
-        searchService.vectorSearch(
-          await embeddingProvider.generateEmbedding(currentQuery),
-          siteId,
-          10
-        ),
-        searchService.hybridSearch(
-          currentQuery, // Use clean query without context contamination
+      // Check if corpus-aware search is enabled
+      const corpusAwareEnabled = process.env.CORPUS_AWARE_SEARCH === 'true';
+      
+      if (corpusAwareEnabled) {
+        // Use enhanced search with term extraction
+        const enhancedResult = await searchService.hybridSearchWithTermExtraction(
+          currentQuery,
           siteId,
           {
-            vectorWeight: 0.6, // Balance vector and keyword search
-            limit: 10, // Get more chunks to work with
-            useReranker: false, // Disable reranker for debugging (since no Cohere key)
+            vectorWeight: 0.6,
+            limit: 10,
+            useReranker: false,
             similarityThreshold: Number(process.env.RAG_SIMILARITY_THRESHOLD ?? 0.3),
           }
-        )
-      ]);
-      
-      // Use hybrid results but track both scores
-      searchResults = hybridResults;
-      vectorResults = vectorSearchResults;
-      topVectorScore = vectorResults[0]?.similarity ?? 0;
-      topHybridScore = searchResults[0]?.similarity ?? 0;
+        );
+        
+        searchResults = enhancedResult.results;
+        searchTelemetry = enhancedResult.telemetry;
+        
+        // Extract scores from search results and telemetry
+        topHybridScore = searchResults[0]?.similarity ?? 0;
+        // For enhanced search, we need to get vector score from a separate call
+        // or use the telemetry data - for now, use hybrid as proxy
+        topVectorScore = topHybridScore;
+        
+        console.log('[DEBUG] Enhanced Search Telemetry:', searchTelemetry);
+      } else {
+        // Use original search logic
+        const [vectorSearchResults, hybridResults] = await Promise.all([
+          searchService.vectorSearch(
+            await embeddingProvider.generateEmbedding(currentQuery),
+            siteId,
+            10
+          ),
+          searchService.hybridSearch(
+            currentQuery,
+            siteId,
+            {
+              vectorWeight: 0.6,
+              limit: 10,
+              useReranker: false,
+              similarityThreshold: Number(process.env.RAG_SIMILARITY_THRESHOLD ?? 0.3),
+            }
+          )
+        ]);
+        
+        searchResults = hybridResults;
+        vectorResults = vectorSearchResults;
+        topVectorScore = vectorResults[0]?.similarity ?? 0;
+        topHybridScore = searchResults[0]?.similarity ?? 0;
+      }
       const searchTime = Date.now() - startTime;
       
       // STEP 3: Apply post-filter to prevent G3/G4 mixing (KEY!)
@@ -185,19 +213,29 @@ export async function POST(request: NextRequest) {
     const topSimilarity = searchResults[0]?.similarity ?? 0;
     const maxChunks = Number(process.env.RAG_MAX_CHUNKS ?? 6);
     
-    // Smart veto system: Vector suggests, keyword vetos nonsense
-    const vectorSuggestThreshold = Number(process.env.VECTOR_SUGGEST_THRESHOLD ?? 0.22);
+    // Smart veto system with enhanced logic for corpus-aware search
+    const vectorSuggestThreshold = Number(process.env.VECTOR_SUGGEST_THRESHOLD ?? 0.25);
     const keywordVetoThreshold = Number(process.env.KEYWORD_VETO_THRESHOLD ?? 0.03);
     
     const vectorSuggests = topVectorScore > vectorSuggestThreshold;
-    const keywordVetos = topSimilarity < keywordVetoThreshold;
+    
+    // Enhanced veto logic: Only apply keyword veto if keyword path actually ran
+    let keywordVetos = false;
+    if (searchTelemetry && searchTelemetry.keyword_path_ran) {
+      // Use telemetry-based veto for enhanced search
+      keywordVetos = topSimilarity < keywordVetoThreshold;
+    } else if (!searchTelemetry) {
+      // Original veto logic for legacy search
+      keywordVetos = topSimilarity < keywordVetoThreshold;
+    }
+    // If keyword path didn't run (no validated terms), don't apply veto
     
     // Answer only if vector suggests AND keyword doesn't veto
     // BUT: if post-filter eliminated all chunks, force clean refusal
     const hasRelevantMaterials = vectorSuggests && !keywordVetos && !useCleanRefusal;
 
-    // Telemetry for monitoring and debugging
-    console.log('[Chat AI] Route Decision:', {
+    // Enhanced telemetry for monitoring and debugging
+    const routeDecision = {
       query: currentQuery.substring(0, 50),
       topVectorScore: topVectorScore.toFixed(3),
       topHybridScore: topSimilarity.toFixed(3),
@@ -212,9 +250,21 @@ export async function POST(request: NextRequest) {
       offerWinner: offerHint.offer?.title || null,
       postFilterUsed: filterUsed,
       cleanRefusalTriggered: useCleanRefusal,
+      // Enhanced search telemetry
+      corpusAwareEnabled: process.env.CORPUS_AWARE_SEARCH === 'true',
+      ...(searchTelemetry && {
+        extractionMethod: searchTelemetry.extraction_method,
+        extractedTermsCount: searchTelemetry.extracted_terms_raw.length,
+        validatedTermsCount: searchTelemetry.validated_terms_kept.length,
+        keywordPathRan: searchTelemetry.keyword_path_ran,
+        trigramFallback: searchTelemetry.trigram_fallback_used,
+        ftsQueryBuilt: searchTelemetry.fts_query_built
+      }),
       siteId,
       timestamp: new Date().toISOString()
-    });
+    };
+    
+    console.log('[Chat AI] Route Decision:', routeDecision);
 
     // Debug the veto system logic
     console.log('[DEBUG] Veto System Logic:', {

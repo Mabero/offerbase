@@ -7,11 +7,35 @@ import {
   Document,
 } from './types';
 import { EmbeddingProviderFactory, RerankerFactory } from './factory';
+import { TermExtractor, ExtractedTerms } from '../search/term-extractor';
+import { CorpusValidator, ValidationResult } from '../search/corpus-validator';
+
+export interface SearchTelemetry {
+  extraction_method: 'unicode_extraction' | 'skip_non_latin' | null;
+  extracted_terms_raw: string[];
+  validated_terms_kept: string[];
+  validated_terms_dropped: Array<{
+    term: string;
+    reason: string;
+    frequency: number;
+  }>;
+  fts_query_built: string | null;
+  keyword_path_ran: boolean;
+  trigram_fallback_used: boolean;
+  vector_suggest_threshold: number;
+  keyword_veto_threshold: number;
+  cache_stats?: {
+    hits: number;
+    queries: number;
+  };
+}
 
 export class VectorSearchService {
   private supabase;
   private embeddingProvider: EmbeddingProvider;
   private reranker: Reranker | null;
+  private termExtractor: TermExtractor;
+  private corpusValidator: CorpusValidator;
   
   constructor(
     embeddingProvider?: EmbeddingProvider,
@@ -24,6 +48,8 @@ export class VectorSearchService {
     
     this.embeddingProvider = embeddingProvider || EmbeddingProviderFactory.fromEnvironment();
     this.reranker = reranker !== undefined ? reranker : RerankerFactory.fromEnvironment();
+    this.termExtractor = new TermExtractor();
+    this.corpusValidator = new CorpusValidator(this.supabase);
   }
   
   /**
@@ -480,5 +506,184 @@ export class VectorSearchService {
         }
       };
     }).sort((a, b) => b.final_score - a.final_score);
+  }
+
+  /**
+   * Enhanced hybrid search with corpus-aware term extraction
+   * Feature-flagged behind CORPUS_AWARE_SEARCH environment variable
+   */
+  async hybridSearchWithTermExtraction(
+    query: string,
+    siteId: string,
+    options: HybridSearchOptions = {}
+  ): Promise<{ results: SearchResult[]; telemetry: SearchTelemetry }> {
+    const telemetry: SearchTelemetry = {
+      extraction_method: null,
+      extracted_terms_raw: [],
+      validated_terms_kept: [],
+      validated_terms_dropped: [],
+      fts_query_built: null,
+      keyword_path_ran: false,
+      trigram_fallback_used: false,
+      vector_suggest_threshold: Number(process.env.VECTOR_SUGGEST_THRESHOLD || 0.25),
+      keyword_veto_threshold: Number(process.env.KEYWORD_VETO_THRESHOLD || 0.03)
+    };
+
+    const limit = options.limit || 10;
+
+    try {
+      // 1. Extract terms from query
+      const extracted = this.termExtractor.extractTerms(query);
+      
+      let ftsQuery: string | null = null;
+      let keywordResults: SearchResult[] = [];
+
+      if (!extracted) {
+        // Non-Latin script detected - use trigram fallback
+        telemetry.extraction_method = 'skip_non_latin';
+        telemetry.trigram_fallback_used = true;
+        
+        // Use trigram search instead of FTS
+        keywordResults = await this.trigramSearch(query, siteId, limit * 2);
+      } else {
+        // Latin script - use term extraction
+        telemetry.extraction_method = 'unicode_extraction';
+        telemetry.extracted_terms_raw = extracted.combined;
+        
+        // 2. Validate terms against corpus
+        const validation = await this.corpusValidator.validateTerms(
+          extracted.combined, 
+          siteId
+        );
+        
+        telemetry.validated_terms_kept = validation.kept;
+        telemetry.validated_terms_dropped = validation.dropped.map(d => ({
+          term: d.term,
+          reason: d.reason || 'unknown',
+          frequency: d.docFrequency
+        }));
+        telemetry.cache_stats = {
+          hits: validation.telemetry.cacheHits,
+          queries: validation.telemetry.dbQueries
+        };
+        
+        // 3. Build FTS query from validated terms
+        if (validation.kept.length > 0) {
+          ftsQuery = this.buildFTSQuery(validation.kept);
+          telemetry.fts_query_built = ftsQuery;
+          telemetry.keyword_path_ran = true;
+          
+          // Run FTS search with extracted terms
+          keywordResults = await this.keywordSearch(ftsQuery, siteId, limit * 2);
+        }
+      }
+
+      // 4. Always run vector search with original query
+      const queryEmbedding = await this.embeddingProvider.generateEmbedding(query);
+      const vectorResults = await this.vectorSearch(queryEmbedding, siteId, limit * 2);
+
+      // 5. Merge results
+      const mergedResults = this.mergeSearchResults(
+        vectorResults,
+        keywordResults,
+        options.vectorWeight || 0.7
+      );
+
+      // 6. Apply reranker if available
+      let finalResults = mergedResults;
+      if (options.useReranker !== false && this.reranker && mergedResults.length > 0) {
+        finalResults = await this.rerankResults(query, mergedResults);
+      }
+
+      // 7. Filter and limit
+      const threshold = options.similarityThreshold || 0.3;
+      const filteredResults = finalResults
+        .filter(r => r.similarity > threshold)
+        .slice(0, limit)
+        .map(r => options.includeMetadata !== false ? r : { ...r, metadata: {} });
+
+      return {
+        results: filteredResults,
+        telemetry
+      };
+
+    } catch (error) {
+      console.error('Enhanced hybrid search error:', error);
+      
+      // Fallback to regular hybrid search
+      const fallbackResults = await this.hybridSearch(query, siteId, options);
+      
+      return {
+        results: fallbackResults,
+        telemetry: {
+          ...telemetry,
+          extraction_method: 'fallback_error'
+        }
+      };
+    }
+  }
+
+  /**
+   * Build FTS query from validated terms
+   * Quotes bigrams/phrases but not single tokens for flexibility
+   */
+  private buildFTSQuery(validatedTerms: string[]): string {
+    return validatedTerms
+      .map(term => {
+        if (term.includes(' ')) {
+          // Bigram/phrase - use quotes for exact matching
+          return `"${term.replace(/"/g, '""')}"`;
+        } else {
+          // Single token - no quotes for flexibility
+          return term.replace(/['"\\]/g, '\\$&');
+        }
+      })
+      .join(' OR ');
+  }
+
+  /**
+   * Trigram search for non-Latin scripts (CJK/Thai/Arabic/Hebrew)
+   */
+  private async trigramSearch(
+    query: string,
+    siteId: string,
+    limit: number
+  ): Promise<SearchResult[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('training_material_chunks')
+        .select(`
+          id,
+          content,
+          metadata,
+          training_material_id,
+          training_materials!inner(
+            id,
+            title,
+            site_id
+          )
+        `)
+        .eq('training_materials.site_id', siteId)
+        .eq('training_materials.is_active', true)
+        .filter('content', 'like', `%${query}%`)
+        .limit(limit);
+
+      if (error) {
+        console.error('Trigram search error:', error);
+        return [];
+      }
+
+      return (data || []).map((row: any) => ({
+        chunkId: row.id,
+        content: row.content,
+        similarity: 0.5, // Default similarity for trigram matches
+        metadata: row.metadata || {},
+        materialId: row.training_material_id,
+        materialTitle: row.training_materials.title,
+      }));
+    } catch (error) {
+      console.error('Trigram search error:', error);
+      return [];
+    }
   }
 }
