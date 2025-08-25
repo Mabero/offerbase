@@ -45,12 +45,32 @@ export async function POST(request: NextRequest) {
     const currentQuery = messages[messages.length - 1]?.content || 
       messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || '';
     
-    // Perform hybrid search with configurable threshold
+    // STEP 1: Resolve offer hint (stateless, UI only)
+    const { resolveOfferHint } = await import('@/lib/offers/resolver');
+    const { filterChunksByOffer, logFilterResult } = await import('@/lib/offers/chunk-filter');
+    
+    let offerHint;
+    try {
+      offerHint = await resolveOfferHint(currentQuery, siteId);
+      console.log('[DEBUG] Offer resolution:', {
+        query: currentQuery.substring(0, 50),
+        decision: offerHint.type,
+        winner: offerHint.offer?.title || 'none',
+        queryNorm: offerHint.query_norm
+      });
+    } catch (error) {
+      console.error('[ERROR] Offer resolution failed:', error);
+      offerHint = { type: 'none' as const, query_norm: '' };
+    }
+    
+    // STEP 2: Perform hybrid search (unchanged, stateless)
     let searchResults: any[] = [];
     let vectorResults: any[] = [];
     let queryEmbeddingDebug: number[] = [];
     let topVectorScore = 0;
     let topHybridScore = 0;
+    let useCleanRefusal = false;
+    let filterUsed = false;
     try {
       const startTime = Date.now();
       
@@ -105,6 +125,37 @@ export async function POST(request: NextRequest) {
       topHybridScore = searchResults[0]?.similarity ?? 0;
       const searchTime = Date.now() - startTime;
       
+      // STEP 3: Apply post-filter to prevent G3/G4 mixing (KEY!)
+      if (offerHint.type === 'single' && offerHint.offer) {
+        const originalChunkCount = searchResults.length;
+        const filterResult = filterChunksByOffer(searchResults, {
+          brand_norm: offerHint.offer.brand_norm,
+          model_norm: offerHint.offer.model_norm
+        });
+        
+        searchResults = filterResult.filtered;
+        filterUsed = true;
+        
+        // Log filter results for debugging
+        logFilterResult(currentQuery, offerHint.offer, filterResult);
+        
+        console.log('[DEBUG] Post-filter applied:', {
+          winner: offerHint.offer.title,
+          brand_norm: offerHint.offer.brand_norm,
+          model_norm: offerHint.offer.model_norm,
+          originalChunks: originalChunkCount,
+          filteredChunks: searchResults.length,
+          method: filterResult.method,
+          fallback: filterResult.fallback
+        });
+        
+        // If no chunks survive filtering, prepare for clean refusal
+        if (searchResults.length === 0) {
+          useCleanRefusal = true;
+          console.log('[DEBUG] Post-filter eliminated all chunks - clean refusal');
+        }
+      }
+      
       console.log('[DEBUG] Hybrid search completed:', {
         originalQuery: debugInfo.original.substring(0, 50),
         normalizedQuery: debugInfo.normalized.substring(0, 50),
@@ -140,8 +191,8 @@ export async function POST(request: NextRequest) {
     const hybridFailed = topSimilarity < minSimilarity;
     
     // If either vector OR hybrid search succeeds, we have relevant materials
-    // This allows keyword search to boost results even when vector search fails
-    const hasRelevantMaterials = !vectorFailed || !hybridFailed;
+    // BUT: if post-filter eliminated all chunks, force clean refusal
+    const hasRelevantMaterials = (!vectorFailed || !hybridFailed) && !useCleanRefusal;
 
     // Telemetry for monitoring and debugging
     console.log('[Chat AI] Route Decision:', {
@@ -153,6 +204,11 @@ export async function POST(request: NextRequest) {
       hybridFailed,
       resultsFound: searchResults.length,
       route: hasRelevantMaterials ? 'answer' : 'refuse',
+      // Offer system telemetry
+      offerDecision: offerHint.type,
+      offerWinner: offerHint.offer?.title || null,
+      postFilterUsed: filterUsed,
+      cleanRefusalTriggered: useCleanRefusal,
       siteId,
       timestamp: new Date().toISOString()
     });
@@ -222,6 +278,14 @@ export async function POST(request: NextRequest) {
       response.headers.set('X-Route-Mode', 'refuse');
       response.headers.set('X-Top-Similarity', topSimilarity.toString());
       
+      // Add offer hint info to refusal for debugging
+      if (useCleanRefusal) {
+        response.headers.set('X-Refusal-Reason', 'post-filter-elimination');
+        response.headers.set('X-Offer-Winner', offerHint.offer?.title || '');
+      } else {
+        response.headers.set('X-Refusal-Reason', 'low-similarity');
+      }
+      
       return response;
     }
 
@@ -255,7 +319,7 @@ export async function POST(request: NextRequest) {
       ...convertToModelMessages(messages)
     ];
     
-    // Stream the response using AI SDK - products handled separately
+    // Stream the response using AI SDK with offer metadata
     const result = streamText({
       model: openai('gpt-4o-mini'),
       messages: modelMessages,
@@ -263,8 +327,23 @@ export async function POST(request: NextRequest) {
       maxOutputTokens: 1000,
     });
 
-    // Return the UI message stream response
-    return result.toUIMessageStreamResponse();
+    // Return the UI message stream response with offer hint metadata
+    const response = result.toUIMessageStreamResponse();
+    
+    // Add offer hint headers for UI consumption
+    if (offerHint.type === 'single' && offerHint.offer) {
+      response.headers.set('X-Offer-Type', offerHint.type);
+      response.headers.set('X-Offer-Title', offerHint.offer.title);
+      response.headers.set('X-Offer-URL', offerHint.offer.url);
+      if (filterUsed) {
+        response.headers.set('X-Post-Filter-Applied', 'true');
+      }
+    } else if (offerHint.type === 'multiple') {
+      response.headers.set('X-Offer-Type', offerHint.type);
+      response.headers.set('X-Offer-Alternatives-Count', offerHint.alternatives?.length.toString() || '0');
+    }
+    
+    return response;
     
   } catch (error) {
     console.error('Chat API error:', error);

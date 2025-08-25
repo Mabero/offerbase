@@ -429,7 +429,7 @@ const LinksContainer = ({ links, chatSettings, styles, onLinkClick }: {
 };
 
 // ProductRecommendations component - uses server-side matching for precision with JWT authentication
-const ProductRecommendations = ({ messageContent, streamingContent, messageId, userMessage, siteId, apiUrl, chatSettings, styles, isVisible, isLatestMessage, onProductsLoaded, preFetchedProducts, widgetToken, onTokenExpired, pageContext }: {
+const ProductRecommendations = React.memo(({ messageContent, streamingContent, messageId, userMessage, siteId, apiUrl, chatSettings, styles, isVisible, isLatestMessage, onProductsLoaded, preFetchedProducts, widgetToken, onTokenExpired, pageContext, completedMessageIds }: {
   messageContent: string;
   streamingContent?: string;
   messageId: string;
@@ -445,6 +445,7 @@ const ProductRecommendations = ({ messageContent, streamingContent, messageId, u
   widgetToken?: string | null;
   onTokenExpired?: () => Promise<void>;
   pageContext?: { title?: string; description?: string; url?: string };
+  completedMessageIds?: Set<string>;
 }) => {
   const [products, setProducts] = useState<AffiliateProduct[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -499,21 +500,38 @@ const ProductRecommendations = ({ messageContent, streamingContent, messageId, u
     if (wordCount < minWords) {
       return;
     }
+    
+    // Mark as being processed to prevent duplicates (moved here after all early returns)
+    fetchTriggeredRef.current = messageId;
 
     // Intent detection - use original user query for better intent detection
     const queryForIntent = userMessage?.trim() || contentToMatch.trim();
     const intentResult = detectIntent(queryForIntent);
     
+    console.log('[PRODUCT DEBUG] Intent detection result:', {
+      query: queryForIntent,
+      shouldShowProducts: intentResult.shouldShowProducts,
+      reason: intentResult.reason
+    });
+    
     // Skip product fetch if intent suggests we shouldn't show products
     if (!intentResult.shouldShowProducts) {
+      console.log('[PRODUCT DEBUG] Intent detection blocked product fetch:', intentResult.reason);
       return;
     }
     
     // Need authentication token
     if (!widgetToken) {
-      console.warn('No widget token available for product fetching');
+      console.log('[PRODUCT DEBUG] No widget token available for product fetching');
       return;
     }
+    
+    console.log('[PRODUCT DEBUG] Starting product fetch:', {
+      messageId,
+      userMessage: userMessage?.substring(0, 50),
+      aiText: contentToMatch.substring(0, 50),
+      hasPageContext: !!(pageContext && (pageContext.title || pageContext.description))
+    });
     
     fetchTriggeredRef.current = messageId;
     setIsLoading(true);
@@ -544,11 +562,22 @@ const ProductRecommendations = ({ messageContent, streamingContent, messageId, u
       const responseData = await response.json();
       const { data: matchedProducts, clarification } = responseData;
       
+      console.log('[PRODUCT DEBUG] Product fetch response:', {
+        success: responseData.success,
+        productsCount: matchedProducts?.length || 0,
+        clarificationNeeded: clarification?.shouldAsk,
+        intentSuppressed: responseData.intentSuppressed,
+        aiFiltered: responseData.aiFiltered,
+        candidatesCount: responseData.candidatesCount
+      });
+      
       // Handle clarification if needed
       if (clarification?.shouldAsk && clarification.options?.length > 0) {
+        console.log('[PRODUCT DEBUG] Setting clarification data');
         setClarificationData(clarification);
         setProducts([]); // Don't show products yet
       } else {
+        console.log('[PRODUCT DEBUG] Setting products:', matchedProducts?.length || 0, 'products');
         setClarificationData(null);
         setProducts(matchedProducts || []);
         
@@ -557,9 +586,10 @@ const ProductRecommendations = ({ messageContent, streamingContent, messageId, u
       }
       
     } catch (error) {
-      console.error('Product matching error:', error);
+      console.log('[PRODUCT DEBUG] Product matching error:', error);
       setProducts([]);
     } finally {
+      console.log('[PRODUCT DEBUG] Product fetch completed for message:', messageId);
       setIsLoading(false);
     }
   }, [messageId, userMessage, widgetToken, apiUrl, isLoading, onTokenExpired, pageContext]);
@@ -600,27 +630,63 @@ const ProductRecommendations = ({ messageContent, streamingContent, messageId, u
   }, [clarificationData, onProductsLoaded, messageId, userMessage]);
 
   useEffect(() => {
-    // Only fetch products after AI response is complete (not during streaming)
-    if (status === 'streaming') {
-      return; // Don't fetch during streaming to prevent AI SDK loops
+    // Only fetch products after message is confirmed completed and has substantial content
+    const isCompleted = completedMessageIds?.has(messageId);
+    
+    if (!isCompleted) {
+      return; // Wait for message completion
     }
+    
+    // Prevent duplicate fetches for the same message
+    if (fetchTriggeredRef.current === messageId) {
+      return;
+    }
+    
+    console.log('[PRODUCT DEBUG] Product fetch triggered for completed message:', {
+      messageId,
+      messageContentLength: messageContent?.length || 0,
+      isLoadingHistory
+    });
     
     // First check if we have pre-fetched products for this user message
     if (preFetchedProducts && userMessage && preFetchedProducts.userMessage === userMessage.trim()) {
-      // Using pre-fetched products
+      console.log('[PRODUCT DEBUG] Using pre-fetched products');
       setProducts(preFetchedProducts.products);
       fetchTriggeredRef.current = messageId; // Mark as processed
       return;
     }
 
-    // Use final message content only after streaming is complete
-    // Skip product fetching if we're loading chat history OR not the latest message
-    const contentToUse = messageContent;
-    if (contentToUse && status !== 'streaming' && !isLoadingHistory && isLatestMessage) {
-      fetchProducts(contentToUse);
+    // Validate message content before fetching (avoid fetching on partial responses like "Ja")
+    const contentToUse = messageContent?.trim();
+    if (!contentToUse || contentToUse.length < 10 || isLoadingHistory) {
+      console.log('[PRODUCT DEBUG] Content validation failed:', {
+        contentLength: contentToUse?.length || 0,
+        isLoadingHistory
+      });
+      return;
     }
-  }, [messageId, messageContent, fetchProducts, preFetchedProducts, userMessage, isLoadingHistory, isLatestMessage]);
+    
+    console.log('[PRODUCT DEBUG] Starting product fetch with content:', {
+      messageId,
+      contentPreview: contentToUse.substring(0, 50)
+    });
+    
+    console.log('[PRODUCT DEBUG] About to call fetchProducts function');
+    fetchProducts(contentToUse);
+    console.log('[PRODUCT DEBUG] fetchProducts function called');
+  }, [messageId, completedMessageIds, fetchProducts, preFetchedProducts, userMessage, isLoadingHistory, messageContent]);
 
+  // Debug products state changes - only log significant changes
+  useEffect(() => {
+    if (products.length > 0) {
+      console.log('[PRODUCT DEBUG] Products loaded:', {
+        messageId,
+        productsCount: products.length,
+        isVisible
+      });
+    }
+  }, [messageId, products.length, isVisible]);
+  
   // Trigger scroll when products become visible
   useEffect(() => {
     if (isVisible && products.length > 0) {
@@ -678,7 +744,10 @@ const ProductRecommendations = ({ messageContent, streamingContent, messageId, u
     <div style={{ 
       ...styles.linksContainer, 
       marginTop: '12px',
-      display: (!isVisible || products.length === 0) ? 'none' : 'flex'
+      display: (!isVisible || products.length === 0) ? 'none' : 'flex',
+      animation: (!isVisible || products.length === 0) ? 'none' : 'fadeInUp 0.3s ease-out forwards',
+      opacity: (!isVisible || products.length === 0) ? '0' : '1',
+      transform: (!isVisible || products.length === 0) ? 'translateY(10px)' : 'translateY(0)'
     }}>
       {products.map((product, index) => (
         <ProductCard
@@ -693,7 +762,9 @@ const ProductRecommendations = ({ messageContent, streamingContent, messageId, u
       ))}
     </div>
   );
-};
+});
+
+ProductRecommendations.displayName = 'ProductRecommendations';
 
 // ProductCard component for product recommendations
 const ProductCard = ({ href, title, description, buttonText, chatSettings, styles }: {
@@ -1091,6 +1162,9 @@ export function ChatWidgetCore({
     products: AffiliateProduct[];
   } | null>(null);
   
+  // Track which messages have completed streaming for product visibility
+  const [completedMessageIds, setCompletedMessageIds] = useState<Set<string>>(new Set());
+  
   // Create custom transport with our endpoint
   const transport = React.useMemo(() => {
     // Handle empty apiUrl - use current origin for relative URLs
@@ -1293,10 +1367,21 @@ export function ChatWidgetCore({
     }
   }, [messages, status]); // Trigger on message changes during streaming
   
-  // Clear currentMessageIdRef when streaming completes to fix product visibility
+  // Track message completion for product visibility with debounce for stability
   useEffect(() => {
-    if (status !== 'streaming') {
+    if (status !== 'streaming' && currentMessageIdRef.current) {
+      const messageId = currentMessageIdRef.current;
+      
+      // Debounce message completion to ensure final content is captured
+      const timeoutId = setTimeout(() => {
+        console.log('[PRODUCT DEBUG] Message completed after debounce:', messageId);
+        setCompletedMessageIds(prev => new Set(prev).add(messageId));
+      }, 100); // 100ms debounce to allow for final content updates
+      
+      // Clear the ref immediately to prevent duplicate processing
       currentMessageIdRef.current = '';
+      
+      return () => clearTimeout(timeoutId);
     }
   }, [status]);
 
@@ -1372,6 +1457,19 @@ export function ChatWidgetCore({
               parts: [{ type: 'text' as const, text: textContent }]
             };
           });
+          
+          // Mark all restored assistant messages as completed for immediate product visibility
+          const assistantMessageIds = chatMessages
+            .filter((msg: { role: string }) => msg.role === 'assistant')
+            .map((msg: { id: string }) => msg.id);
+          
+          if (assistantMessageIds.length > 0) {
+            setCompletedMessageIds(prev => {
+              const newSet = new Set(prev);
+              assistantMessageIds.forEach((id: string) => newSet.add(id));
+              return newSet;
+            });
+          }
 
           // Restore chat history to AI SDK state (no loading flag needed)
           setMessages(aiSdkMessages);
@@ -1897,16 +1995,19 @@ export function ChatWidgetCore({
                 apiUrl={apiUrl}
                 chatSettings={chatSettings}
                 styles={styles}
-                isVisible={
-                  messageContent.length > 0 && 
-                  !(status === 'streaming' && currentMessageIdRef.current === message.id)
-                }
+                isVisible={(() => {
+                  // Show products if message has content AND is either completed or not currently streaming
+                  const isCompleted = completedMessageIds.has(message.id);
+                  const isCurrentlyStreaming = status === 'streaming' && currentMessageIdRef.current === message.id;
+                  return messageContent.length > 0 && (isCompleted || !isCurrentlyStreaming);
+                })()}
                 isLatestMessage={isLatestBotMessage}
                 onProductsLoaded={handleProductsLoaded}
                 preFetchedProducts={preFetchedProducts}
                 widgetToken={widgetAuth.token}
                 onTokenExpired={widgetAuth.refresh}
                 pageContext={pageContext}
+                completedMessageIds={completedMessageIds}
               />
             )}
           </div>
@@ -2130,6 +2231,17 @@ export function ChatWidgetCore({
           }
           100% {
             transform: rotate(360deg);
+          }
+        }
+        
+        @keyframes fadeInUp {
+          0% {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          100% {
+            opacity: 1;
+            transform: translateY(0);
           }
         }
       `}</style>

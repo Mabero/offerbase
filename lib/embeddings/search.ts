@@ -119,6 +119,12 @@ export class VectorSearchService {
     limit: number
   ): Promise<SearchResult[]> {
     try {
+      // ASSERT: Must use config='simple' for universal compatibility
+      const FTS_CONFIG = 'simple';
+      if (FTS_CONFIG !== 'simple') {
+        throw new Error('FTS must use simple config for universal compatibility');
+      }
+      
       // Escape special characters in query
       const escapedQuery = query.replace(/['"\\]/g, '\\$&');
       
@@ -140,7 +146,7 @@ export class VectorSearchService {
         .eq('training_materials.is_active', true)
         .textSearch('content', escapedQuery, {
           type: 'websearch',
-          config: 'simple',
+          config: FTS_CONFIG,
         })
         .limit(limit);
       
@@ -300,5 +306,179 @@ export class VectorSearchService {
       console.error('Find similar chunks error:', error);
       return [];
     }
+  }
+
+  /**
+   * Smart Context Search with Normalized Scoring
+   * Uses context terms for boosting without mutating the query
+   */
+  async searchWithSmartContext(
+    query: string,
+    siteId: string,
+    context: {
+      terms: string[];
+      categoryHint?: string;
+    },
+    options: HybridSearchOptions = {}
+  ): Promise<(SearchResult & {
+    base_score: number;
+    final_score: number;
+    score_source: 'fts' | 'trgm';
+    boosts_applied: {
+      term_matches: string[];
+      category_boost: number;
+    };
+  })[]> {
+    try {
+      // First, try regular hybrid search
+      let rawResults = await this.hybridSearch(query, siteId, {
+        ...options,
+        limit: (options.limit || 10) * 2 // Get more candidates for boosting
+      });
+
+      // If no results and CJK/Thai detected, try trigram fallback
+      const needsTrigram = this.detectMultilingualNeeds(query);
+      if (rawResults.length === 0 && needsTrigram) {
+        rawResults = await this.trigramSearch(query, siteId, options.limit || 10);
+      }
+
+      if (rawResults.length === 0) {
+        return [];
+      }
+
+      // Apply normalized scoring with boosts
+      return this.normalizeScoresWithBoosts(rawResults, context, needsTrigram);
+    } catch (error) {
+      console.error('Smart context search error:', error);
+      // Fallback to regular hybrid search
+      return this.hybridSearch(query, siteId, options).then(results => 
+        results.map(r => ({
+          ...r,
+          base_score: 0.5,
+          final_score: r.similarity,
+          score_source: 'fts' as const,
+          boosts_applied: { term_matches: [], category_boost: 0 }
+        }))
+      );
+    }
+  }
+
+  /**
+   * Detect if query needs trigram fallback (CJK/Thai scripts)
+   */
+  private detectMultilingualNeeds(query: string): boolean {
+    const CJK_THAI = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}]/u;
+    return CJK_THAI.test(query);
+  }
+
+  /**
+   * Trigram search fallback for CJK/Thai
+   */
+  private async trigramSearch(
+    query: string,
+    siteId: string,
+    limit: number
+  ): Promise<SearchResult[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('training_material_chunks')
+        .select(`
+          id,
+          content,
+          metadata,
+          training_material_id,
+          training_materials!inner(
+            id,
+            title,
+            site_id
+          )
+        `)
+        .eq('training_materials.site_id', siteId)
+        .eq('training_materials.is_active', true)
+        // Use trigram similarity
+        .filter('content', 'like', `%${query}%`)
+        .limit(limit);
+
+      if (error) {
+        console.error('Trigram search error:', error);
+        return [];
+      }
+
+      return (data || []).map((row: any) => ({
+        chunkId: row.id,
+        content: row.content,
+        similarity: 0.5, // Default similarity for trigram
+        metadata: row.metadata || {},
+        materialId: row.training_material_id,
+        materialTitle: row.training_materials.title,
+      }));
+    } catch (error) {
+      console.error('Trigram search error:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Normalize scores to [0,1] and apply context boosts
+   */
+  private normalizeScoresWithBoosts(
+    results: SearchResult[],
+    context: { terms: string[]; categoryHint?: string },
+    usedTrigram: boolean
+  ) {
+    // Weights must sum to 1.0 for proper normalization
+    const WEIGHTS = { alias: 0.6, fts: 0.3, vector: 0.1 };
+    const sum = WEIGHTS.alias + WEIGHTS.fts + WEIGHTS.vector;
+    if (Math.abs(sum - 1.0) > 0.001) {
+      throw new Error(`Score weights must sum to 1.0, got ${sum}`);
+    }
+
+    // Get boost configuration from environment
+    const BOOST_CONTEXT_TERM = parseFloat(process.env.BOOST_CONTEXT_TERM || '0.1');
+    const BOOST_CATEGORY = parseFloat(process.env.BOOST_CATEGORY || '0.15');
+    const MAX_TOTAL_BOOST = parseFloat(process.env.MAX_TOTAL_BOOST || '0.25');
+
+    // Find max FTS score for normalization
+    const maxFts = Math.max(...results.map(r => r.similarity || 0)) || 1;
+
+    return results.map(result => {
+      // Normalize component scores to [0,1]
+      const alias_norm = 0; // TODO: Add alias scoring
+      const fts_norm = (result.similarity || 0) / maxFts;
+      const vector_norm = result.similarity || 0; // Already 0-1 from cosine similarity
+
+      // Calculate base score (must be [0,1])
+      const base_score = 
+        alias_norm * WEIGHTS.alias +
+        fts_norm * WEIGHTS.fts +
+        vector_norm * WEIGHTS.vector;
+
+      // Calculate boosts
+      const term_matches = context.terms.filter(term => 
+        result.content.toLowerCase().includes(term.toLowerCase()) ||
+        result.materialTitle.toLowerCase().includes(term.toLowerCase())
+      );
+      
+      const term_boost = term_matches.length * BOOST_CONTEXT_TERM;
+      const category_boost = 0; // TODO: Add category matching
+      const total_boost = Math.min(term_boost + category_boost, MAX_TOTAL_BOOST);
+
+      // Apply multiplicative boost
+      const final_score = base_score * (1 + total_boost);
+      
+      // Clamp to [0, 1.25]
+      const clamped_final = Math.max(0, Math.min(1.25, final_score));
+
+      return {
+        ...result,
+        base_score,
+        final_score: clamped_final,
+        score_source: usedTrigram ? 'trgm' as const : 'fts' as const,
+        boosts_applied: {
+          term_matches,
+          category_boost
+        }
+      };
+    }).sort((a, b) => b.final_score - a.final_score);
   }
 }
