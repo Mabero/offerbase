@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
       const clientIP = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '127.0.0.1';
       const isLocalhost = origin?.includes('localhost') || origin?.includes('127.0.0.1');
       const rateKey = getRateLimitKey(`chat:${siteId}`, clientIP);
-      if (!isLocalhost && !rateLimiter.isAllowed(rateKey, 60, 60_000)) {
+      if (!isLocalhost && !(await rateLimiter.isAllowed(rateKey, 60, 60_000))) {
         return new Response(
           JSON.stringify({ error: 'Rate limit exceeded' }),
           { status: 429, headers: { ...getCORSHeaders(origin, allowedOriginsForCors), 'Retry-After': '60' } }

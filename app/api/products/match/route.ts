@@ -400,7 +400,7 @@ export async function POST(request: NextRequest) {
     // Skip rate limiting for localhost development
     const isLocalhost = origin?.includes('localhost') || origin?.includes('127.0.0.1');
     
-    if (!isLocalhost && !rateLimiter.isAllowed(rateLimitKey, rateLimit, 60000)) {
+    if (!isLocalhost && !(await rateLimiter.isAllowed(rateLimitKey, rateLimit, 60000))) {
       console.warn(`Product search rate limited`, { siteId, origin, clientIP });
       
       return NextResponse.json(

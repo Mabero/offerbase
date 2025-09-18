@@ -5,6 +5,7 @@
 
 import jwt from 'jsonwebtoken';
 import { NextRequest } from 'next/server';
+import { cache } from './cache';
 
 // JWT token payload for widget authentication
 export interface SiteToken {
@@ -197,39 +198,51 @@ export function getRateLimitKey(siteId: string, ip: string): string {
 /**
  * Simple in-memory rate limiter (replace with Redis in production)
  */
-class InMemoryRateLimiter {
-  private requests = new Map<string, { count: number; resetAt: number }>();
+class ScalableRateLimiter {
+  private memory = new Map<string, { count: number; resetAt: number }>();
 
-  isAllowed(key: string, limit: number, windowMs: number = 60000): boolean {
+  /**
+   * Distributed rate limit using Redis-backed cache when available, fallback to in-memory.
+   */
+  async isAllowed(key: string, limit: number, windowMs: number = 60000): Promise<boolean> {
     const now = Date.now();
-    const entry = this.requests.get(key);
 
-    // Clean up expired entries periodically
-    if (Math.random() < 0.1) { // 10% chance to clean up
-      this.cleanup(now);
-    }
-
-    if (!entry || now >= entry.resetAt) {
-      // First request or window expired
-      this.requests.set(key, { count: 1, resetAt: now + windowMs });
+    // Try cache-backed counter (shared across instances)
+    const cacheStatus = cache.getStatus();
+    if (cacheStatus.connected) {
+      // Load existing state
+      const state = await cache.get<{ count: number; resetAt: number }>(`ratelimit:${key}`);
+      if (!state || now >= state.resetAt) {
+        // New window
+        await cache.set(`ratelimit:${key}`, { count: 1, resetAt: now + windowMs }, Math.ceil(windowMs / 1000) + 5);
+        return true;
+      }
+      if (state.count >= limit) {
+        return false;
+      }
+      // Increment and persist
+      const updated = { count: state.count + 1, resetAt: state.resetAt };
+      const ttlSec = Math.max(1, Math.ceil((state.resetAt - now) / 1000));
+      await cache.set(`ratelimit:${key}`, updated, ttlSec + 5);
       return true;
     }
 
-    if (entry.count >= limit) {
-      return false; // Rate limit exceeded
+    // Fallback: in-memory per instance (dev)
+    const entry = this.memory.get(key);
+    if (!entry || now >= entry.resetAt) {
+      this.memory.set(key, { count: 1, resetAt: now + windowMs });
+      return true;
     }
-
+    if (entry.count >= limit) return false;
     entry.count++;
+    // Periodic cleanup
+    if (Math.random() < 0.05) this.cleanup(now);
     return true;
   }
 
   private cleanup(now: number) {
-    for (const [key, entry] of this.requests.entries()) {
-      if (now >= entry.resetAt) {
-        this.requests.delete(key);
-      }
-    }
+    for (const [k, v] of this.memory.entries()) if (now >= v.resetAt) this.memory.delete(k);
   }
 }
 
-export const rateLimiter = new InMemoryRateLimiter();
+export const rateLimiter = new ScalableRateLimiter();

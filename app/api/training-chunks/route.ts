@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     const rateLimitKey = getRateLimitKey(`chunks:${siteId}`, clientIP);
     const isLocalhost = origin?.includes('localhost') || origin?.includes('127.0.0.1');
     
-    if (!isLocalhost && !rateLimiter.isAllowed(rateLimitKey, 30, 60000)) {
+    if (!isLocalhost && !(await rateLimiter.isAllowed(rateLimitKey, 30, 60000))) {
       return NextResponse.json(
         { error: 'Rate limit exceeded for training chunks' }, 
         { 

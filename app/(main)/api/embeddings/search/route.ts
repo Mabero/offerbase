@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
     
     // SECURITY (flagged): Require widget JWT + origin validation when enabled
     let allowedOriginsForCors: string[] = [];
+    let decoded: SiteToken | null = null;
     if (secureMode) {
       const authHeader = request.headers.get('authorization');
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
       }
 
       const token = authHeader.substring(7);
-      const decoded: SiteToken | null = verifySiteToken(token);
+      decoded = verifySiteToken(token);
       if (!decoded) {
         return NextResponse.json(
           { error: 'Invalid or expired token' },
@@ -109,7 +110,7 @@ export async function POST(request: NextRequest) {
       const clientIP = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '127.0.0.1';
       const isLocalhost = origin?.includes('localhost') || origin?.includes('127.0.0.1');
       const rateKey = getRateLimitKey(`embeddings:${siteId}`, clientIP);
-      if (!isLocalhost && !rateLimiter.isAllowed(rateKey, 120, 60_000)) {
+      if (!isLocalhost && !(await rateLimiter.isAllowed(rateKey, 120, 60_000))) {
         return NextResponse.json(
           { error: 'Rate limit exceeded' },
           { status: 429, headers: { ...getCORSHeaders(origin, allowedOriginsForCors), 'Retry-After': '60' } }
@@ -218,6 +219,19 @@ export async function GET(request: NextRequest) {
     const searchService = new VectorSearchService();
 
     // Find similar chunks
+    // Rate limit per-site/IP for GET as well if secure
+    if (secureMode && decoded) {
+      const clientIP = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '127.0.0.1';
+      const isLocalhost = origin?.includes('localhost') || origin?.includes('127.0.0.1');
+      const rateKey = getRateLimitKey(`embeddings-get:${decoded.siteId}`, clientIP);
+      if (!isLocalhost && !(await rateLimiter.isAllowed(rateKey, 120, 60_000))) {
+        return NextResponse.json(
+          { error: 'Rate limit exceeded' },
+          { status: 429, headers: { ...getCORSHeaders(origin, allowedOriginsForCors), 'Retry-After': '60' } }
+        );
+      }
+    }
+
     const results = await searchService.findSimilarChunks(chunkId, limit);
 
     return NextResponse.json({
