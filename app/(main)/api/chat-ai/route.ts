@@ -4,14 +4,27 @@ import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createClient } from '@supabase/supabase-js';
 import { getAIInstructions } from '@/lib/instructions';
+import { 
+  verifySiteToken,
+  getRequestOrigin,
+  isWidgetRequestAllowed,
+  getCORSHeaders,
+  rateLimiter,
+  getRateLimitKey,
+  type SiteToken,
+} from '@/lib/widget-auth';
 // Import for context handling
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
-  
   try {
+    const DEBUG = process.env.DEBUG_CHAT_AI === 'true' || process.env.NODE_ENV === 'development';
+    const secureMode = process.env.SECURE_CHAT_AI_ENABLED === 'true';
+    const origin = getRequestOrigin(request);
+    let allowedOriginsForCors: string[] = [];
+
     // Parse the request body - AI SDK sends { messages: UIMessage[], siteId: string }
     const body = await request.json();
     const { messages, siteId, introMessage } = body;
@@ -21,12 +34,96 @@ export async function POST(request: NextRequest) {
         JSON.stringify({ error: 'Missing required fields: siteId and messages' }),
         { 
           status: 400,
-          headers: { 'Content-Type': 'application/json' }
+          headers: {
+            'Content-Type': 'application/json',
+            ...getCORSHeaders(origin, allowedOriginsForCors),
+          }
         }
       );
     }
     
     const { userId } = await auth();
+
+    // SECURITY: Optional JWT/origin enforcement for widget traffic
+    if (secureMode) {
+      const authHeader = request.headers.get('authorization');
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return new Response(
+          JSON.stringify({ error: 'Bearer token required' }),
+          { status: 401, headers: getCORSHeaders(origin, allowedOriginsForCors) }
+        );
+      }
+
+      const token = authHeader.substring(7);
+      const decoded: SiteToken | null = verifySiteToken(token);
+      if (!decoded) {
+        return new Response(
+          JSON.stringify({ error: 'Invalid or expired token' }),
+          { status: 401, headers: getCORSHeaders(origin, allowedOriginsForCors) }
+        );
+      }
+
+      // Verify token origin match
+      if (!origin || origin !== decoded.origin) {
+        return new Response(
+          JSON.stringify({ error: 'Origin mismatch' }),
+          { status: 403, headers: getCORSHeaders(origin, allowedOriginsForCors) }
+        );
+      }
+
+      // Initialize Supabase (service role for server-side checks)
+      const supabaseForPolicy = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+
+      // Validate site and fetch allowed origins
+      const { data: siteRow, error: siteErr } = await supabaseForPolicy
+        .from('sites')
+        .select('id, allowed_origins, widget_enabled')
+        .eq('id', siteId)
+        .eq('widget_enabled', true)
+        .single();
+
+      if (siteErr || !siteRow) {
+        return new Response(
+          JSON.stringify({ error: 'Site not found or widget disabled' }),
+          { status: 404, headers: getCORSHeaders(origin, allowedOriginsForCors) }
+        );
+      }
+
+      // Parse allowed origins defensively
+      if (Array.isArray(siteRow.allowed_origins)) {
+        allowedOriginsForCors = siteRow.allowed_origins as string[];
+      } else if (typeof siteRow.allowed_origins === 'string') {
+        try {
+          const parsed = JSON.parse(siteRow.allowed_origins);
+          allowedOriginsForCors = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          allowedOriginsForCors = [];
+        }
+      }
+
+      // Validate widget request using parentOrigin contained in token
+      const validation = isWidgetRequestAllowed(origin, decoded.parentOrigin || null, allowedOriginsForCors);
+      if (!validation.allowed) {
+        return new Response(
+          JSON.stringify({ error: validation.reason || 'Origin not allowed' }),
+          { status: 403, headers: getCORSHeaders(origin, allowedOriginsForCors) }
+        );
+      }
+
+      // Rate limiting (per-site per-IP), skip for localhost
+      const clientIP = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '127.0.0.1';
+      const isLocalhost = origin?.includes('localhost') || origin?.includes('127.0.0.1');
+      const rateKey = getRateLimitKey(`chat:${siteId}`, clientIP);
+      if (!isLocalhost && !rateLimiter.isAllowed(rateKey, 60, 60_000)) {
+        return new Response(
+          JSON.stringify({ error: 'Rate limit exceeded' }),
+          { status: 429, headers: { ...getCORSHeaders(origin, allowedOriginsForCors), 'Retry-After': '60' } }
+        );
+      }
+    }
     
     // Initialize Supabase
     const supabase = createClient(
@@ -90,15 +187,17 @@ export async function POST(request: NextRequest) {
         };
       
       queryEmbeddingDebug = await embeddingProvider.generateEmbedding(currentQuery);
-      console.log('[DEBUG] Query embedding generated:', {
-        originalQuery: debugInfo.original,
-        normalizedQuery: debugInfo.normalized,
-        textHash: debugInfo.hash,
-        wasNormalized: debugInfo.changed,
-        embeddingLength: queryEmbeddingDebug.length,
-        firstFewValues: queryEmbeddingDebug.slice(0, 5).map(v => v.toFixed(6)),
-        embeddingSum: queryEmbeddingDebug.reduce((a, b) => a + b, 0).toFixed(6)
-      });
+      if (DEBUG) {
+        console.log('[DEBUG] Query embedding generated:', {
+          originalQuery: debugInfo.original,
+          normalizedQuery: debugInfo.normalized,
+          textHash: debugInfo.hash,
+          wasNormalized: debugInfo.changed,
+          embeddingLength: queryEmbeddingDebug.length,
+          firstFewValues: queryEmbeddingDebug.slice(0, 5).map(v => v.toFixed(6)),
+          embeddingSum: queryEmbeddingDebug.reduce((a, b) => a + b, 0).toFixed(6)
+        });
+      }
       
       // Check if corpus-aware search is enabled
       const corpusAwareEnabled = process.env.CORPUS_AWARE_SEARCH === 'true';
@@ -125,7 +224,7 @@ export async function POST(request: NextRequest) {
         // or use the telemetry data - for now, use hybrid as proxy
         topVectorScore = topHybridScore;
         
-        console.log('[DEBUG] Enhanced Search Telemetry:', searchTelemetry);
+        if (DEBUG) console.log('[DEBUG] Enhanced Search Telemetry:', searchTelemetry);
       } else {
         // Use original search logic
         const [vectorSearchResults, hybridResults] = await Promise.all([
@@ -184,7 +283,7 @@ export async function POST(request: NextRequest) {
         }
       }
       
-      console.log('[DEBUG] Hybrid search completed:', {
+      if (DEBUG) console.log('[DEBUG] Hybrid search completed:', {
         originalQuery: debugInfo.original.substring(0, 50),
         normalizedQuery: debugInfo.normalized.substring(0, 50),
         textHash: debugInfo.hash,
@@ -264,10 +363,10 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString()
     };
     
-    console.log('[Chat AI] Route Decision:', routeDecision);
+    if (DEBUG) console.log('[Chat AI] Route Decision:', routeDecision);
 
     // Debug the veto system logic
-    console.log('[DEBUG] Veto System Logic:', {
+    if (DEBUG) console.log('[DEBUG] Veto System Logic:', {
       hasRelevantMaterials,
       vectorSuggests: `${topVectorScore.toFixed(3)} > ${vectorSuggestThreshold} = ${vectorSuggests}`,
       keywordVetos: `${topSimilarity.toFixed(3)} < ${keywordVetoThreshold} = ${keywordVetos}`,
@@ -295,7 +394,7 @@ export async function POST(request: NextRequest) {
     
     if (!hasRelevantMaterials) {
       // REFUSE MODE: Ultra-constrained generation
-      console.log('[Chat AI] Refuse mode - constrained generation', {
+      if (DEBUG) console.log('[Chat AI] Refuse mode - constrained generation', {
         query: currentQuery.substring(0, 50),
         topSimilarity: topSimilarity.toFixed(3),
         siteId,
@@ -328,6 +427,13 @@ export async function POST(request: NextRequest) {
 
       // Add telemetry headers for monitoring
       const response = result.toUIMessageStreamResponse();
+      // Add CORS headers if secure mode validated origin
+      if (secureMode) {
+        const cors = getCORSHeaders(origin, allowedOriginsForCors);
+        for (const [k, v] of Object.entries(cors)) {
+          response.headers.set(k, v);
+        }
+      }
       response.headers.set('X-Route-Mode', 'refuse');
       response.headers.set('X-Top-Similarity', topSimilarity.toString());
       
@@ -343,7 +449,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ANSWER MODE: Include training materials
-    console.log('[Chat AI] Answer mode - including training materials', {
+    if (DEBUG) console.log('[Chat AI] Answer mode - including training materials', {
       query: currentQuery.substring(0, 50),
       chunksIncluded: chunksToUse.slice(0, maxChunks).length,
       usingVectorFallback: searchResults.length === 0 && vectorResults.length > 0,
@@ -351,10 +457,12 @@ export async function POST(request: NextRequest) {
     });
     
     // Debug: Show what chunks are actually being retrieved
-    console.log('[DEBUG] Retrieved chunks:');
-    chunksToUse.slice(0, maxChunks).forEach((chunk, i) => {
-      console.log(`  ${i + 1}. [${chunk.similarity?.toFixed(3)}] ${chunk.materialTitle} - "${chunk.content.substring(0, 100)}..."`);
-    });
+    if (DEBUG) {
+      console.log('[DEBUG] Retrieved chunks:');
+      chunksToUse.slice(0, maxChunks).forEach((chunk, i) => {
+        console.log(`  ${i + 1}. [${chunk.similarity?.toFixed(3)}] ${chunk.materialTitle}`);
+      });
+    }
     
     const relevantChunks = chunksToUse
       .slice(0, maxChunks)
@@ -364,7 +472,7 @@ export async function POST(request: NextRequest) {
     const fullSystemPrompt = `${baseInstructions}${introContext}\n\nRelevant Training Materials:\n${relevantChunks}`;
     
     // Debug: Show the actual system prompt being sent to AI
-    console.log('[DEBUG] System prompt being sent to AI (first 800 chars):', fullSystemPrompt.substring(0, 800) + '...');
+    if (DEBUG) console.log('[DEBUG] System prompt sent (length):', fullSystemPrompt.length);
     
     // Convert UI messages to model messages - no manipulation needed
     const modelMessages = [
@@ -382,6 +490,13 @@ export async function POST(request: NextRequest) {
 
     // Return the UI message stream response with offer hint metadata
     const response = result.toUIMessageStreamResponse();
+    // Add CORS headers if secure mode validated origin
+    if (secureMode) {
+      const cors = getCORSHeaders(origin, allowedOriginsForCors);
+      for (const [k, v] of Object.entries(cors)) {
+        response.headers.set(k, v);
+      }
+    }
     
     // Add offer hint headers for UI consumption
     if (offerHint.type === 'single' && offerHint.offer) {

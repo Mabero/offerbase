@@ -8,7 +8,7 @@ import { LRUCache } from 'lru-cache';
 
 export interface ValidatedTerm {
   term: string;
-  docFrequency: number;
+  docCount: number;  // Changed from docFrequency to match new RPC
   kept: boolean;
   reason?: string;
 }
@@ -16,6 +16,7 @@ export interface ValidatedTerm {
 export interface ValidationResult {
   kept: string[];
   dropped: ValidatedTerm[];
+  validatedTerms: ValidatedTerm[];  // Added for ranking access
   telemetry: {
     cacheHits: number;
     dbQueries: number;
@@ -50,6 +51,7 @@ export class CorpusValidator {
       return {
         kept: [],
         dropped: [],
+        validatedTerms: [],
         telemetry: { cacheHits: 0, dbQueries: 0, totalTerms: 0 }
       };
     }
@@ -88,7 +90,7 @@ export class CorpusValidator {
           for (const term of uncachedTerms) {
             const result: ValidatedTerm = {
               term,
-              docFrequency: 0,
+              docCount: 0,  // Changed from docFrequency
               kept: false,
               reason: 'validation_error'
             };
@@ -102,7 +104,7 @@ export class CorpusValidator {
           for (const result of data || []) {
             const validatedTerm: ValidatedTerm = {
               term: result.term,
-              docFrequency: result.doc_frequency || 0,
+              docCount: result.doc_count || 0,  // Changed from doc_frequency
               kept: result.kept || false,
               reason: result.reason
             };
@@ -119,7 +121,7 @@ export class CorpusValidator {
             if (!resultMap.has(term)) {
               const notFoundResult: ValidatedTerm = {
                 term,
-                docFrequency: 0,
+                docCount: 0,  // Changed from docFrequency
                 kept: false,
                 reason: 'not_found'
               };
@@ -134,7 +136,7 @@ export class CorpusValidator {
         for (const term of uncachedTerms) {
           const result: ValidatedTerm = {
             term,
-            docFrequency: 0,
+            docCount: 0,  // Changed from docFrequency
             kept: false,
             reason: 'rpc_error'
           };
@@ -151,6 +153,7 @@ export class CorpusValidator {
     return {
       kept,
       dropped,
+      validatedTerms,
       telemetry: {
         cacheHits,
         dbQueries,

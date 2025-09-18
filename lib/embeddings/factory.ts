@@ -132,8 +132,19 @@ export class RerankerFactory {
     if (!enabled) {
       return null;
     }
-    
+
+    // Require API key to avoid construction errors in production
+    if (!process.env.COHERE_API_KEY) {
+      console.warn('[RerankerFactory] RERANKER_ENABLED=true but COHERE_API_KEY is missing. Disabling reranker.');
+      return null;
+    }
+
     const model = process.env.COHERE_RERANK_MODEL || 'rerank-english-v3.0';
-    return this.create('cohere', { model });
+    try {
+      return this.create('cohere', { model });
+    } catch (err) {
+      console.error('[RerankerFactory] Failed to initialize reranker:', err instanceof Error ? err.message : err);
+      return null;
+    }
   }
 }

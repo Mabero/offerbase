@@ -171,7 +171,14 @@ export function getCORSHeaders(origin: string | null, allowedOrigins: string[]):
     'Vary': 'Origin',
   };
 
-  // Set specific origin if allowed, never use wildcard for security
+  // Special-case: allow all when explicitly configured with wildcard
+  // Only safe for non-credentialed requests (we never use cookies here)
+  if (allowedOrigins && allowedOrigins.includes('*')) {
+    headers['Access-Control-Allow-Origin'] = '*';
+    return headers;
+  }
+
+  // Set specific origin if allowed, never use wildcard unless explicitly requested
   if (origin && isOriginAllowed(origin, allowedOrigins)) {
     headers['Access-Control-Allow-Origin'] = origin;
     headers['Access-Control-Allow-Credentials'] = 'false'; // We use Bearer tokens, not cookies

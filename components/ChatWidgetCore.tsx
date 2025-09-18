@@ -1165,16 +1165,33 @@ export function ChatWidgetCore({
   // Track which messages have completed streaming for product visibility
   const [completedMessageIds, setCompletedMessageIds] = useState<Set<string>>(new Set());
   
-  // Create custom transport with our endpoint
+  // Create custom transport with our endpoint, include JWT and body
   const transport = React.useMemo(() => {
     // Handle empty apiUrl - use current origin for relative URLs
     const finalApiUrl = apiUrl || (typeof window !== 'undefined' ? window.location.origin : '');
     const fullEndpoint = `${finalApiUrl}/api/chat-ai`;
+
+    // Pass Authorization header (Bearer) when token is available
+    const headers = async () => {
+      const h: Record<string, string> = {};
+      if (widgetAuth.token) {
+        h['Authorization'] = `Bearer ${widgetAuth.token}`;
+      }
+      return h;
+    };
+
+    // Send required body fields used by the API route
+    const body = {
+      siteId,
+      introMessage: chatSettings.intro_message || introMessage || '',
+    };
     
     return new DefaultChatTransport({
       api: fullEndpoint,
+      headers,
+      body,
     });
-  }, [apiUrl]);
+  }, [apiUrl, siteId, widgetAuth.token, chatSettings.intro_message, introMessage]);
 
   // Use AI SDK's useChat hook with minimal configuration to prevent loops
   const { messages: aiMessages, sendMessage, setMessages, error, status } = useChat({
