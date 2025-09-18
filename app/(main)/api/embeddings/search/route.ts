@@ -175,6 +175,8 @@ export async function POST(request: NextRequest) {
 // Find similar chunks endpoint
 export async function GET(request: NextRequest) {
   try {
+    const secureMode = process.env.SECURE_EMBEDDINGS_API === 'true';
+    const origin = getRequestOrigin(request);
     const { searchParams } = new URL(request.url);
     const chunkId = searchParams.get('chunkId');
     const limit = parseInt(searchParams.get('limit') || '5');
@@ -186,16 +188,44 @@ export async function GET(request: NextRequest) {
       );
     }
     
+    // Optional security: require JWT/origin validation
+    let allowedOriginsForCors: string[] = [];
+    if (secureMode) {
+      const authHeader = request.headers.get('authorization');
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return NextResponse.json(
+          { error: 'Bearer token required' },
+          { status: 401, headers: getCORSHeaders(origin, allowedOriginsForCors) }
+        );
+      }
+      const token = authHeader.substring(7);
+      const decoded: SiteToken | null = verifySiteToken(token);
+      if (!decoded) {
+        return NextResponse.json(
+          { error: 'Invalid or expired token' },
+          { status: 401, headers: getCORSHeaders(origin, allowedOriginsForCors) }
+        );
+      }
+      if (!origin || origin !== decoded.origin) {
+        return NextResponse.json(
+          { error: 'Origin mismatch' },
+          { status: 403, headers: getCORSHeaders(origin, allowedOriginsForCors) }
+        );
+      }
+    }
+
     // Initialize search service
     const searchService = new VectorSearchService();
-    
+
     // Find similar chunks
     const results = await searchService.findSimilarChunks(chunkId, limit);
-    
+
     return NextResponse.json({
       success: true,
       results,
       count: results.length,
+    }, {
+      headers: secureMode ? getCORSHeaders(origin, allowedOriginsForCors) : {}
     });
   } catch (error) {
     console.error('Find similar error:', error);
