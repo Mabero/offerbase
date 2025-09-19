@@ -97,6 +97,7 @@ export interface ChatWidgetCoreProps {
   onLinkClick?: (link: Link) => void;
   onMessageSent?: (message: string) => void;
   onWidgetOpen?: () => void;
+  parentPageContext?: { title?: string; url?: string };
 }
 
 // Utility function to generate unique message IDs (legacy - AI SDK handles this)
@@ -920,7 +921,8 @@ export function ChatWidgetCore({
   parentOrigin = null,
   onLinkClick,
   onMessageSent,
-  onWidgetOpen
+  onWidgetOpen,
+  parentPageContext
 }: ChatWidgetCoreProps) {
   
   // Initialize messages with intro message if available
@@ -1184,6 +1186,7 @@ export function ChatWidgetCore({
     const body = {
       siteId,
       introMessage: chatSettings.intro_message || introMessage || '',
+      pageContext: parentPageContext || undefined,
     };
     
     return new DefaultChatTransport({
@@ -1191,7 +1194,7 @@ export function ChatWidgetCore({
       headers,
       body,
     });
-  }, [apiUrl, siteId, widgetAuth.token, chatSettings.intro_message, introMessage]);
+  }, [apiUrl, siteId, widgetAuth.token, chatSettings.intro_message, introMessage, parentPageContext]);
 
   // Use AI SDK's useChat hook with minimal configuration to prevent loops
   const { messages: aiMessages, sendMessage, setMessages, error, status } = useChat({

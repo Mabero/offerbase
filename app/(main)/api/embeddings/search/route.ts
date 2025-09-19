@@ -191,6 +191,7 @@ export async function GET(request: NextRequest) {
     
     // Optional security: require JWT/origin validation
     let allowedOriginsForCors: string[] = [];
+    let decoded: SiteToken | null = null;
     if (secureMode) {
       const authHeader = request.headers.get('authorization');
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -200,7 +201,7 @@ export async function GET(request: NextRequest) {
         );
       }
       const token = authHeader.substring(7);
-      const decoded: SiteToken | null = verifySiteToken(token);
+      decoded = verifySiteToken(token);
       if (!decoded) {
         return NextResponse.json(
           { error: 'Invalid or expired token' },

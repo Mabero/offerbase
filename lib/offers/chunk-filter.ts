@@ -8,7 +8,7 @@ import type { OfferCandidate } from './resolver';
 export interface FilterResult {
   filtered: SearchResult[];
   fallback: boolean;      // True if model-only fallback was used
-  method: 'brand_model' | 'model_only' | 'none';  // Which filter was applied
+  method: 'brand_model' | 'model_only' | 'brand_only' | 'none';  // Which filter was applied
   originalCount: number;  // Original chunk count before filtering
 }
 
@@ -87,8 +87,12 @@ export function filterChunksByOffer(
     }
   }
   
-  // Strategy 3: Brand-only fallback (if no model but have brand)
-  if (offer.brand_norm && !offer.model_norm) {
+  // Strategy 3: Brand-only fallback
+  // Two cases:
+  //   a) No model but have brand (original behavior)
+  //   b) Brand+model AND model-only both failed but brand fallback is enabled via env
+  const brandFallbackEnabled = process.env.POST_FILTER_BRAND_FALLBACK === 'true';
+  if (offer.brand_norm && (!offer.model_norm || brandFallbackEnabled)) {
     filtered = chunks.filter(chunk => {
       const contentNorm = normalizeText(chunk.content);
       return contentNorm.includes(offer.brand_norm!);
@@ -97,8 +101,8 @@ export function filterChunksByOffer(
     if (filtered.length > 0) {
       return {
         filtered,
-        fallback: false,
-        method: 'brand_model', // Not really fallback since no model exists
+        fallback: Boolean(offer.model_norm), // mark as fallback only when model existed but we fell back to brand
+        method: 'brand_only',
         originalCount
       };
     }

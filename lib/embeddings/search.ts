@@ -11,7 +11,7 @@ import { TermExtractor, ExtractedTerms } from '../search/term-extractor';
 import { CorpusValidator, ValidationResult } from '../search/corpus-validator';
 
 export interface SearchTelemetry {
-  extraction_method: 'unicode_extraction' | 'skip_non_latin' | null;
+  extraction_method: 'unicode_extraction' | 'skip_non_latin' | 'fallback_error' | null;
   extracted_terms_raw: string[];
   validated_terms_kept: string[];
   validated_terms_dropped: Array<{
@@ -192,16 +192,20 @@ export class VectorSearchService {
       // Execute the query
       const { data, error } = await supabaseQuery;
       
-      // DEBUG: Log the FTS query results
+      // DEBUG: Log the FTS query results (handle relationship as object or array)
       console.log('[DEBUG] keywordSearch results:', {
         query: escapedQuery,
         error: error,
         resultCount: data?.length || 0,
-        firstResult: data?.[0] ? {
-          id: data[0].id,
-          materialTitle: data[0].training_materials?.title || 'unknown',
-          contentPreview: data[0].content?.substring(0, 100) || ''
-        } : null
+        firstResult: data?.[0] ? (() => {
+          const tm: any = (data as any)[0].training_materials;
+          const firstTitle = Array.isArray(tm) ? (tm?.[0]?.title ?? 'unknown') : (tm?.title ?? 'unknown');
+          return {
+            id: (data as any)[0].id,
+            materialTitle: firstTitle,
+            contentPreview: (data as any)[0].content?.substring(0, 100) || ''
+          };
+        })() : null
       });
       
       if (error) {
@@ -209,14 +213,19 @@ export class VectorSearchService {
         return [];
       }
       
-      return (data || []).map((row: any) => ({
-        chunkId: row.id,
-        content: row.content,
-        similarity: 0.5, // Default similarity for keyword matches
-        metadata: row.metadata || {},
-        materialId: row.training_materials.id,
-        materialTitle: row.training_materials.title,
-      }));
+      return (data || []).map((row: any) => {
+        const tm: any = row.training_materials;
+        const materialTitle = Array.isArray(tm) ? (tm?.[0]?.title ?? 'unknown') : (tm?.title ?? 'unknown');
+        const materialId = Array.isArray(tm) ? (tm?.[0]?.id ?? row.training_material_id) : (tm?.id ?? row.training_material_id);
+        return {
+          chunkId: row.id,
+          content: row.content,
+          similarity: 0.5, // Default similarity for keyword matches
+          metadata: row.metadata || {},
+          materialId,
+          materialTitle,
+        } as SearchResult;
+      });
     } catch (error) {
       console.error('Keyword search error:', error);
       return [];
@@ -708,49 +717,4 @@ export class VectorSearchService {
       .join(' OR ');
   }
 
-  /**
-   * Trigram search for non-Latin scripts (CJK/Thai/Arabic/Hebrew)
-   */
-  private async trigramSearch(
-    query: string,
-    siteId: string,
-    limit: number
-  ): Promise<SearchResult[]> {
-    try {
-      const { data, error } = await this.supabase
-        .from('training_material_chunks')
-        .select(`
-          id,
-          content,
-          metadata,
-          training_material_id,
-          training_materials!inner(
-            id,
-            title,
-            site_id
-          )
-        `)
-        .eq('training_materials.site_id', siteId)
-        .eq('training_materials.is_active', true)
-        .filter('content', 'like', `%${query}%`)
-        .limit(limit);
-
-      if (error) {
-        console.error('Trigram search error:', error);
-        return [];
-      }
-
-      return (data || []).map((row: any) => ({
-        chunkId: row.id,
-        content: row.content,
-        similarity: 0.5, // Default similarity for trigram matches
-        metadata: row.metadata || {},
-        materialId: row.training_material_id,
-        materialTitle: row.training_materials.title,
-      }));
-    } catch (error) {
-      console.error('Trigram search error:', error);
-      return [];
-    }
-  }
 }

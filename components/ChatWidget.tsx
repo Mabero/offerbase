@@ -23,6 +23,7 @@ interface ChatWidgetProps {
   isEmbedded?: boolean;
   widgetType?: 'floating' | 'inline';
   parentOrigin?: string | null;
+  pageContext?: { title?: string; url?: string };
 }
 
 // Custom Chat Icon Component (preserving the original design)
@@ -48,7 +49,8 @@ function ChatWidget({
   apiUrl = '', 
   isEmbedded = false,
   widgetType = 'floating',
-  parentOrigin = null
+  parentOrigin = null,
+  pageContext
 }: ChatWidgetProps) {
   
   const [isOpen, setIsOpen] = useState(isEmbedded); // Auto-open if embedded
@@ -272,6 +274,7 @@ function ChatWidget({
             isEmbedded={isEmbedded}
             widgetType={widgetType}
             parentOrigin={parentOrigin}
+            parentPageContext={pageContext}
             onLinkClick={handleLinkClick}
             onMessageSent={handleMessageSent}
           />

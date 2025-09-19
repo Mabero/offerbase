@@ -111,7 +111,7 @@
 
         // Create iframe
         const iframe = document.createElement('iframe');
-        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&embedded=true&widgetType=floating&parentOrigin=${encodeURIComponent(window.location.origin)}&v=${Date.now()}`;
+        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&embedded=true&widgetType=floating&parentOrigin=${encodeURIComponent(window.location.origin)}&parentUrl=${encodeURIComponent(window.location.href)}&pageTitle=${encodeURIComponent(document.title || '')}&v=${Date.now()}`;
         iframe.style.cssText = `
             width: 100%;
             height: 100%;
@@ -148,7 +148,7 @@
 
         // Create iframe
         const iframe = document.createElement('iframe');
-        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&embedded=true&widgetType=inline&parentOrigin=${encodeURIComponent(window.location.origin)}&v=${Date.now()}`;
+        iframe.src = `${apiUrl}/widget?siteId=${encodeURIComponent(siteId)}&apiUrl=${encodeURIComponent(apiUrl)}&embedded=true&widgetType=inline&parentOrigin=${encodeURIComponent(window.location.origin)}&parentUrl=${encodeURIComponent(window.location.href)}&pageTitle=${encodeURIComponent(document.title || '')}&v=${Date.now()}`;
         iframe.style.cssText = `
             width: 100%;
             height: 100%;
