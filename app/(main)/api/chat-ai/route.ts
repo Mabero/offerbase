@@ -654,13 +654,14 @@ export async function POST(request: NextRequest) {
     
     // Get AI instructions from centralized location
     const baseInstructions = getAIInstructions();
-    // Detect user's language to enforce reply language (best-effort)
+    // Detect user's language to enforce reply language (best-effort), with site TLD fallback for short queries
     let languageInstruction = '';
     try {
       const tinyld = await import('tinyld');
-      const code = tinyld.detect((typeof messages[messages.length - 1]?.content === 'string')
+      const lastText = (typeof messages[messages.length - 1]?.content === 'string')
         ? (messages[messages.length - 1]?.content as string)
-        : (messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || ''));
+        : (messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || '');
+      const code = tinyld.detect(lastText || '');
       const LANG_NAME: Record<string, string> = {
         en: 'English',
         no: 'Norwegian', nb: 'Norwegian', nn: 'Norwegian',
@@ -668,7 +669,29 @@ export async function POST(request: NextRequest) {
         de: 'German', fr: 'French', es: 'Spanish', pt: 'Portuguese', it: 'Italian', nl: 'Dutch'
       };
       const name = LANG_NAME[code as string];
-      if (name) languageInstruction = `\n\nIMPORTANT: Respond in ${name}.`;
+      // Site-based fallback via TLD heuristics
+      const inferFromUrl = (u?: string | null): string | undefined => {
+        if (!u) return undefined;
+        try {
+          const host = new URL(u).hostname.toLowerCase();
+          if (host.endsWith('.no')) return 'Norwegian';
+          if (host.endsWith('.se')) return 'Swedish';
+          if (host.endsWith('.dk')) return 'Danish';
+          if (host.endsWith('.fi')) return 'Finnish';
+          if (host.endsWith('.de')) return 'German';
+          if (host.endsWith('.nl')) return 'Dutch';
+          if (host.endsWith('.fr')) return 'French';
+          if (host.endsWith('.es')) return 'Spanish';
+          if (host.endsWith('.pt')) return 'Portuguese';
+          if (host.endsWith('.it')) return 'Italian';
+          return undefined;
+        } catch { return undefined; }
+      };
+      // Prefer pageContext URL if available; otherwise rely on request origin (iframe) which is app domain
+      const siteLang = inferFromUrl((pageContext && pageContext.url) ? pageContext.url : undefined);
+      const shortOrAmbiguous = !lastText || lastText.trim().length < 12;
+      const finalName = (shortOrAmbiguous && siteLang) ? siteLang : (name || siteLang);
+      if (finalName) languageInstruction = `\n\nIMPORTANT: Respond in ${finalName}.`;
     } catch {}
     
     // Add intro message context if provided - use strong instruction language
