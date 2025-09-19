@@ -272,6 +272,31 @@
         
         // Load settings first (returns true/false indicating success)
         await loadChatSettings();
+
+        // Prewarm ephemeral page context cache for this URL (non-blocking)
+        (async () => {
+            try {
+                if (typeof window !== 'undefined' && window.location && siteId && apiUrl) {
+                    const pageUrl = window.location.href;
+                    const res = await fetch(`${apiUrl}/api/widget/page-context?siteId=${encodeURIComponent(siteId)}&url=${encodeURIComponent(pageUrl)}`, {
+                        method: 'GET',
+                        mode: 'cors',
+                        credentials: 'omit',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    // Optional: log once for visibility
+                    if (res.ok) {
+                        res.json().then(data => {
+                            if (data && data.success) {
+                                console.log('ChatWidget: Page context', data.cached ? 'cache hit' : 'cached');
+                            }
+                        }).catch(() => {});
+                    }
+                }
+            } catch (e) {
+                // Silent fail; page context is a best-effort feature
+            }
+        })();
         
 
         // Update config with loaded settings (either from API or defaults)
