@@ -281,8 +281,8 @@
                     const res = await fetch(`${apiUrl}/api/widget/page-context?siteId=${encodeURIComponent(siteId)}&url=${encodeURIComponent(pageUrl)}`, {
                         method: 'GET',
                         mode: 'cors',
-                        credentials: 'omit',
-                        headers: { 'Content-Type': 'application/json' }
+                        credentials: 'omit'
+                        // No headers → remains a simple request; avoids CORS preflight OPTIONS
                     });
                     // Optional: log once for visibility
                     if (res.ok) {
