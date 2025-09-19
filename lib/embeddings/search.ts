@@ -11,7 +11,7 @@ import { TermExtractor, ExtractedTerms } from '../search/term-extractor';
 import { CorpusValidator, ValidationResult } from '../search/corpus-validator';
 
 export interface SearchTelemetry {
-  extraction_method: 'unicode_extraction' | 'skip_non_latin' | null;
+  extraction_method: 'unicode_extraction' | 'skip_non_latin' | 'fallback_error' | null;
   extracted_terms_raw: string[];
   validated_terms_kept: string[];
   validated_terms_dropped: Array<{
@@ -24,6 +24,8 @@ export interface SearchTelemetry {
   trigram_fallback_used: boolean;
   vector_suggest_threshold: number;
   keyword_veto_threshold: number;
+  bigrams_included?: string[];  // Added for tracking phrase handling
+  doc_counts?: Record<string, number>;  // Added for ranking insights
   cache_stats?: {
     hits: number;
     queries: number;
@@ -154,8 +156,17 @@ export class VectorSearchService {
       // Escape special characters in query
       const escapedQuery = query.replace(/['"\\]/g, '\\$&');
       
-      // Direct SQL query for full-text search
-      const { data, error } = await this.supabase
+      // DEBUG: Log the FTS query execution
+      console.log('[DEBUG] keywordSearch executing:', {
+        originalQuery: query,
+        escapedQuery: escapedQuery,
+        siteId: siteId,
+        limit: limit,
+        ftsConfig: FTS_CONFIG
+      });
+      
+      // Build the query step by step for debugging
+      const supabaseQuery = this.supabase
         .from('training_material_chunks')
         .select(`
           id,
@@ -175,20 +186,46 @@ export class VectorSearchService {
           config: FTS_CONFIG,
         })
         .limit(limit);
+
+      console.log('[DEBUG] Supabase query URL:', supabaseQuery.toString());
+
+      // Execute the query
+      const { data, error } = await supabaseQuery;
+      
+      // DEBUG: Log the FTS query results (handle relationship as object or array)
+      console.log('[DEBUG] keywordSearch results:', {
+        query: escapedQuery,
+        error: error,
+        resultCount: data?.length || 0,
+        firstResult: data?.[0] ? (() => {
+          const tm: any = (data as any)[0].training_materials;
+          const firstTitle = Array.isArray(tm) ? (tm?.[0]?.title ?? 'unknown') : (tm?.title ?? 'unknown');
+          return {
+            id: (data as any)[0].id,
+            materialTitle: firstTitle,
+            contentPreview: (data as any)[0].content?.substring(0, 100) || ''
+          };
+        })() : null
+      });
       
       if (error) {
         console.error('Keyword search error:', error);
         return [];
       }
       
-      return (data || []).map((row: any) => ({
-        chunkId: row.id,
-        content: row.content,
-        similarity: 0.5, // Default similarity for keyword matches
-        metadata: row.metadata || {},
-        materialId: row.training_materials.id,
-        materialTitle: row.training_materials.title,
-      }));
+      return (data || []).map((row: any) => {
+        const tm: any = row.training_materials;
+        const materialTitle = Array.isArray(tm) ? (tm?.[0]?.title ?? 'unknown') : (tm?.title ?? 'unknown');
+        const materialId = Array.isArray(tm) ? (tm?.[0]?.id ?? row.training_material_id) : (tm?.id ?? row.training_material_id);
+        return {
+          chunkId: row.id,
+          content: row.content,
+          similarity: 0.5, // Default similarity for keyword matches
+          metadata: row.metadata || {},
+          materialId,
+          materialTitle,
+        } as SearchResult;
+      });
     } catch (error) {
       console.error('Keyword search error:', error);
       return [];
@@ -560,20 +597,59 @@ export class VectorSearchService {
         telemetry.validated_terms_dropped = validation.dropped.map(d => ({
           term: d.term,
           reason: d.reason || 'unknown',
-          frequency: d.docFrequency
+          frequency: d.docCount  // Changed from docFrequency
         }));
         telemetry.cache_stats = {
           hits: validation.telemetry.cacheHits,
           queries: validation.telemetry.dbQueries
         };
         
-        // 3. Build FTS query from validated terms
+        // 3. Rank and cap validated terms
         if (validation.kept.length > 0) {
-          ftsQuery = this.buildFTSQuery(validation.kept);
+          // Rank ALL kept terms, then cap to MAX_EXTRACT_TERMS
+          const maxTerms = Number(process.env.MAX_EXTRACT_TERMS || 3);
+          const rankedTerms = validation.kept
+            .sort((a, b) => {
+              // Get doc counts from validation data for ranking
+              const aData = validation.validatedTerms.find(t => t.term === a);
+              const bData = validation.validatedTerms.find(t => t.term === b);
+              
+              // Priority 1: Bigrams (contain space)
+              const aIsBigram = a.includes(' ');
+              const bIsBigram = b.includes(' ');
+              if (aIsBigram !== bIsBigram) return aIsBigram ? -1 : 1;
+              
+              // Priority 2: Contains digits (product codes like g3, 15pro)
+              const aHasDigit = /\d/.test(a);
+              const bHasDigit = /\d/.test(b);
+              if (aHasDigit !== bHasDigit) return aHasDigit ? -1 : 1;
+              
+              // Priority 3: Length (longer is more specific)
+              if (a.length !== b.length) return b.length - a.length;
+              
+              // Priority 4: Lower doc_count (rarer terms are more specific)
+              const aCount = aData?.docCount || 0;
+              const bCount = bData?.docCount || 0;
+              return aCount - bCount;
+            })
+            .slice(0, maxTerms); // Cap AFTER ranking to ensure we keep the best terms
+          
+          // Build FTS query from ranked terms
+          ftsQuery = this.buildFTSQuery(rankedTerms);
           telemetry.fts_query_built = ftsQuery;
           telemetry.keyword_path_ran = true;
+          telemetry.validated_terms_kept = rankedTerms; // Update with ranked terms
           
-          // Run FTS search with extracted terms
+          // Add telemetry for ranking insights
+          telemetry.bigrams_included = rankedTerms.filter(t => t.includes(' '));
+          telemetry.doc_counts = Object.fromEntries(
+            rankedTerms.map(term => [
+              term, 
+              validation.validatedTerms.find(t => t.term === term)?.docCount || 0
+            ])
+          );
+          
+          // Run FTS search with ranked terms
           keywordResults = await this.keywordSearch(ftsQuery, siteId, limit * 2);
         }
       }
@@ -641,49 +717,4 @@ export class VectorSearchService {
       .join(' OR ');
   }
 
-  /**
-   * Trigram search for non-Latin scripts (CJK/Thai/Arabic/Hebrew)
-   */
-  private async trigramSearch(
-    query: string,
-    siteId: string,
-    limit: number
-  ): Promise<SearchResult[]> {
-    try {
-      const { data, error } = await this.supabase
-        .from('training_material_chunks')
-        .select(`
-          id,
-          content,
-          metadata,
-          training_material_id,
-          training_materials!inner(
-            id,
-            title,
-            site_id
-          )
-        `)
-        .eq('training_materials.site_id', siteId)
-        .eq('training_materials.is_active', true)
-        .filter('content', 'like', `%${query}%`)
-        .limit(limit);
-
-      if (error) {
-        console.error('Trigram search error:', error);
-        return [];
-      }
-
-      return (data || []).map((row: any) => ({
-        chunkId: row.id,
-        content: row.content,
-        similarity: 0.5, // Default similarity for trigram matches
-        metadata: row.metadata || {},
-        materialId: row.training_material_id,
-        materialTitle: row.training_materials.title,
-      }));
-    } catch (error) {
-      console.error('Trigram search error:', error);
-      return [];
-    }
-  }
 }

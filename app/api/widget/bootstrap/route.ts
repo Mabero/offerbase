@@ -149,7 +149,7 @@ export async function GET(request: NextRequest) {
     // Skip rate limiting for localhost development
     const isLocalhost = origin?.includes('localhost') || origin?.includes('127.0.0.1');
     
-    if (!isLocalhost && !rateLimiter.isAllowed(rateLimitKey, bootstrapRateLimit, 60000)) {
+    if (!isLocalhost && !(await rateLimiter.isAllowed(rateLimitKey, bootstrapRateLimit, 60000))) {
       console.warn(`Bootstrap rate limited`, { siteId, origin, clientIP });
       
       return NextResponse.json(
