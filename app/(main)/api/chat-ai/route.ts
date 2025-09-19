@@ -361,6 +361,7 @@ export async function POST(request: NextRequest) {
       const corpusAwareEnabled = process.env.CORPUS_AWARE_SEARCH === 'true';
       
       if (convoAware) {
+        const isShort = (currentQuery || '').trim().split(/\s+/).filter(Boolean).length <= 3;
         // Conversation-aware boosting without mutating the query
         const smart = await searchService.searchWithSmartContext(
           currentQuery,
@@ -370,12 +371,19 @@ export async function POST(request: NextRequest) {
             vectorWeight: 0.6,
             limit: 10,
             useReranker: false,
-            similarityThreshold: Number(process.env.RAG_SIMILARITY_THRESHOLD ?? 0.3),
+            similarityThreshold: isShort
+              ? Math.min(0.15, Number(process.env.RAG_SIMILARITY_THRESHOLD ?? 0.3))
+              : Number(process.env.RAG_SIMILARITY_THRESHOLD ?? 0.3),
           }
         );
-        searchResults = smart;
-        // Base hybrid similarity (pre-boost)
-        topHybridScore = searchResults[0]?.similarity ?? 0;
+        searchResults = smart as any[];
+        // Use boosted score when available (final_score), else fallback to similarity
+        {
+          const top: any = searchResults[0] || {};
+          topHybridScore = typeof top.final_score === 'number'
+            ? top.final_score
+            : (top.similarity ?? 0);
+        }
         // Compute vector for routing
         const { EmbeddingProviderFactory } = await import('@/lib/embeddings/factory');
         const embeddingProvider2 = EmbeddingProviderFactory.fromEnvironment();
@@ -401,7 +409,12 @@ export async function POST(request: NextRequest) {
                 .sort((a: any, b: any) => b.similarity - a.similarity)
                 .slice(0, Number(process.env.PAGE_CONTEXT_MAX_CHUNKS ?? 2));
               searchResults = [...pageChunks, ...searchResults].slice(0, 10);
-              topHybridScore = searchResults[0]?.similarity ?? topHybridScore;
+              {
+                const top: any = searchResults[0] || {};
+                topHybridScore = typeof top.final_score === 'number'
+                  ? top.final_score
+                  : (top.similarity ?? topHybridScore);
+              }
             }
           } catch (e) {
             if (DEBUG) console.warn('[PageContext] merge error', e);
@@ -423,8 +436,13 @@ export async function POST(request: NextRequest) {
         searchResults = enhancedResult.results;
         searchTelemetry = enhancedResult.telemetry;
         
-        // Extract scores from search results and telemetry
-        topHybridScore = searchResults[0]?.similarity ?? 0;
+        // Extract scores from search results and telemetry (prefer boosted final_score)
+        {
+          const top: any = searchResults[0] || {};
+          topHybridScore = typeof top.final_score === 'number'
+            ? top.final_score
+            : (top.similarity ?? 0);
+        }
         // Compute vector score separately for routing
         const { EmbeddingProviderFactory } = await import('@/lib/embeddings/factory');
         const embeddingProvider2 = EmbeddingProviderFactory.fromEnvironment();
@@ -456,7 +474,12 @@ export async function POST(request: NextRequest) {
         searchResults = hybridResults;
         vectorResults = vectorSearchResults;
         topVectorScore = vectorResults[0]?.similarity ?? 0;
-        topHybridScore = searchResults[0]?.similarity ?? 0;
+        {
+          const top: any = searchResults[0] || {};
+          topHybridScore = typeof top.final_score === 'number'
+            ? top.final_score
+            : (top.similarity ?? 0);
+        }
         // Merge ephemeral page-context chunks if available
         if (process.env.ENABLE_PAGE_CONTEXT !== 'false' && pageContext?.url) {
           try {
@@ -476,7 +499,12 @@ export async function POST(request: NextRequest) {
                 .sort((a: any, b: any) => b.similarity - a.similarity)
                 .slice(0, Number(process.env.PAGE_CONTEXT_MAX_CHUNKS ?? 2));
               searchResults = [...pageChunks, ...searchResults].slice(0, 10);
-              topHybridScore = searchResults[0]?.similarity ?? topHybridScore;
+              {
+                const top: any = searchResults[0] || {};
+                topHybridScore = typeof top.final_score === 'number'
+                  ? top.final_score
+                  : (top.similarity ?? topHybridScore);
+              }
             }
           } catch (e) {
             if (DEBUG) console.warn('[PageContext] merge error', e);
@@ -542,7 +570,10 @@ export async function POST(request: NextRequest) {
     }
     
     // Composite routing: vectors dominate recall; FTS supports
-    const topSimilarity = searchResults[0]?.similarity ?? 0;
+    const topSimilarity = (() => {
+      const top: any = searchResults[0] || {};
+      return typeof top.final_score === 'number' ? top.final_score : (top.similarity ?? 0);
+    })();
     const maxChunks = Number(process.env.RAG_MAX_CHUNKS ?? 6);
 
     const vectorMin = Number(process.env.VECTOR_CONFIDENCE_MIN ?? 0.4);
