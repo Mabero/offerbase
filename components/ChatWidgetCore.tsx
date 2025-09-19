@@ -1655,7 +1655,8 @@ export function ChatWidgetCore({
       {
         body: {
           siteId,
-          introMessage: chatSettings?.intro_message || introMessage
+          introMessage: chatSettings?.intro_message || introMessage,
+          widgetToken: widgetAuth.token || undefined
         }
       }
     );
@@ -1798,7 +1799,8 @@ export function ChatWidgetCore({
         {
           body: {
             siteId,
-            introMessage: chatSettings?.intro_message || introMessage
+            introMessage: chatSettings?.intro_message || introMessage,
+            widgetToken: widgetAuth.token || undefined
           }
         }
       );
@@ -1841,7 +1843,8 @@ export function ChatWidgetCore({
         {
           body: {
             siteId,
-            introMessage: chatSettings?.intro_message || introMessage
+            introMessage: chatSettings?.intro_message || introMessage,
+            widgetToken: widgetAuth.token || undefined
           }
         }
       );
