@@ -1146,6 +1146,8 @@ export function ChatWidgetCore({
 
   // Widget authentication - handles JWT tokens and API security
   const widgetAuth = useWidgetAuth(siteId, apiUrl, parentOrigin);
+  // Gate user input until a valid token is available to avoid 401s
+  const authReady = !!(widgetAuth.token && widgetAuth.isAuthenticated);
   
   // Local state for input (AI SDK manages loading state)
   const [input, setInput] = useState('');
@@ -1627,6 +1629,10 @@ export function ChatWidgetCore({
 
   const handleRetryMessage = async () => {
     if (aiLoading) return;
+    if (!authReady) {
+      try { await widgetAuth.refresh(); } catch {}
+      return;
+    }
     
     const lastUserMessage = messages.filter(msg => msg.type === 'user').pop();
     if (!lastUserMessage) return;
@@ -1706,6 +1712,11 @@ export function ChatWidgetCore({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || aiLoading) return;
+    // Wait for auth before sending to avoid 401 (Bearer token required)
+    if (!authReady) {
+      try { await widgetAuth.refresh(); } catch {}
+      return;
+    }
     
     const message = input.trim();
     
@@ -1817,6 +1828,11 @@ export function ChatWidgetCore({
   // Send a message using AI SDK (for predefined questions)  
   const sendMessageToAI = async (userMessage: string) => {
     try {
+      // Ensure auth is ready to avoid 401 during predefined question send
+      if (!authReady) {
+        try { await widgetAuth.refresh(); } catch {}
+        return;
+      }
       // Use sendMessage for predefined questions with siteId (AI SDK manages loading state)
       await sendMessage(
         { text: userMessage },
@@ -2210,23 +2226,37 @@ export function ChatWidgetCore({
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="sentences"
-            placeholder={isLoadingHistory ? 'Loading conversation...' : (chatSettings?.input_placeholder || 'Type your message...')}
+            placeholder={
+              isLoadingHistory
+                ? 'Loading conversation...'
+                : (!authReady ? 'Connecting…' : (chatSettings?.input_placeholder || 'Type your message...'))
+            }
             style={styles.input}
             disabled={aiLoading || isLoadingHistory}
           />
           <button
             type="submit"
-            disabled={aiLoading || isLoadingHistory || !input.trim()}
+            disabled={aiLoading || isLoadingHistory || !authReady || !input.trim()}
             style={{
               ...styles.sendButton,
-              opacity: (aiLoading || isLoadingHistory || !input.trim()) ? 0.5 : 1,
-              cursor: (aiLoading || isLoadingHistory || !input.trim()) ? 'not-allowed' : 'pointer'
+              opacity: (aiLoading || isLoadingHistory || !authReady || !input.trim()) ? 0.5 : 1,
+              cursor: (aiLoading || isLoadingHistory || !authReady || !input.trim()) ? 'not-allowed' : 'pointer'
             }}
             aria-label="Send message"
           >
             <SendIcon size={16} color="white" />
           </button>
         </form>
+        {/* Auth status helper - small, unobtrusive indicator */}
+        {!authReady && (
+          <div style={{
+            marginTop: '8px',
+            fontSize: '12px',
+            color: '#6b7280'
+          }}>
+            Connecting securely…
+          </div>
+        )}
       </div>
       {/* CSS animations */}
       <style>{`
