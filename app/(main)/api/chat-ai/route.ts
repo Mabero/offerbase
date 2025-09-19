@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
 
     // Parse the request body - AI SDK sends { messages: UIMessage[], siteId: string }
     const body = await request.json();
-    const { messages, siteId, introMessage, pageContext } = body;
+    const { messages, siteId, introMessage, pageContext, widgetToken } = body;
     
     if (!siteId || !messages || !Array.isArray(messages)) {
       return new Response(
@@ -130,14 +130,19 @@ export async function POST(request: NextRequest) {
     // SECURITY: Optional JWT/origin enforcement for widget traffic
     if (secureMode) {
       const authHeader = request.headers.get('authorization');
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      let token: string | null = null;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7);
+      } else if (widgetToken && typeof widgetToken === 'string') {
+        // Fallback: accept token in body to avoid client header issues
+        token = widgetToken;
+      }
+      if (!token) {
         return new Response(
           JSON.stringify({ error: 'Bearer token required' }),
           { status: 401, headers: getCORSHeaders(origin, allowedOriginsForCors) }
         );
       }
-
-      const token = authHeader.substring(7);
       const decoded: SiteToken | null = verifySiteToken(token);
       if (!decoded) {
         return new Response(

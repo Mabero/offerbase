@@ -1189,6 +1189,8 @@ export function ChatWidgetCore({
       siteId,
       introMessage: chatSettings.intro_message || introMessage || '',
       pageContext: parentPageContext || undefined,
+      // Include JWT in body as a fallback in case headers are stripped by client/runtime
+      widgetToken: widgetAuth.token || undefined,
     };
     
     return new DefaultChatTransport({
