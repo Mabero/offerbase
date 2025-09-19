@@ -105,6 +105,7 @@ export async function POST(request: NextRequest) {
   try {
     const DEBUG = process.env.DEBUG_CHAT_AI === 'true' || process.env.NODE_ENV === 'development';
     const secureMode = process.env.SECURE_CHAT_AI_ENABLED === 'true';
+    const DEBUG_AUTH = process.env.DEBUG_CHAT_AI === 'true';
     const origin = getRequestOrigin(request);
     let allowedOriginsForCors: string[] = [];
 
@@ -130,6 +131,14 @@ export async function POST(request: NextRequest) {
     // SECURITY: Optional JWT/origin enforcement for widget traffic
     if (secureMode) {
       const authHeader = request.headers.get('authorization');
+      if (DEBUG_AUTH) {
+        console.log('[CHAT-AI AUTH] incoming', {
+          hasAuthHeader: !!(authHeader && authHeader.startsWith('Bearer ')),
+          hasWidgetToken: typeof widgetToken === 'string' && widgetToken.length > 10,
+          origin,
+          referer: request.headers.get('referer') || null,
+        });
+      }
       let token: string | null = null;
       if (authHeader && authHeader.startsWith('Bearer ')) {
         token = authHeader.substring(7);
