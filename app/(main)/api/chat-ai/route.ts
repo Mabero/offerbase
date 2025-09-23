@@ -101,6 +101,36 @@ function isComparativeQueryGeneric(query: string, subjectTerms: string[]): boole
   return false;
 }
 
+// Detect if the user is asking about the current page/article (multilingual heuristics)
+function detectPageIntent(text: string): boolean {
+  const q = (text || '').toLowerCase();
+  if (!q) return false;
+  const hints = [
+    // Norwegian
+    'oppsummer denne siden', 'oppsummer denne artikkelen', 'oppsummer artikkelen', 'oppsummer siden', 'på denne siden', 'denne siden',
+    // English
+    'summarize this page', 'summarize the page', 'summarize this article', 'summarize the article', 'on this page', 'on this article'
+  ];
+  // Also treat bare verbs as hints only when combined with 'page' intent words
+  const soft = ['oppsummer', 'summarize'];
+  return hints.some(h => q.includes(h)) || (
+    soft.some(s => q.includes(s)) && (q.includes('siden') || q.includes('sida') || q.includes('page') || q.includes('article'))
+  );
+}
+
+// Detect in-domain intent (simple multilingual allowlist; extendable via DOMAIN_KEYWORDS env)
+function detectDomainIntent(text: string): boolean {
+  const q = (text || '').toLowerCase();
+  if (!q) return false;
+  const defaultTerms = [
+    // Norwegian/English keywords and brands relevant to website building/SEO/hosting
+    'nettside','hjemmeside','wordpress','wix','webflow','squarespace','shopify','netthandel','seo','domene','hosting','webhotell','nettbutikk','website','site builder','page builder','cms','blog','landing page'
+  ];
+  const allowFromEnv = (process.env.DOMAIN_KEYWORDS || '').toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
+  const terms = allowFromEnv.length ? allowFromEnv : defaultTerms;
+  return terms.some(t => q.includes(t));
+}
+
 export async function POST(request: NextRequest) {
   try {
     const DEBUG = process.env.DEBUG_CHAT_AI === 'true' || process.env.NODE_ENV === 'development';
