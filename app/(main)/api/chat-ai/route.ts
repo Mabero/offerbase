@@ -101,6 +101,32 @@ function isComparativeQueryGeneric(query: string, subjectTerms: string[]): boole
   return false;
 }
 
+// Detect summary intent (language-agnostic via seeds; semantic fallback handled separately)
+function detectSummaryIntent(text: string): boolean {
+  const q = (text || '').toLowerCase();
+  if (!q) return false;
+  const seeds = [
+    // Norwegian
+    'oppsummer', 'kort oppsummering', 'hva handler denne siden om', 'hva handler denne artikkelen om', 'hovedpoengene',
+    // English
+    'summarize this page', 'summarize the page', 'summarize this article', 'summarize the article', 'what is this page about', 'what is this article about', 'tldr', 'tl;dr'
+  ];
+  return seeds.some(s => q.includes(s));
+}
+
+// Detect explicit page-referenced QA (lexical cue); semantic fallback handled separately
+function detectPageQAIntent(text: string): boolean {
+  const q = (text || '').toLowerCase();
+  if (!q) return false;
+  const cues = [
+    // Norwegian
+    'på denne siden', 'i denne artikkelen', 'basert på denne siden', 'basert på denne artikkelen',
+    // English
+    'on this page', 'in this article', 'based on this page', 'based on this article'
+  ];
+  return cues.some(c => q.includes(c));
+}
+
 // Detect if the user is asking about the current page/article (multilingual heuristics)
 function detectPageIntent(text: string): boolean {
   const q = (text || '').toLowerCase();
@@ -139,11 +165,11 @@ export async function POST(request: NextRequest) {
     const origin = getRequestOrigin(request);
     let allowedOriginsForCors: string[] = [];
 
-    // Parse the request body - AI SDK sends { messages: UIMessage[], siteId: string }
-    const body = await request.json();
-    const { messages, siteId, introMessage, pageContext, widgetToken } = body;
-    
-    if (!siteId || !messages || !Array.isArray(messages)) {
+  // Parse the request body - AI SDK sends { messages: UIMessage[], siteId: string }
+  const body = await request.json();
+  const { messages, siteId, introMessage, pageContext, widgetToken } = body;
+  
+  if (!siteId || !messages || !Array.isArray(messages)) {
       return new Response(
         JSON.stringify({ error: 'Missing required fields: siteId and messages' }),
         { 
@@ -156,7 +182,7 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    const { userId } = await auth();
+  const { userId } = await auth();
 
     // SECURITY: Optional JWT/origin enforcement for widget traffic
     if (secureMode) {
@@ -252,22 +278,124 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Initialize Supabase
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+  // Initialize Supabase
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
     
     // Use vector search to get relevant context
     const { VectorSearchService } = await import('@/lib/embeddings/search');
     const searchService = new VectorSearchService();
     
-    // Note: Conversation history removed to prevent query contamination
-    // Direct search ensures consistent, predictable results
-    
-    // Get the current user message
-    const currentQuery = messages[messages.length - 1]?.content || 
-      messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || '';
+  // Note: Conversation history removed to prevent query contamination
+  // Direct search ensures consistent, predictable results
+  
+  // Get the current user message
+  const currentQuery = messages[messages.length - 1]?.content || 
+    messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || '';
+
+  // FAST-PATHS: Page Summary and Page-QA — use cached page context only
+  try {
+    const enableSummaryFP = process.env.ENABLE_PAGE_SUMMARY_FASTPATH !== 'false';
+    const enablePageQAFP = process.env.ENABLE_PAGE_QA_FASTPATH !== 'false';
+    const hasPageUrl = Boolean(pageContext?.url);
+
+    // Attempt to load cached page context once if needed
+    let cachedPage: any | null = null;
+    if ((enableSummaryFP || enablePageQAFP) && hasPageUrl) {
+      const h = (await import('crypto')).createHash('sha1').update(pageContext!.url!).digest('hex').slice(0, 16);
+      const ck = `pagectx:${siteId}:${h}`;
+      cachedPage = await (await import('@/lib/cache')).cache.get<any>(ck);
+    }
+
+    // Page Summary fast-path
+    if (enableSummaryFP && detectSummaryIntent(currentQuery) && cachedPage?.chunks?.length) {
+      const maxChunks = Number(process.env.PAGE_SUMMARY_MAX_CHUNKS ?? 2);
+      const chunks = cachedPage.chunks.slice(0, Math.max(1, maxChunks));
+
+      // Detect user language name for instruction
+      let langName = '';
+      try {
+        const tinyld = await import('tinyld');
+        const code = tinyld.detect(currentQuery || introMessage || '');
+        const MAP: Record<string, string> = { en: 'English', no: 'Norwegian', nb: 'Norwegian', nn: 'Norwegian', da: 'Danish', sv: 'Swedish', fi: 'Finnish', de: 'German', fr: 'French', es: 'Spanish', pt: 'Portuguese', it: 'Italian', nl: 'Dutch' };
+        langName = MAP[code as string] || '';
+      } catch {}
+
+      const system = `Summarize the following page content in ${langName || 'the user\'s language'}. Be concise, accurate, and avoid adding information not present in the text. Provide a short paragraph and, if appropriate, a short bullet list of key points. Do not mention that you are summarizing.`;
+      const contextText = chunks.map((c: any, i: number) => `Section ${i + 1} ("${cachedPage.title || 'Page'}"):\n${c.content}`).join('\n\n');
+      const userMsg = 'Gi en kort oppsummering.';
+
+      const result = streamText({
+        model: openai('gpt-4o-mini'),
+        messages: [
+          { role: 'system' as const, content: system },
+          { role: 'user' as const, content: userMsg },
+          { role: 'user' as const, content: contextText },
+        ],
+        temperature: 0.2,
+        maxOutputTokens: 300,
+      });
+      const response = result.toUIMessageStreamResponse();
+      if (secureMode) {
+        const cors = getCORSHeaders(origin, []);
+        for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
+      }
+      response.headers.set('X-Route-Mode', 'page-summary');
+      response.headers.set('X-PageContext', 'used');
+      return response;
+    }
+
+    // Page-QA fast-path
+    if (enablePageQAFP && cachedPage?.chunks?.length) {
+      // Compute query embedding and page-chunk similarities
+      const { EmbeddingProviderFactory } = await import('@/lib/embeddings/factory');
+      const embeddingProvider = EmbeddingProviderFactory.fromEnvironment();
+      const qEmb = await embeddingProvider.generateEmbedding(currentQuery || '');
+      const { cosineSimilarity } = await import('ai');
+      const scored = cachedPage.chunks.map((c: any, idx: number) => ({ idx, sim: cosineSimilarity(qEmb, c.embedding) || 0, content: c.content, title: cachedPage.title || 'Page' }));
+      scored.sort((a: any, b: any) => b.sim - a.sim);
+      const minSim = Number(process.env.PAGE_QA_MIN_SIMILARITY ?? 0.55);
+      const qaChunks = scored.filter((s: any) => s.sim >= minSim).slice(0, Number(process.env.PAGE_QA_MAX_CHUNKS ?? 2));
+      const strongOverlap = scored[0]?.sim >= minSim;
+
+      if ((detectPageQAIntent(currentQuery) || strongOverlap) && qaChunks.length > 0) {
+        // Detect language
+        let langName = '';
+        try {
+          const tinyld = await import('tinyld');
+          const code = tinyld.detect(currentQuery || introMessage || '');
+          const MAP: Record<string, string> = { en: 'English', no: 'Norwegian', nb: 'Norwegian', nn: 'Norwegian', da: 'Danish', sv: 'Swedish', fi: 'Finnish', de: 'German', fr: 'French', es: 'Spanish', pt: 'Portuguese', it: 'Italian', nl: 'Dutch' };
+          langName = MAP[code as string] || '';
+        } catch {}
+
+        const system = `Answer strictly based on the page content provided below, in ${langName || 'the user\'s language'}. Do not add external knowledge. If the answer is not present, say you cannot find it on this page.`;
+        const contextText = qaChunks.map((c: any, i: number) => `Excerpt ${i + 1} ("${c.title}") [similarity ${c.sim.toFixed(2)}]:\n${c.content}`).join('\n\n');
+        const result = streamText({
+          model: openai('gpt-4o-mini'),
+          messages: [
+            { role: 'system' as const, content: system },
+            { role: 'user' as const, content: currentQuery },
+            { role: 'user' as const, content: contextText },
+          ],
+          temperature: 0.2,
+          maxOutputTokens: 400,
+        });
+        const response = result.toUIMessageStreamResponse();
+        if (secureMode) {
+          const cors = getCORSHeaders(origin, []);
+          for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
+        }
+        response.headers.set('X-Route-Mode', 'page-qa');
+        response.headers.set('X-PageContext', 'used');
+        return response;
+      }
+    }
+  } catch (e) {
+    if (process.env.DEBUG_CHAT_AI === 'true') console.warn('[FastPath] error', e);
+  }
+
     // Intent guards
     const PAGE_CONTEXT_INTENT_ONLY = process.env.PAGE_CONTEXT_INTENT_ONLY !== 'false';
     const ENABLE_DOMAIN_GUARD = process.env.ENABLE_DOMAIN_GUARD !== 'false';
