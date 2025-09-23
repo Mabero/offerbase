@@ -1191,6 +1191,7 @@ export function ChatWidgetCore({
       pageContext: parentPageContext || undefined,
       // Include JWT in body as a fallback in case headers are stripped by client/runtime
       widgetToken: widgetAuth.token || undefined,
+      sessionId: sessionId || undefined,
     };
     
     return new DefaultChatTransport({
@@ -1656,7 +1657,8 @@ export function ChatWidgetCore({
         body: {
           siteId,
           introMessage: chatSettings?.intro_message || introMessage,
-          widgetToken: widgetAuth.token || undefined
+          widgetToken: widgetAuth.token || undefined,
+          sessionId: sessionId || undefined
         }
       }
     );
@@ -1800,7 +1802,8 @@ export function ChatWidgetCore({
           body: {
             siteId,
             introMessage: chatSettings?.intro_message || introMessage,
-            widgetToken: widgetAuth.token || undefined
+            widgetToken: widgetAuth.token || undefined,
+            sessionId: sessionId || undefined
           }
         }
       );
@@ -1844,7 +1847,8 @@ export function ChatWidgetCore({
           body: {
             siteId,
             introMessage: chatSettings?.intro_message || introMessage,
-            widgetToken: widgetAuth.token || undefined
+            widgetToken: widgetAuth.token || undefined,
+            sessionId: sessionId || undefined
           }
         }
       );

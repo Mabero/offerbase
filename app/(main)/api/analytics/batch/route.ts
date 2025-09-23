@@ -27,21 +27,28 @@ export async function POST(request: NextRequest) {
     const errors = [];
     
     for (let i = 0; i < events.length; i++) {
-      const event = events[i];
-      
-      if (!event.event_type || !event.site_id) {
+      const ev = events[i];
+      if (!ev?.event_type || !ev?.site_id) {
         errors.push(`Event ${i}: event_type and site_id are required`);
         continue;
       }
-      
-      validEvents.push({
-        site_id: event.site_id,
-        event_type: event.event_type,
-        user_session_id: event.user_id || getSessionId(request),
-        user_agent: event.user_agent,
-        ip_address: event.ip_address || getClientIP(request),
-        event_data: event.details || {}
-      });
+
+      const mapped = {
+        site_id: ev.site_id,
+        event_type: ev.event_type,
+        user_session_id: ev.user_session_id || ev.user_id || (ev.details && ev.details.session_id) || getSessionId(request),
+        session_id: ev.session_id || null,
+        page_url: ev.page_url || ev.url || null,
+        widget_type: ev.widget_type || (ev.details && ev.details.widget_type) || null,
+        route_mode: ev.route_mode || null,
+        refusal_reason: ev.refusal_reason || null,
+        page_context_used: ev.page_context_used || null,
+        request_id: ev.request_id || null,
+        user_agent: ev.user_agent,
+        ip_address: ev.ip_address || getClientIP(request),
+        event_data: ev.details || {}
+      };
+      validEvents.push(mapped);
     }
     
     if (validEvents.length === 0) {

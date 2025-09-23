@@ -167,7 +167,7 @@ export async function POST(request: NextRequest) {
 
   // Parse the request body - AI SDK sends { messages: UIMessage[], siteId: string }
   const body = await request.json();
-  const { messages, siteId, introMessage, pageContext, widgetToken } = body;
+    const { messages, siteId, introMessage, pageContext, widgetToken, sessionId } = body;
   
   if (!siteId || !messages || !Array.isArray(messages)) {
       return new Response(
@@ -338,6 +338,23 @@ export async function POST(request: NextRequest) {
         maxOutputTokens: 300,
       });
       const response = result.toUIMessageStreamResponse();
+      // Emit analytics event (route_mode=page-summary)
+      try {
+        const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+        await supa.from('analytics_events').insert([{
+          site_id: siteId,
+          event_type: 'route',
+          user_session_id: null,
+          session_id: sessionId || null,
+          page_url: pageContext?.url || null,
+          widget_type: null,
+          route_mode: 'page-summary',
+          refusal_reason: null,
+          page_context_used: 'used',
+          request_id: null,
+          event_data: { title: cachedPage?.title || 'Page' }
+        }]);
+      } catch {}
       if (secureMode) {
         const cors = getCORSHeaders(origin, []);
         for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
@@ -383,6 +400,23 @@ export async function POST(request: NextRequest) {
           maxOutputTokens: 400,
         });
         const response = result.toUIMessageStreamResponse();
+        // Emit analytics event (route_mode=page-qa)
+        try {
+          const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+          await supa.from('analytics_events').insert([{
+            site_id: siteId,
+            event_type: 'route',
+            user_session_id: null,
+            session_id: sessionId || null,
+            page_url: pageContext?.url || null,
+            widget_type: null,
+            route_mode: 'page-qa',
+            refusal_reason: null,
+            page_context_used: 'used',
+            request_id: null,
+            event_data: { top_similarity: scored[0]?.sim || 0 }
+          }]);
+        } catch {}
         if (secureMode) {
           const cors = getCORSHeaders(origin, []);
           for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
