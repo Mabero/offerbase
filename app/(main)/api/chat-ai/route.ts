@@ -238,6 +238,28 @@ export async function POST(request: NextRequest) {
     // Get the current user message
     const currentQuery = messages[messages.length - 1]?.content || 
       messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || '';
+    // Intent guards
+    const PAGE_CONTEXT_INTENT_ONLY = process.env.PAGE_CONTEXT_INTENT_ONLY !== 'false';
+    const ENABLE_DOMAIN_GUARD = process.env.ENABLE_DOMAIN_GUARD !== 'false';
+    const pageIntent = detectPageIntent(currentQuery);
+    const domainIntent = detectDomainIntent(currentQuery);
+
+    if (ENABLE_DOMAIN_GUARD && !pageIntent && !domainIntent) {
+      const userMessage = messages[messages.length - 1];
+      const clarifierMessages = [
+        { role: 'system' as const, content: 'Ask exactly one short clarifying question in the user\'s language to bring the conversation to website building, hosting, SEO, or related topics. Do not mention sources.' },
+        { role: 'user' as const, content: typeof userMessage.content === 'string' ? (userMessage.content as string) : (userMessage.parts?.find((p: any) => p.type === 'text')?.text || '') }
+      ];
+      const result = streamText({ model: openai('gpt-4o-mini'), messages: clarifierMessages, temperature: 0, maxOutputTokens: 60 });
+      const response = result.toUIMessageStreamResponse();
+      if (secureMode) {
+        const cors = getCORSHeaders(origin, allowedOriginsForCors);
+        for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
+      }
+      response.headers.set('X-Route-Mode', 'clarify');
+      response.headers.set('X-PageContext', 'ignored');
+      return response;
+    }
     
     // STEP 1: Resolve offer hint (stateless, UI only) - flag-gated until RPC is deployed
     const { filterChunksByOffer, logFilterResult } = await import('@/lib/offers/chunk-filter');
@@ -371,7 +393,7 @@ export async function POST(request: NextRequest) {
             vectorWeight: 0.6,
             limit: 10,
             useReranker: false,
-            similarityThreshold: isShort
+            similarityThreshold: (isShort && (pageIntent || domainIntent))
               ? Math.min(0.15, Number(process.env.RAG_SIMILARITY_THRESHOLD ?? 0.3))
               : Number(process.env.RAG_SIMILARITY_THRESHOLD ?? 0.3),
           }
@@ -390,14 +412,16 @@ export async function POST(request: NextRequest) {
         const emb = await embeddingProvider2.generateEmbedding(currentQuery);
         vectorResults = await searchService.vectorSearch(emb, siteId, 10);
         topVectorScore = vectorResults[0]?.similarity ?? 0;
-        // Merge ephemeral page-context chunks if available
-        if (process.env.ENABLE_PAGE_CONTEXT !== 'false' && pageContext?.url) {
+        // Merge ephemeral page-context chunks only when intent indicates page-related request
+        if (process.env.ENABLE_PAGE_CONTEXT !== 'false' && pageContext?.url && (!PAGE_CONTEXT_INTENT_ONLY || pageIntent)) {
           try {
             const h = (await import('crypto')).createHash('sha1').update(pageContext.url).digest('hex').slice(0, 16);
             const ck = `pagectx:${siteId}:${h}`;
             const cached = await (await import('@/lib/cache')).cache.get<any>(ck);
             if (cached?.chunks?.length) {
               const { cosineSimilarity } = await import('ai');
+              const minSim = Number(process.env.PAGE_CONTEXT_MIN_SIMILARITY ?? 0.6);
+              const maxChunks = Number(process.env.PAGE_CONTEXT_MAX_CHUNKS ?? 1);
               const pageChunks = cached.chunks
                 .map((pc: any, idx: number) => ({
                   chunkId: `ephemeral:${h}:${idx}`,
@@ -406,9 +430,12 @@ export async function POST(request: NextRequest) {
                   similarity: cosineSimilarity(emb, pc.embedding) || 0,
                   metadata: { source: 'page' }
                 }))
+                .filter((c: any) => (c.similarity ?? 0) >= minSim)
                 .sort((a: any, b: any) => b.similarity - a.similarity)
-                .slice(0, Number(process.env.PAGE_CONTEXT_MAX_CHUNKS ?? 2));
-              searchResults = [...pageChunks, ...searchResults].slice(0, 10);
+                .slice(0, maxChunks);
+              if (pageChunks.length) {
+                searchResults = [...pageChunks, ...searchResults].slice(0, 10);
+              }
               {
                 const top: any = searchResults[0] || {};
                 topHybridScore = typeof top.final_score === 'number'
@@ -480,14 +507,16 @@ export async function POST(request: NextRequest) {
             ? top.final_score
             : (top.similarity ?? 0);
         }
-        // Merge ephemeral page-context chunks if available
-        if (process.env.ENABLE_PAGE_CONTEXT !== 'false' && pageContext?.url) {
+        // Merge ephemeral page-context chunks only when intent indicates page-related request
+        if (process.env.ENABLE_PAGE_CONTEXT !== 'false' && pageContext?.url && (!PAGE_CONTEXT_INTENT_ONLY || pageIntent)) {
           try {
             const h = (await import('crypto')).createHash('sha1').update(pageContext.url).digest('hex').slice(0, 16);
             const ck = `pagectx:${siteId}:${h}`;
             const cached = await (await import('@/lib/cache')).cache.get<any>(ck);
             if (cached?.chunks?.length) {
               const { cosineSimilarity } = await import('ai');
+              const minSim = Number(process.env.PAGE_CONTEXT_MIN_SIMILARITY ?? 0.6);
+              const maxChunks = Number(process.env.PAGE_CONTEXT_MAX_CHUNKS ?? 1);
               const pageChunks = cached.chunks
                 .map((pc: any, idx: number) => ({
                   chunkId: `ephemeral:${h}:${idx}`,
@@ -496,9 +525,12 @@ export async function POST(request: NextRequest) {
                   similarity: cosineSimilarity(queryEmbeddingDebug, pc.embedding) || 0,
                   metadata: { source: 'page' }
                 }))
+                .filter((c: any) => (c.similarity ?? 0) >= minSim)
                 .sort((a: any, b: any) => b.similarity - a.similarity)
-                .slice(0, Number(process.env.PAGE_CONTEXT_MAX_CHUNKS ?? 2));
-              searchResults = [...pageChunks, ...searchResults].slice(0, 10);
+                .slice(0, maxChunks);
+              if (pageChunks.length) {
+                searchResults = [...pageChunks, ...searchResults].slice(0, 10);
+              }
               {
                 const top: any = searchResults[0] || {};
                 topHybridScore = typeof top.final_score === 'number'
@@ -910,6 +942,10 @@ export async function POST(request: NextRequest) {
       for (const [k, v] of Object.entries(cors)) {
         response.headers.set(k, v);
       }
+    }
+    // Mark page-context status if not set earlier
+    if (!response.headers.has('X-PageContext')) {
+      response.headers.set('X-PageContext', pageContext?.url ? (detectPageIntent(currentQuery) ? 'used_or_ignored_by_floor' : 'ignored') : 'miss');
     }
     
     // Add offer hint headers for UI consumption
