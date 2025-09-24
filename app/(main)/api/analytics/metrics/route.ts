@@ -493,7 +493,7 @@ async function getOffersPerformance(supabase: any, siteId: string, startISO: str
     const endDay = new Date(endISO).toISOString().slice(0, 10);
     const { data: mvRows } = await supabase
       .from('offer_metrics_daily')
-      .select('link_url, day, impressions, clicks, last_seen')
+      .select('link_id, link_url, day, impressions, clicks, last_seen')
       .eq('site_id', siteId)
       .gte('day', startDay)
       .lte('day', endDay);
@@ -503,20 +503,27 @@ async function getOffersPerformance(supabase: any, siteId: string, startISO: str
     rows = [];
   }
 
+  const byId: Record<string, { impressions: number; clicks: number; last_seen: string | null }> = {};
   const byUrl: Record<string, { impressions: number; clicks: number; last_seen: string | null }> = {};
   for (const r of rows) {
-    const url = r.link_url as string;
-    if (!url) continue;
-    if (!byUrl[url]) byUrl[url] = { impressions: 0, clicks: 0, last_seen: null };
-    byUrl[url].impressions += Number(r.impressions || 0);
-    byUrl[url].clicks += Number(r.clicks || 0);
-    if (!byUrl[url].last_seen || new Date(r.last_seen) > new Date(byUrl[url].last_seen!)) {
-      byUrl[url].last_seen = r.last_seen as string;
+    const id = r.link_id as string | null;
+    const url = r.link_url as string | null;
+    const inc = { impressions: Number(r.impressions || 0), clicks: Number(r.clicks || 0), last_seen: r.last_seen as string };
+    if (id) {
+      if (!byId[id]) byId[id] = { impressions: 0, clicks: 0, last_seen: null };
+      byId[id].impressions += inc.impressions;
+      byId[id].clicks += inc.clicks;
+      if (!byId[id].last_seen || new Date(inc.last_seen) > new Date(byId[id].last_seen!)) byId[id].last_seen = inc.last_seen;
+    } else if (url) {
+      if (!byUrl[url]) byUrl[url] = { impressions: 0, clicks: 0, last_seen: null };
+      byUrl[url].impressions += inc.impressions;
+      byUrl[url].clicks += inc.clicks;
+      if (!byUrl[url].last_seen || new Date(inc.last_seen) > new Date(byUrl[url].last_seen!)) byUrl[url].last_seen = inc.last_seen;
     }
   }
 
   const out = offers.map((o: any) => {
-    const agg = byUrl[o.url] || { impressions: 0, clicks: 0, last_seen: null };
+    const agg = (o.id && byId[o.id]) || byUrl[o.url] || { impressions: 0, clicks: 0, last_seen: null };
     const ctr = agg.impressions > 0 ? Math.round((agg.clicks / agg.impressions) * 1000) / 10 : 0;
     return {
       id: o.id,

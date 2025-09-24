@@ -80,6 +80,9 @@ export interface BotMessage {
 export type Message = UserMessage | BotMessage;
 
 export interface Link {
+  // Optional stable identifiers when available
+  id?: string;
+  offer_id?: string;
   url: string;
   name: string;
   description: string;
@@ -406,6 +409,7 @@ const LinksContainer = ({ links, chatSettings, styles, onLinkClick }: {
           type: 'ANALYTICS_EVENT',
           eventType: 'offer_impression',
           data: {
+            link_id: link.id || null,
             link_url: link.url,
             link_name: link.name,
             link_position: index,
@@ -755,6 +759,7 @@ const ProductRecommendations = React.memo(({ messageContent, streamingContent, m
       {products.map((product, index) => (
         <ProductCard
           key={product.id || `product-${index}`}
+          id={product.id}
           href={product.url}
           title={product.title}
           description={product.description}
@@ -770,7 +775,8 @@ const ProductRecommendations = React.memo(({ messageContent, streamingContent, m
 ProductRecommendations.displayName = 'ProductRecommendations';
 
 // ProductCard component for product recommendations
-const ProductCard = ({ href, title, description, buttonText, chatSettings, styles }: {
+const ProductCard = ({ id, href, title, description, buttonText, chatSettings, styles }: {
+  id?: string;
   href: string;
   title: string;
   description: string;
@@ -824,6 +830,20 @@ const ProductCard = ({ href, title, description, buttonText, chatSettings, style
         }}
         onMouseEnter={() => setIsButtonHovered(true)}
         onMouseLeave={() => setIsButtonHovered(false)}
+        onClick={() => {
+          if (window.parent !== window) {
+            window.parent.postMessage({
+              type: 'ANALYTICS_EVENT',
+              eventType: 'link_click',
+              data: {
+                link_id: id || null,
+                link_url: href,
+                link_name: title,
+                button_text: buttonText || 'Learn more'
+              }
+            }, '*');
+          }
+        }}
       >
         {buttonText}
       </a>
@@ -1588,6 +1608,7 @@ export function ChatWidgetCore({
         type: 'ANALYTICS_EVENT',
         eventType: 'link_click',
         data: {
+          link_id: link.id || null,
           link_url: link.url,
           link_name: link.name,
           link_description: link.description,
