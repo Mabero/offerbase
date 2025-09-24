@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { createSupabaseAdminClient } from '@/lib/supabase-server';
+import { createClient } from '@supabase/supabase-js';
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,7 +19,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'site_id is required' }, { status: 400 });
     }
 
-    const supabase = createSupabaseAdminClient();
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { db: { schema: 'public' } }
+    );
     const allowAll = process.env.DEV_ALLOW_ALL_SITES === 'true' && process.env.NODE_ENV !== 'production';
     const allowUnowned = process.env.ANALYTICS_ALLOW_UNOWNED === 'true';
     const DEBUG_ANALYTICS = process.env.ANALYTICS_DEBUG === '1' || debugFlag;
