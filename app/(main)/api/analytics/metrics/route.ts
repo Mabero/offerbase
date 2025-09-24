@@ -21,37 +21,56 @@ export async function GET(request: NextRequest) {
 
     const supabase = createSupabaseAdminClient();
     const allowAll = process.env.DEV_ALLOW_ALL_SITES === 'true' && process.env.NODE_ENV !== 'production';
-    
-    // Verify site ownership
+    const allowUnowned = process.env.ANALYTICS_ALLOW_UNOWNED === 'true';
+    const DEBUG_ANALYTICS = process.env.ANALYTICS_DEBUG === '1' || debugFlag;
+
+    // Always fetch the site by id so we can surface ownership mismatches clearly
+    const byId = await supabase
+      .from('sites')
+      .select('id, name, user_id')
+      .eq('id', siteId)
+      .maybeSingle();
+
+    if (byId.error) {
+      if (DEBUG_ANALYTICS) {
+        console.error('[Analytics] site lookup failed', { siteId, error: byId.error.message });
+      }
+      return NextResponse.json({ error: 'Site lookup failed' }, { status: 500 });
+    }
+
+    // If site exists and owner differs, return detailed 404 in debug mode (or bypass if allowed)
+    if (byId.data && byId.data.user_id !== userId && !allowUnowned && !allowAll) {
+      const payload: any = { error: 'Site not found or unauthorized', site_id: siteId, user_id: userId };
+      if (debugFlag) {
+        payload.owner_from_db = byId.data.user_id;
+        payload.reason = 'owner_mismatch';
+      }
+      if (DEBUG_ANALYTICS) {
+        console.warn('[Analytics] owner mismatch', { siteId, clerk_user: userId, db_owner: byId.data.user_id });
+      }
+      return NextResponse.json(payload, { status: 404 });
+    }
+
+    // Determine `site` for downstream logic respecting bypass/dev flags
     let site: any = null;
-    let siteError: any = null;
-    if (allowAll) {
-      const res = await supabase
-        .from('sites')
-        .select('id, name, user_id')
-        .eq('id', siteId)
-        .single();
-      site = res.data; siteError = res.error;
+    if (allowUnowned) {
+      site = byId.data || { id: siteId, name: 'Unknown site (bypass)' };
+    } else if (allowAll) {
+      site = byId.data || { id: siteId, name: 'Unknown site (dev bypass)' };
     } else {
-      const res = await supabase
+      // Strict ownership check (production, no bypass)
+      const owned = await supabase
         .from('sites')
         .select('id, name')
         .eq('id', siteId)
         .eq('user_id', userId)
         .single();
-      site = res.data; siteError = res.error;
-    }
-
-    if (siteError || !site) {
-      if (allowAll) {
-        // Proceed in dev with a stub site so charts can render
-        site = { id: siteId, name: 'Unknown site (dev bypass)' };
-      } else {
-        return NextResponse.json(
-          { error: 'Site not found or unauthorized', site_id: siteId, user_id: userId },
-          { status: 404 }
-        );
+      if (owned.error || !owned.data) {
+        const payload: any = { error: 'Site not found or unauthorized', site_id: siteId, user_id: userId };
+        if (debugFlag && byId.data?.user_id) payload.owner_from_db = byId.data.user_id;
+        return NextResponse.json(payload, { status: 404 });
       }
+      site = owned.data;
     }
 
     const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(); // Default: 30 days
