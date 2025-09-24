@@ -108,7 +108,7 @@ export async function resolveOfferHint(
     const scoreGap = topScore - secondScore;
     
     // Decision thresholds based on plan requirements
-    if (topScore > 0.7 && scoreGap > 0.2) {
+    if (topScore >= 0.7 && scoreGap > 0.2) {
       // Strong single winner - show product card
       decision = 'single';
       cardRendered = true;

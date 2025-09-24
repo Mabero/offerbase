@@ -6,6 +6,16 @@ BEGIN;
 
 -- 1. EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS pgcrypto; -- for gen_random_uuid()
+
+-- Utility: updated_at trigger helper (ensure function exists)
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
 -- 2. NORMALIZATION FUNCTION (single source of truth)
 -- Requirement #4: Whitespace collapse in normalization
@@ -54,11 +64,7 @@ CREATE TABLE offers (
   description TEXT,
   type TEXT DEFAULT 'product' CHECK (type IN ('product', 'service')),
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  
-  -- Requirement #4: Uniqueness guard to prevent duplicate models per site
-  UNIQUE(site_id, brand_norm, model_norm) 
-    WHERE brand_norm IS NOT NULL AND model_norm IS NOT NULL
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE offer_aliases (
@@ -114,10 +120,17 @@ CREATE INDEX idx_resolution_log_site_created
   ON offers_resolution_log(site_id, created_at DESC);
 
 -- Requirement #1: Fix training_material_chunks FTS to use config='simple'
--- Drop existing index if it uses 'english' config and recreate with 'simple'
-DROP INDEX IF EXISTS idx_chunks_content_fts;
-CREATE INDEX idx_chunks_content_fts ON training_material_chunks 
-  USING GIN(to_tsvector('simple', content));
+-- Guarded to only run when table exists
+DO $$
+BEGIN
+  IF to_regclass('public.training_material_chunks') IS NOT NULL THEN
+    BEGIN
+      EXECUTE 'DROP INDEX IF EXISTS idx_chunks_content_fts';
+    EXCEPTION WHEN undefined_object THEN NULL;
+    END;
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_chunks_content_fts ON training_material_chunks USING GIN(to_tsvector(''simple'', content))';
+  END IF;
+END $$;
 
 -- 6. CREATE COMPLETE RPC FUNCTION
 -- Requirement #1: Complete FTS CTE implementation with config='simple'
@@ -316,5 +329,10 @@ COMMENT ON TABLE offers IS 'Product/service offers with normalized fields for la
 COMMENT ON TABLE offer_aliases IS 'Multiple aliases per offer: auto-generated (title_exact, brand_model, model_only, brand_only) + manual';
 COMMENT ON TABLE offers_resolution_log IS 'Telemetry for debugging offer resolution decisions: tracks query, decision type, candidate scores, UI card rendering';
 COMMENT ON FUNCTION generate_offer_aliases IS 'Auto-generates 4 alias types on offer insert/update: title_exact, brand_model, model_only, brand_only';
+
+-- Add partial unique index to guard duplicates when brand/model present
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_offers_site_brand_model_not_null
+  ON offers(site_id, brand_norm, model_norm)
+  WHERE brand_norm IS NOT NULL AND model_norm IS NOT NULL;
 
 COMMIT;

@@ -541,7 +541,7 @@ const ProductRecommendations = React.memo(({ messageContent, streamingContent, m
       
       // Fetch products with contextual matching (training chunks will be fetched by the API)
       const response = await authenticatedFetch(
-        `${apiUrl}/api/products/match`,
+        `${apiUrl}/api/offers/match`,
         {
           method: 'POST',
           body: JSON.stringify({
@@ -1682,7 +1682,7 @@ export function ChatWidgetCore({
     try {
       
       const response = await authenticatedFetch(
-        `${apiUrl}/api/products/match`,
+        `${apiUrl}/api/offers/match`,
         {
           method: 'POST',
           body: JSON.stringify({

@@ -479,6 +479,8 @@ export async function POST(request: NextRequest) {
       console.error('Product matching RPC error:', error);
       
       // Fallback: try direct query with aliases
+      // Tokenized fallback: build OR list over meaningful query tokens
+      const tokens = extractQueryKeywords(query.trim(), 6);
       const { data: fallbackProducts, error: fallbackError } = await supabase
         .from('affiliate_links')
         .select(`
@@ -492,7 +494,14 @@ export async function POST(request: NextRequest) {
         `)
         .eq('site_id', siteId)
         .or(
-          `title.ilike.%${query.trim()}%,product_aliases.alias.ilike.%${query.trim()}%`
+          (tokens && tokens.length > 0)
+            ? tokens
+                .flatMap((t) => [
+                  `title.ilike.%${t}%`,
+                  `product_aliases.alias.ilike.%${t}%`
+                ])
+                .join(',')
+            : `title.ilike.%${query.trim()}%,product_aliases.alias.ilike.%${query.trim()}%`
         )
         .limit(Math.min(limit, 20));
 
