@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const siteId = searchParams.get('site_id');
+    const debugFlag = searchParams.get('debug') === '1';
     const startDate = searchParams.get('start_date');
     const endDate = searchParams.get('end_date');
     
@@ -19,17 +20,38 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = createSupabaseAdminClient();
+    const allowAll = process.env.DEV_ALLOW_ALL_SITES === 'true' && process.env.NODE_ENV !== 'production';
     
     // Verify site ownership
-    const { data: site, error: siteError } = await supabase
-      .from('sites')
-      .select('id, name')
-      .eq('id', siteId)
-      .eq('user_id', userId)
-      .single();
+    let site: any = null;
+    let siteError: any = null;
+    if (allowAll) {
+      const res = await supabase
+        .from('sites')
+        .select('id, name, user_id')
+        .eq('id', siteId)
+        .single();
+      site = res.data; siteError = res.error;
+    } else {
+      const res = await supabase
+        .from('sites')
+        .select('id, name')
+        .eq('id', siteId)
+        .eq('user_id', userId)
+        .single();
+      site = res.data; siteError = res.error;
+    }
 
     if (siteError || !site) {
-      return NextResponse.json({ error: 'Site not found or unauthorized' }, { status: 404 });
+      if (allowAll) {
+        // Proceed in dev with a stub site so charts can render
+        site = { id: siteId, name: 'Unknown site (dev bypass)' };
+      } else {
+        return NextResponse.json(
+          { error: 'Site not found or unauthorized', site_id: siteId, user_id: userId },
+          { status: 404 }
+        );
+      }
     }
 
     const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(); // Default: 30 days
@@ -46,6 +68,55 @@ export async function GET(request: NextRequest) {
 
     if (eventsError) {
       console.error('Error fetching analytics events:', eventsError);
+      if (allowAll) {
+        // Try to return offers list with zeros so UI still shows offers
+        let offersZero: any[] = [];
+        let offersCount = 0;
+        try {
+          const { data: offers } = await supabase
+            .from('affiliate_links')
+            .select('id, title, url')
+            .eq('site_id', siteId);
+          offersCount = (offers || []).length;
+          offersZero = (offers || []).map((o: any) => ({
+            id: o.id,
+            title: o.title,
+            url: o.url,
+            impressions: 0,
+            clicks: 0,
+            ctr: 0,
+            last_seen: null,
+          }));
+        } catch {}
+
+        const metrics = {
+          site_id: siteId,
+          site_name: site.name,
+          period: { start, end },
+          overview: {
+            total_sessions: 0,
+            total_messages: 0,
+            total_link_clicks: 0,
+            total_offer_impressions: 0,
+            unique_users: 0,
+            conversion_rate: 0,
+            avg_messages_per_session: 0,
+            avg_session_duration: 0,
+          },
+          widget_performance: { floating: { opens: 0, clicks: 0, conversion_rate: 0, engagement_rate: 0 }, inline: { loads: 0, clicks: 0, conversion_rate: 0, engagement_rate: 0 } },
+          conversion_funnel: { totalOfferImpressions: 0, totalLinkClicks: 0, conversionRate: 0, impressionToClickRate: 0, funnel: { session_starts: 0, offer_impressions: 0, link_clicks: 0, sessions_with_clicks: 0 } },
+          trends: [],
+          top_offers: [],
+          offers_performance: offersZero,
+          top_pages: [],
+          route_mix: { answer: 0, clarify: 0, refuse: 0, page_summary: 0, page_qa: 0, unknown: 0 },
+          page_context_usage: { used: 0, ignored: 0, miss: 0 },
+          refusal_rate: 0,
+          dev_note: 'Returning empty metrics due to DB error in dev bypass',
+          ...(debugFlag ? { dev_debug: { allowAll, site_id: siteId, offersCount } } : {}),
+        } as any;
+        return NextResponse.json(metrics);
+      }
       return NextResponse.json({ error: 'Failed to fetch analytics' }, { status: 500 });
     }
 
@@ -73,26 +144,40 @@ export async function GET(request: NextRequest) {
     // Calculate trend data (daily aggregates)
     const trendData = calculateTrendData(events || [], start, end);
 
-    const metrics = {
-      site_id: siteId,
-      site_name: site.name,
-      period: { start, end },
-      overview: {
-        total_sessions: sessionMetrics.totalSessions,
-        total_messages: sessionMetrics.totalMessages,
-        total_link_clicks: conversionMetrics.totalLinkClicks,
-        total_offer_impressions: conversionMetrics.totalOfferImpressions,
-        unique_users: sessionMetrics.uniqueUsers,
-        conversion_rate: conversionMetrics.conversionRate,
-        avg_messages_per_session: sessionMetrics.avgMessagesPerSession,
-        avg_session_duration: sessionMetrics.avgSessionDuration
-      },
-      widget_performance: widgetMetrics,
-      conversion_funnel: conversionMetrics,
-      trends: trendData,
-      top_offers: calculateTopOffers(events || [])
-    };
+  const metrics = {
+    site_id: siteId,
+    site_name: site.name,
+    period: { start, end },
+    overview: {
+      total_sessions: sessionMetrics.totalSessions,
+      total_messages: sessionMetrics.totalMessages,
+      total_link_clicks: conversionMetrics.totalLinkClicks,
+      total_offer_impressions: conversionMetrics.totalOfferImpressions,
+      unique_users: sessionMetrics.uniqueUsers,
+      conversion_rate: conversionMetrics.conversionRate,
+      avg_messages_per_session: sessionMetrics.avgMessagesPerSession,
+      avg_session_duration: sessionMetrics.avgSessionDuration
+    },
+    widget_performance: widgetMetrics,
+    conversion_funnel: conversionMetrics,
+    trends: trendData,
+    top_offers: calculateTopOffers(events || []),
+    offers_performance: await getOffersPerformance(supabase, siteId, start, end),
+    top_pages: calculateTopPages(events || []),
+    // V2 additions powered by route events
+    route_mix: calculateRouteMix(events || []),
+    page_context_usage: calculatePageContextUsage(events || []),
+    refusal_rate: calculateRefusalRate(events || [], sessions || [])
+  };
     
+    if (debugFlag && allowAll) {
+      (metrics as any).dev_debug = {
+        allowAll,
+        site_id: siteId,
+        offersPerf: Array.isArray((metrics as any).offers_performance) ? (metrics as any).offers_performance.length : 0,
+        eventsCount: Array.isArray(events) ? events.length : 0,
+      };
+    }
     return NextResponse.json(metrics);
     
   } catch (error) {
@@ -280,6 +365,77 @@ function calculateTopOffers(events: AnalyticsEvent[]) {
     .slice(0, 10); // Top 10 offers
 }
 
+// --- V2 helpers ---
+function calculateTopPages(events: any[]) {
+  type PageAgg = {
+    page_url: string;
+    sessions: number;
+    opens: number;
+    impressions: number;
+    clicks: number;
+    last_seen: string;
+  };
+  const byPage: Record<string, PageAgg> = {};
+  for (const e of events) {
+    const url = (e as any).page_url || (e as any).event_data?.page_url || null;
+    if (!url) continue;
+    const agg = (byPage[url] ||= {
+      page_url: url,
+      sessions: 0,
+      opens: 0,
+      impressions: 0,
+      clicks: 0,
+      last_seen: (e as any).created_at,
+    });
+    const t = ((e as any).event_type || '').toLowerCase();
+    if (t === 'session_start') agg.sessions++;
+    if (t === 'widget_open' || t === 'inline_widget_loaded') agg.opens++;
+    if (t === 'offer_impression') agg.impressions++;
+    if (t === 'link_click') agg.clicks++;
+    if (!agg.last_seen || (new Date((e as any).created_at) > new Date(agg.last_seen))) agg.last_seen = (e as any).created_at;
+  }
+  const items = Object.values(byPage)
+    .map((p) => ({
+      ...p,
+      ctr: p.impressions > 0 ? Math.round((p.clicks / p.impressions) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.clicks - a.clicks)
+    .slice(0, 20);
+  return items;
+}
+
+function calculateRouteMix(events: any[]) {
+  const route = events.filter(e => e.event_type === 'route');
+  const counts = route.reduce((m: Record<string, number>, e) => {
+    const k = (e.route_mode || 'unknown').toLowerCase();
+    m[k] = (m[k] || 0) + 1; return m;
+  }, {} as Record<string, number>);
+  return {
+    answer: counts['answer'] || 0,
+    clarify: counts['clarify'] || 0,
+    refuse: counts['refuse'] || 0,
+    page_summary: counts['page-summary'] || 0,
+    page_qa: counts['page-qa'] || 0,
+    unknown: counts['unknown'] || 0
+  };
+}
+
+function calculatePageContextUsage(events: any[]) {
+  const route = events.filter(e => e.event_type === 'route');
+  return {
+    used: route.filter(e => e.page_context_used === 'used').length,
+    ignored: route.filter(e => e.page_context_used === 'ignored').length,
+    miss: route.filter(e => e.page_context_used === 'miss').length,
+  };
+}
+
+function calculateRefusalRate(events: any[], sessions: ChatSession[]) {
+  const route = events.filter(e => e.event_type === 'route');
+  const refusals = route.filter(e => (e.route_mode || '').toLowerCase() === 'refuse').length;
+  const totalSessions = sessions.length || 1;
+  return Math.round((refusals / totalSessions) * 1000) / 1000;
+}
+
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,
@@ -289,4 +445,67 @@ export async function OPTIONS() {
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     },
   });
+}
+
+// --- DB helpers ---
+async function getOffersPerformance(supabase: any, siteId: string, startISO: string, endISO: string) {
+  // 1) Load all offers for the site (best-effort, never throw in dev)
+  let offers: any[] = [];
+  try {
+    const { data } = await supabase
+      .from('affiliate_links')
+      .select('id, title, url')
+      .eq('site_id', siteId);
+    offers = data || [];
+  } catch (e) {
+    console.warn('[offers_performance] failed to read affiliate_links', e);
+    // If we can’t read offers, just return []
+    return [];
+  }
+
+  // 2) Try to read MV; if unavailable, proceed with zeros
+  let rows: any[] = [];
+  try {
+    const startDay = new Date(startISO).toISOString().slice(0, 10);
+    const endDay = new Date(endISO).toISOString().slice(0, 10);
+    const { data: mvRows } = await supabase
+      .from('offer_metrics_daily')
+      .select('link_url, day, impressions, clicks, last_seen')
+      .eq('site_id', siteId)
+      .gte('day', startDay)
+      .lte('day', endDay);
+    rows = mvRows || [];
+  } catch (e) {
+    console.warn('[offers_performance] MV read failed; returning zeros', e);
+    rows = [];
+  }
+
+  const byUrl: Record<string, { impressions: number; clicks: number; last_seen: string | null }> = {};
+  for (const r of rows) {
+    const url = r.link_url as string;
+    if (!url) continue;
+    if (!byUrl[url]) byUrl[url] = { impressions: 0, clicks: 0, last_seen: null };
+    byUrl[url].impressions += Number(r.impressions || 0);
+    byUrl[url].clicks += Number(r.clicks || 0);
+    if (!byUrl[url].last_seen || new Date(r.last_seen) > new Date(byUrl[url].last_seen!)) {
+      byUrl[url].last_seen = r.last_seen as string;
+    }
+  }
+
+  const out = offers.map((o: any) => {
+    const agg = byUrl[o.url] || { impressions: 0, clicks: 0, last_seen: null };
+    const ctr = agg.impressions > 0 ? Math.round((agg.clicks / agg.impressions) * 1000) / 10 : 0;
+    return {
+      id: o.id,
+      title: o.title,
+      url: o.url,
+      impressions: agg.impressions,
+      clicks: agg.clicks,
+      ctr,
+      last_seen: agg.last_seen,
+    };
+  });
+
+  out.sort((a: any, b: any) => (b.clicks - a.clicks) || (b.impressions - a.impressions));
+  return out;
 }

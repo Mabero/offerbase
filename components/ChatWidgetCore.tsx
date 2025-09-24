@@ -1169,6 +1169,21 @@ export function ChatWidgetCore({
   // Track which messages have completed streaming for product visibility
   const [completedMessageIds, setCompletedMessageIds] = useState<Set<string>>(new Set());
   
+  // Keep session management for backward compatibility (moved before transport to avoid TDZ)
+  const [sessionId, setSessionId] = useState<string | null>(() => {
+    const oldStorageKey = `chat_session_${siteId}`;
+    const newStorageKey = `chat_session_uuid_${siteId}`;
+    
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(oldStorageKey);
+      const existingSessionId = localStorage.getItem(newStorageKey);
+      if (existingSessionId) {
+        return existingSessionId;
+      }
+    }
+    return null;
+  });
+
   // Create custom transport with our endpoint, include JWT and body
   const transport = React.useMemo(() => {
     // Handle empty apiUrl - use current origin for relative URLs
@@ -1199,7 +1214,7 @@ export function ChatWidgetCore({
       headers,
       body,
     });
-  }, [apiUrl, siteId, widgetAuth.token, chatSettings.intro_message, introMessage, parentPageContext]);
+  }, [apiUrl, siteId, widgetAuth.token, chatSettings.intro_message, introMessage, parentPageContext, sessionId]);
 
   // Use AI SDK's useChat hook with minimal configuration to prevent loops
   const { messages: aiMessages, sendMessage, setMessages, error, status } = useChat({
@@ -1318,20 +1333,7 @@ export function ChatWidgetCore({
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const latestUserMessageRef = useRef<HTMLDivElement>(null);
   
-  // Keep session management for backward compatibility
-  const [sessionId, setSessionId] = useState<string | null>(() => {
-    const oldStorageKey = `chat_session_${siteId}`;
-    const newStorageKey = `chat_session_uuid_${siteId}`;
-    
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem(oldStorageKey);
-      const existingSessionId = localStorage.getItem(newStorageKey);
-      if (existingSessionId) {
-        return existingSessionId;
-      }
-    }
-    return null;
-  });
+  // sessionId state now declared above (to prevent TDZ in transport useMemo)
 
   // Legacy helper functions removed - simplified chat management
 

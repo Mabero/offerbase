@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useUser } from '@clerk/nextjs';
 import Image from 'next/image';
 import { Button } from "@/components/ui/button";
@@ -51,6 +52,9 @@ import {
 
 import { supabase } from '../lib/supabaseClient';
 import ChatWidget from './ChatWidget';
+import AreaTimeline from './analytics/AreaTimeline';
+import TopPagesTable from './analytics/TopPagesTable';
+import OffersTable from './analytics/OffersTable';
 // ChatWidgetAI removed - using enhanced ChatWidgetCore instead
 
 // Simple language options for the dashboard (AI will handle detection naturally)
@@ -166,6 +170,8 @@ interface ChatStats {
 }
 
 function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: DashboardProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   // Get user from Clerk
   const { user, isLoaded } = useUser();
   
@@ -209,6 +215,16 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
     averageResponseTime: 0,
     satisfactionRate: 0
   });
+  // Analytics v2 extras
+  const [trends, setTrends] = useState<any[]>([]);
+  const [topPages, setTopPages] = useState<any[]>([]);
+  const [routeMix, setRouteMix] = useState<any | null>(null);
+  const [pageContextUsage, setPageContextUsage] = useState<any | null>(null);
+  const [refusalRate, setRefusalRate] = useState<number | null>(null);
+  const [offersPerf, setOffersPerf] = useState<any[]>([]);
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [selectedSeries, setSelectedSeries] = useState<'sessions' | 'clicks' | 'impressions' | 'widget_opens'>('sessions');
   const [isSupabaseConfiguredState, setIsSupabaseConfiguredState] = useState<boolean | null>(null);
   const [, setIsLoadingSites] = useState(false);
   const [, setIsLoadingChatSettings] = useState(false);
@@ -993,7 +1009,15 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
 
   const loadAnalyticsData = useCallback(async (siteId: string) => {
     try {
-      const response = await fetch(`/api/analytics?site_id=${siteId}`, {
+      // Use the metrics endpoint (V2). Support optional date range.
+      const qs = new URLSearchParams({ site_id: siteId });
+      if (startDate) {
+        try { qs.set('start_date', new Date(startDate).toISOString()); } catch {}
+      }
+      if (endDate) {
+        try { qs.set('end_date', new Date(endDate).toISOString()); } catch {}
+      }
+      const response = await fetch(`/api/analytics/metrics?${qs.toString()}`, {
         credentials: 'include'
       });
 
@@ -1002,21 +1026,64 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       }
 
       const data = await response.json();
+      // Accept both shapes: {metrics: {...}} or direct metrics object
+      const m = (data?.metrics ?? data) || {};
+      const ov = m.overview || {};
+      // Store v2 extras
+      setTrends(Array.isArray(m.trends) ? m.trends : []);
+      setRouteMix(m.route_mix || null);
+      setPageContextUsage(m.page_context_usage || null);
+      setRefusalRate(typeof m.refusal_rate === 'number' ? m.refusal_rate : (typeof data.refusal_rate === 'number' ? data.refusal_rate : null));
+      setTopPages(Array.isArray(m.top_pages) ? m.top_pages : []);
+      const offersPerfFromMetrics: any[] = Array.isArray((m as any).offers_performance) ? (m as any).offers_performance : [];
+      if (offersPerfFromMetrics.length > 0) {
+        setOffersPerf(offersPerfFromMetrics);
+      } else {
+        // Fallback: if metrics didn\'t include offers yet (dev bypass / MV not ready), build zeroed rows from affiliate-links
+        try {
+          const affRes = await fetch(`/api/affiliate-links?siteId=${siteId}`, { credentials: 'include' });
+          if (affRes.ok) {
+            const aff = await affRes.json();
+            const zeroed = (aff?.data || []).map((o: any) => ({
+              id: o.id,
+              title: o.title,
+              url: o.url,
+              impressions: 0,
+              clicks: 0,
+              ctr: 0,
+              last_seen: null,
+            }));
+            setOffersPerf(zeroed);
+          } else {
+            setOffersPerf([]);
+          }
+        } catch {
+          setOffersPerf([]);
+        }
+      }
+      // Map to the dashboard ChatStats shape with sane fallbacks
       setChatStats({
-        totalChats: data.metrics.total_sessions || 0,
-        totalMessages: data.metrics.total_messages || 0,
-        averageResponseTime: data.metrics.average_session_duration || 0,
-        satisfactionRate: Math.round((1 - (data.metrics.bounce_rate || 0)) * 100),
-        totalOfferImpressions: data.metrics.total_offer_impressions || 0,
-        totalLinkClicks: data.metrics.total_link_clicks || 0,
-        conversionRate: Math.round((data.metrics.conversion_rate || 0) * 10) / 10,
-        widgetBreakdown: data.metrics.widget_breakdown
+        totalChats: (m.total_sessions ?? ov.total_sessions) || 0,
+        totalMessages: (m.total_messages ?? ov.total_messages) || 0,
+        averageResponseTime: (m.avg_session_duration ?? ov.avg_session_duration) || 0,
+        satisfactionRate: (() => {
+          // Approximate satisfaction as (1 - refusal_rate) when available; fallback to 100
+          const refusal = typeof m.refusal_rate === 'number' ? m.refusal_rate : (typeof data.refusal_rate === 'number' ? data.refusal_rate : 0);
+          return Math.max(0, Math.min(100, Math.round((1 - refusal) * 100)));
+        })(),
+        totalOfferImpressions: (m.total_offer_impressions ?? ov.total_offer_impressions ?? m.conversion_funnel?.offer_impressions) || 0,
+        totalLinkClicks: (m.total_link_clicks ?? ov.total_link_clicks ?? m.conversion_funnel?.link_clicks) || 0,
+        conversionRate: (() => {
+          const cr = m.conversion_rate ?? ov.conversion_rate ?? 0;
+          return Math.round(cr * 10) / 10;
+        })(),
+        widgetBreakdown: (m.widget_breakdown ?? m.widget_performance) || undefined
       });
     } catch (error) {
       console.error('Error fetching analytics:', error);
       // Keep current stats on error
     }
-  }, []);
+  }, [startDate, endDate]);
 
   const loadChatSettings = useCallback(async (siteId: string) => {
     setIsLoadingChatSettings(true);
@@ -1130,23 +1197,61 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   // Load data when selected site changes
   useEffect(() => {
     if (selectedSite && isSupabaseConfiguredState === true) {
+      // Update URL with current site
+      try {
+        const sp = new URLSearchParams(searchParams?.toString());
+        sp.set('site_id', selectedSite.id);
+        router.replace(`?${sp.toString()}`);
+      } catch {}
+      // Clear analytics state to avoid cross-site flash
+      setOffersPerf([]);
+      setTrends([]);
+      setRouteMix(null);
+      setPageContextUsage(null);
+      setRefusalRate(null);
+      
       loadAffiliateLinks(selectedSite.id);
       loadTrainingMaterials(selectedSite.id);
-      loadAnalyticsData(selectedSite.id);
+      if (selectedTab === 4) {
+        loadAnalyticsData(selectedSite.id);
+      }
       loadChatSettings(selectedSite.id);
       // Chat sessions will be refreshed when Chat Logs tab is clicked
     }
-  }, [selectedSite, isSupabaseConfiguredState, loadAffiliateLinks, loadTrainingMaterials, loadAnalyticsData, loadChatSettings]);
+  }, [selectedSite, selectedTab, isSupabaseConfiguredState, loadAffiliateLinks, loadTrainingMaterials, loadAnalyticsData, loadChatSettings, router, searchParams]);
 
   // Handle tab selection with optional refresh for Chat Logs
   const handleTabSelection = (tabIndex: number) => {
     setSelectedTab(tabIndex);
-    
+    // Update URL param for tab
+    try {
+      const sp = new URLSearchParams(searchParams?.toString());
+      const tabName = ['offers','training','predefined','widgets','analytics','logs'][tabIndex] || 'offers';
+      sp.set('tab', tabName);
+      router.replace(`?${sp.toString()}`);
+    } catch {}
     // If Chat Logs tab is selected, refresh the data
     if (tabIndex === 5 && selectedSite && isSupabaseConfiguredState === true) {
       loadChatSessions(selectedSite.id);
     }
+    // If Analytics tab is selected, (re)load analytics
+    if (tabIndex === 4 && selectedSite && isSupabaseConfiguredState === true) {
+      loadAnalyticsData(selectedSite.id);
+    }
   };
+
+  // Initialize from URL query params (tab + date range). Site preselect remains via UI for now.
+  useEffect(() => {
+    const tabParam = searchParams?.get('tab') || '';
+    const map: Record<string, number> = { offers:0, training:1, predefined:2, widgets:3, analytics:4, logs:5 };
+    if (tabParam && tabParam in map) setSelectedTab(map[tabParam]);
+    const sd = searchParams?.get('start_date');
+    const ed = searchParams?.get('end_date');
+    if (sd) setStartDate(sd.split('T')[0] || sd);
+    if (ed) setEndDate(ed.split('T')[0] || ed);
+    // No dependencies: we intentionally respond to URL changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // Loading state
   if (!isLoaded) {
@@ -1794,6 +1899,24 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
               {selectedTab === 4 && (
                 <div className="space-y-6">
                   <h2 className="text-xl font-semibold text-gray-900 mb-6">Analytics</h2>
+                  {/* Date range filters */}
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div>
+                      <Label className="text-sm">Start date</Label>
+                      <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-[180px]" />
+                    </div>
+                    <div>
+                      <Label className="text-sm">End date</Label>
+                      <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-[180px]" />
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="h-9"
+                      onClick={() => selectedSite && loadAnalyticsData(selectedSite.id)}
+                    >
+                      Apply
+                    </Button>
+                  </div>
                   {/* Overview Metrics */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                     <Card>
@@ -1843,6 +1966,100 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                       </CardContent>
                     </Card>
                   </div>
+
+                  {/* Timeline */}
+                  {trends && trends.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <CardTitle className="text-base">Timeline</CardTitle>
+                            <CardDescription>Daily trend for a selected metric</CardDescription>
+                          </div>
+                          <div className="flex items-center gap-2 bg-gray-100 rounded-md p-1">
+                            {([
+                              { key: 'sessions', label: 'Sessions' },
+                              { key: 'clicks', label: 'Clicks' },
+                              { key: 'impressions', label: 'Impressions' },
+                              { key: 'widget_opens', label: 'Opens' },
+                            ] as const).map(({ key, label }) => (
+                              <button
+                                key={key}
+                                onClick={() => setSelectedSeries(key)}
+                                className={`px-3 py-1.5 text-sm rounded ${selectedSeries === key ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <AreaTimeline data={trends as any[]} metric={selectedSeries} />
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Route Mix and Page Context Usage */}
+                  {(routeMix || pageContextUsage || refusalRate !== null) && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Route Mix</CardTitle>
+                          <CardDescription>Answer vs Clarify vs Refuse (incl. page summary/QA)</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div className="flex justify-between"><span className="text-gray-600">Answer</span><span className="font-medium">{routeMix?.answer || 0}</span></div>
+                            <div className="flex justify-between"><span className="text-gray-600">Clarify</span><span className="font-medium">{routeMix?.clarify || 0}</span></div>
+                            <div className="flex justify-between"><span className="text-gray-600">Refuse</span><span className="font-medium">{routeMix?.refuse || 0}</span></div>
+                            <div className="flex justify-between"><span className="text-gray-600">Page Summary</span><span className="font-medium">{routeMix?.page_summary || 0}</span></div>
+                            <div className="flex justify-between"><span className="text-gray-600">Page QA</span><span className="font-medium">{routeMix?.page_qa || 0}</span></div>
+                          </div>
+                          {refusalRate !== null && (
+                            <div className="mt-3 text-sm text-gray-700">Refusal rate: <span className="font-medium">{Math.round((refusalRate as number) * 1000) / 10}%</span></div>
+                          )}
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Page Context Usage</CardTitle>
+                          <CardDescription>How often page context is used vs ignored</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between"><span className="text-gray-600">Used</span><span className="font-medium">{pageContextUsage?.used || 0}</span></div>
+                            <div className="flex justify-between"><span className="text-gray-600">Ignored</span><span className="font-medium">{pageContextUsage?.ignored || 0}</span></div>
+                            <div className="flex justify-between"><span className="text-gray-600">Miss</span><span className="font-medium">{pageContextUsage?.miss || 0}</span></div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  {/* Top Pages */}
+                  {topPages && topPages.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Top Pages</CardTitle>
+                        <CardDescription>Pages driving impressions and clicks</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <TopPagesTable pages={topPages as any[]} />
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Offers Performance */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Offers Performance</CardTitle>
+                      <CardDescription>Impressions, clicks and CTR per offer</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <OffersTable items={offersPerf as any[]} />
+                    </CardContent>
+                  </Card>
 
                   {/* Widget Type Breakdown */}
                   {chatStats.widgetBreakdown && (

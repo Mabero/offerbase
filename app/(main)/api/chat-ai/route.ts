@@ -444,6 +444,20 @@ export async function POST(request: NextRequest) {
       ];
       const result = streamText({ model: openai('gpt-4o-mini'), messages: clarifierMessages, temperature: 0, maxOutputTokens: 60 });
       const response = result.toUIMessageStreamResponse();
+      // Analytics: route clarify (domain guard)
+      try {
+        const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+        await supa.from('analytics_events').insert([{
+          site_id: siteId,
+          event_type: 'route',
+          session_id: sessionId || null,
+          page_url: pageContext?.url || null,
+          route_mode: 'clarify',
+          refusal_reason: null,
+          page_context_used: 'ignored',
+          event_data: { source: 'domain_guard' }
+        }]);
+      } catch {}
       if (secureMode) {
         const cors = getCORSHeaders(origin, allowedOriginsForCors);
         for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
@@ -890,6 +904,20 @@ export async function POST(request: NextRequest) {
         ];
         const result = streamText({ model: openai('gpt-4o-mini'), messages: clarifierMessages, temperature: 0, maxOutputTokens: 60 });
         const response = result.toUIMessageStreamResponse();
+        // Analytics: route clarify (comparative)
+        try {
+          const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+          await supa.from('analytics_events').insert([{
+            site_id: siteId,
+            event_type: 'route',
+            session_id: sessionId || null,
+            page_url: pageContext?.url || null,
+            route_mode: 'clarify',
+            refusal_reason: null,
+            page_context_used: pageContext?.url ? 'ignored' : 'miss',
+            event_data: { source: 'comparative' }
+          }]);
+        } catch {}
         if (secureMode) {
           const cors = getCORSHeaders(origin, allowedOriginsForCors);
           for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
@@ -1008,6 +1036,20 @@ export async function POST(request: NextRequest) {
             ];
             const result = streamText({ model: openai('gpt-4o-mini'), messages: cautiousMessages, temperature: 0.2, maxOutputTokens: 120 });
             const response = result.toUIMessageStreamResponse();
+            // Analytics: route soft-inference (treated as answer)
+            try {
+              const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+              await supa.from('analytics_events').insert([{
+                site_id: siteId,
+                event_type: 'route',
+                session_id: sessionId || null,
+                page_url: pageContext?.url || null,
+                route_mode: 'answer',
+                refusal_reason: null,
+                page_context_used: pageContext?.url ? 'ignored' : 'miss',
+                event_data: { mode: 'soft-inference' }
+              }]);
+            } catch {}
             if (secureMode) {
               const cors = getCORSHeaders(origin, allowedOriginsForCors);
               for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
@@ -1065,6 +1107,20 @@ export async function POST(request: NextRequest) {
 
       // Add telemetry headers for monitoring
       const response = result.toUIMessageStreamResponse();
+      // Analytics: route refuse
+      try {
+        const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+        await supa.from('analytics_events').insert([{
+          site_id: siteId,
+          event_type: 'route',
+          session_id: sessionId || null,
+          page_url: pageContext?.url || null,
+          route_mode: 'refuse',
+          refusal_reason: useCleanRefusal ? 'post-filter-elimination' : 'low-similarity',
+          page_context_used: pageContext?.url ? 'ignored' : 'miss',
+          event_data: { top_similarity: topSimilarity }
+        }]);
+      } catch {}
       // Add CORS headers if secure mode validated origin
       if (secureMode) {
         const cors = getCORSHeaders(origin, allowedOriginsForCors);
@@ -1128,6 +1184,20 @@ export async function POST(request: NextRequest) {
 
     // Return the UI message stream response with offer hint metadata
     const response = result.toUIMessageStreamResponse();
+    // Analytics: route answer (generic)
+    try {
+      const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      await supa.from('analytics_events').insert([{
+        site_id: siteId,
+        event_type: 'route',
+        session_id: sessionId || null,
+        page_url: pageContext?.url || null,
+        route_mode: 'answer',
+        refusal_reason: null,
+        page_context_used: pageContext?.url ? 'ignored' : 'miss',
+        event_data: { chunks_included: Math.min(searchResults.length, Number(process.env.RAG_MAX_CHUNKS ?? 6)) }
+      }]);
+    } catch {}
     // Add CORS headers if secure mode validated origin
     if (secureMode) {
       const cors = getCORSHeaders(origin, allowedOriginsForCors);
