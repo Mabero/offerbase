@@ -311,19 +311,18 @@ function generateEventId(): string {
   return 'evt_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
 }
 
-function getClientIP(request: NextRequest): string {
+function isValidIP(ip?: string | null): boolean {
+  if (!ip) return false;
+  const v4 = /^(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+  const v6 = /^([0-9a-f]{1,4}:){7}[0-9a-f]{1,4}$/i;
+  return v4.test(ip) || v6.test(ip);
+}
+
+function getClientIP(request: NextRequest): string | null {
   const forwarded = request.headers.get('x-forwarded-for');
   const realIP = request.headers.get('x-real-ip');
-  
-  if (forwarded) {
-    return forwarded.split(',')[0];
-  }
-  
-  if (realIP) {
-    return realIP;
-  }
-  
-  return 'unknown';
+  const candidate = forwarded ? forwarded.split(',')[0].trim() : (realIP || '').trim();
+  return isValidIP(candidate) ? candidate : null;
 }
 
 function getSessionId(request: NextRequest): string {

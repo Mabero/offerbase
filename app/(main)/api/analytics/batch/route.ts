@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseAdminClient } from '@/lib/supabase-server';
+import { createClient } from '@supabase/supabase-js';
 
 export async function POST(request: NextRequest) {
   try {
@@ -69,7 +69,11 @@ export async function POST(request: NextRequest) {
     }
     
     // Insert events in batch
-    const supabase = createSupabaseAdminClient();
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { db: { schema: 'public' } }
+    );
     
     const { data: insertedEvents, error } = await supabase
       .from('analytics_events')
@@ -159,19 +163,18 @@ export async function OPTIONS() {
   });
 }
 
-function getClientIP(request: NextRequest): string {
+function isValidIP(ip?: string | null): boolean {
+  if (!ip) return false;
+  const v4 = /^(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+  const v6 = /^([0-9a-f]{1,4}:){7}[0-9a-f]{1,4}$/i;
+  return v4.test(ip) || v6.test(ip);
+}
+
+function getClientIP(request: NextRequest): string | null {
   const forwarded = request.headers.get('x-forwarded-for');
   const realIP = request.headers.get('x-real-ip');
-  
-  if (forwarded) {
-    return forwarded.split(',')[0];
-  }
-  
-  if (realIP) {
-    return realIP;
-  }
-  
-  return 'unknown';
+  const candidate = forwarded ? forwarded.split(',')[0].trim() : (realIP || '').trim();
+  return isValidIP(candidate) ? candidate : null;
 }
 
 function getSessionId(request: NextRequest): string {
