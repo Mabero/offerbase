@@ -167,7 +167,7 @@ export async function POST(request: NextRequest) {
 
   // Parse the request body - AI SDK sends { messages: UIMessage[], siteId: string }
   const body = await request.json();
-    const { messages, siteId, introMessage, pageContext, widgetToken, sessionId } = body;
+    const { messages, siteId, introMessage, pageContext, widgetToken, sessionId, preferredLanguage } = body;
   
   if (!siteId || !messages || !Array.isArray(messages)) {
       return new Response(
@@ -314,13 +314,35 @@ export async function POST(request: NextRequest) {
       const maxChunks = Number(process.env.PAGE_SUMMARY_MAX_CHUNKS ?? 2);
       const chunks = cachedPage.chunks.slice(0, Math.max(1, maxChunks));
 
-      // Detect user language name for instruction
+      // Detect language with preference/TLD override
       let langName = '';
       try {
         const tinyld = await import('tinyld');
         const code = tinyld.detect(currentQuery || introMessage || '');
         const MAP: Record<string, string> = { en: 'English', no: 'Norwegian', nb: 'Norwegian', nn: 'Norwegian', da: 'Danish', sv: 'Swedish', fi: 'Finnish', de: 'German', fr: 'French', es: 'Spanish', pt: 'Portuguese', it: 'Italian', nl: 'Dutch' };
-        langName = MAP[code as string] || '';
+        const detected = MAP[code as string] || '';
+        const inferFromUrl = (u?: string | null): string | undefined => {
+          if (!u) return undefined;
+          try {
+            const host = new URL(u).hostname.toLowerCase();
+            if (host.endsWith('.no')) return 'Norwegian';
+            if (host.endsWith('.se')) return 'Swedish';
+            if (host.endsWith('.dk')) return 'Danish';
+            if (host.endsWith('.fi')) return 'Finnish';
+            if (host.endsWith('.de')) return 'German';
+            if (host.endsWith('.nl')) return 'Dutch';
+            if (host.endsWith('.fr')) return 'French';
+            if (host.endsWith('.es')) return 'Spanish';
+            if (host.endsWith('.pt')) return 'Portuguese';
+            if (host.endsWith('.it')) return 'Italian';
+            return undefined;
+          } catch { return undefined; }
+        };
+        const siteLang = inferFromUrl((pageContext && pageContext.url) ? pageContext.url : undefined);
+        const preferred = typeof (body?.preferredLanguage) === 'string' && body.preferredLanguage.trim()
+          ? body.preferredLanguage.trim()
+          : undefined;
+        langName = preferred || siteLang || detected || '';
       } catch {}
 
       const system = `Summarize the following page content in ${langName || 'the user\'s language'}. Be concise, accurate, and avoid adding information not present in the text. Provide a short paragraph and, if appropriate, a short bullet list of key points. Do not mention that you are summarizing.`;
@@ -378,13 +400,35 @@ export async function POST(request: NextRequest) {
       const strongOverlap = scored[0]?.sim >= minSim;
 
       if ((detectPageQAIntent(currentQuery) || strongOverlap) && qaChunks.length > 0) {
-        // Detect language
+        // Detect language with preference/TLD override
         let langName = '';
         try {
           const tinyld = await import('tinyld');
           const code = tinyld.detect(currentQuery || introMessage || '');
           const MAP: Record<string, string> = { en: 'English', no: 'Norwegian', nb: 'Norwegian', nn: 'Norwegian', da: 'Danish', sv: 'Swedish', fi: 'Finnish', de: 'German', fr: 'French', es: 'Spanish', pt: 'Portuguese', it: 'Italian', nl: 'Dutch' };
-          langName = MAP[code as string] || '';
+          const detected = MAP[code as string] || '';
+          const inferFromUrl = (u?: string | null): string | undefined => {
+            if (!u) return undefined;
+            try {
+              const host = new URL(u).hostname.toLowerCase();
+              if (host.endsWith('.no')) return 'Norwegian';
+              if (host.endsWith('.se')) return 'Swedish';
+              if (host.endsWith('.dk')) return 'Danish';
+              if (host.endsWith('.fi')) return 'Finnish';
+              if (host.endsWith('.de')) return 'German';
+              if (host.endsWith('.nl')) return 'Dutch';
+              if (host.endsWith('.fr')) return 'French';
+              if (host.endsWith('.es')) return 'Spanish';
+              if (host.endsWith('.pt')) return 'Portuguese';
+              if (host.endsWith('.it')) return 'Italian';
+              return undefined;
+            } catch { return undefined; }
+          };
+          const siteLang = inferFromUrl((pageContext && pageContext.url) ? pageContext.url : undefined);
+          const preferred = typeof (body?.preferredLanguage) === 'string' && body.preferredLanguage.trim()
+            ? body.preferredLanguage.trim()
+            : undefined;
+          langName = preferred || siteLang || detected || '';
         } catch {}
 
         const system = `Answer strictly based on the page content provided below, in ${langName || 'the user\'s language'}. Do not add external knowledge. If the answer is not present, say you cannot find it on this page.`;
@@ -937,7 +981,7 @@ export async function POST(request: NextRequest) {
     
     // Get AI instructions from centralized location
     const baseInstructions = getAIInstructions();
-    // Detect user's language to enforce reply language (best-effort), with site TLD fallback for short queries
+    // Detect user's language to enforce reply language (best-effort), with preference/TLD override
     let languageInstruction = '';
     try {
       const tinyld = await import('tinyld');
@@ -972,8 +1016,11 @@ export async function POST(request: NextRequest) {
       };
       // Prefer pageContext URL if available; otherwise rely on request origin (iframe) which is app domain
       const siteLang = inferFromUrl((pageContext && pageContext.url) ? pageContext.url : undefined);
-      const shortOrAmbiguous = !lastText || lastText.trim().length < 12;
-      const finalName = (shortOrAmbiguous && siteLang) ? siteLang : (name || siteLang);
+      // Priority: dashboard preferredLanguage > site TLD > detector
+      const preferred = typeof preferredLanguage === 'string' && preferredLanguage.trim()
+        ? preferredLanguage.trim()
+        : undefined;
+      const finalName = preferred || siteLang || name;
       if (finalName) languageInstruction = `\n\nIMPORTANT: Respond in ${finalName}.`;
     } catch {}
     
