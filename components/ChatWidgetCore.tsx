@@ -43,6 +43,8 @@ export interface ChatSettings {
   input_placeholder: string;
   font_size: string;
   intro_message?: string;
+  // Optional site preference for language (dashboard-controlled)
+  preferred_language?: string | null;
 }
 
 export interface Session {
