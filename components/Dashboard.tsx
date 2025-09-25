@@ -222,6 +222,8 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   const [pageContextUsage, setPageContextUsage] = useState<any | null>(null);
   const [refusalRate, setRefusalRate] = useState<number | null>(null);
   const [offersPerf, setOffersPerf] = useState<any[]>([]);
+  const [offersLastUpdated, setOffersLastUpdated] = useState<{ mv_last_day?: string | null; generated_at?: string } | null>(null);
+  const [refreshingOffers, setRefreshingOffers] = useState(false);
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const [selectedSeries, setSelectedSeries] = useState<'sessions' | 'clicks' | 'impressions' | 'widget_opens'>('sessions');
@@ -1036,6 +1038,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       setRefusalRate(typeof m.refusal_rate === 'number' ? m.refusal_rate : (typeof data.refusal_rate === 'number' ? data.refusal_rate : null));
       setTopPages(Array.isArray(m.top_pages) ? m.top_pages : []);
       const offersPerfFromMetrics: any[] = Array.isArray((m as any).offers_performance) ? (m as any).offers_performance : [];
+      if (m.last_updated) setOffersLastUpdated(m.last_updated);
       if (offersPerfFromMetrics.length > 0) {
         setOffersPerf(offersPerfFromMetrics);
       } else {
@@ -1084,6 +1087,20 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       // Keep current stats on error
     }
   }, [startDate, endDate]);
+
+  const refreshOffersPerformance = useCallback(async () => {
+    if (!selectedSite || refreshingOffers) return;
+    setRefreshingOffers(true);
+    try {
+      await fetch('/api/analytics/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteId: selectedSite.id })
+      });
+      setTimeout(() => loadAnalyticsData(selectedSite.id), 1500);
+    } catch {}
+    finally { setTimeout(() => setRefreshingOffers(false), 500); }
+  }, [selectedSite, refreshingOffers, loadAnalyticsData]);
 
   const loadChatSettings = useCallback(async (siteId: string) => {
     setIsLoadingChatSettings(true);
@@ -2053,8 +2070,26 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                   {/* Offers Performance */}
                   <Card>
                     <CardHeader>
-                      <CardTitle className="text-base">Offers Performance</CardTitle>
-                      <CardDescription>Impressions, clicks and CTR per offer</CardDescription>
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <CardTitle className="text-base">Offers Performance</CardTitle>
+                          <CardDescription>
+                            Impressions, clicks and CTR per offer
+                            {offersLastUpdated && (
+                              <>
+                                {` • MV up to ${offersLastUpdated.mv_last_day || 'today'} • Generated ${new Date(offersLastUpdated.generated_at || Date.now()).toLocaleTimeString()}`}
+                              </>
+                            )}
+                          </CardDescription>
+                        </div>
+                        <button
+                          onClick={refreshOffersPerformance}
+                          disabled={refreshingOffers}
+                          className="px-3 py-1.5 text-sm rounded-md border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          {refreshingOffers ? 'Refreshing…' : 'Refresh now'}
+                        </button>
+                      </div>
                     </CardHeader>
                     <CardContent>
                       <OffersTable items={offersPerf as any[]} />

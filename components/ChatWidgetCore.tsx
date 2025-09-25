@@ -396,46 +396,7 @@ const Avatar = ({ src, name, style = {} }: { src?: string; name?: string; style?
   );
 };
 
-// LinksContainer component to handle offer impression tracking
-const LinksContainer = ({ links, chatSettings, styles, onLinkClick }: {
-  links: Link[];
-  chatSettings: ChatSettings;
-  styles: Record<string, React.CSSProperties>;
-  onLinkClick?: (link: Link) => void;
-}) => {
-  // Track offer impressions when links are rendered
-  useEffect(() => {
-    if (window.parent !== window) {
-      links.forEach((link, index) => {
-        window.parent.postMessage({
-          type: 'ANALYTICS_EVENT',
-          eventType: 'offer_impression',
-          data: {
-            link_id: link.id || null,
-            link_url: link.url,
-            link_name: link.name,
-            link_position: index,
-            total_offers: links.length
-          }
-        }, '*');
-      });
-    }
-  }, [links]);
-
-  return (
-    <div style={styles.linksContainer}>
-      {links.map((link, index) => (
-        <LinkCard 
-          key={link.url || `link-${index}`} 
-          link={link} 
-          chatSettings={chatSettings} 
-          styles={styles} 
-          onLinkClick={onLinkClick}
-        />
-      ))}
-    </div>
-  );
-};
+// Simple links are deprecated; product boxes are the single path now.
 
 // ProductRecommendations component - uses server-side matching for precision with JWT authentication
 const ProductRecommendations = React.memo(({ messageContent, streamingContent, messageId, userMessage, siteId, apiUrl, chatSettings, styles, isVisible, isLatestMessage, onProductsLoaded, preFetchedProducts, widgetToken, onTokenExpired, pageContext, completedMessageIds }: {
@@ -464,6 +425,26 @@ const ProductRecommendations = React.memo(({ messageContent, streamingContent, m
   // Frontend deduplication and rate limiting
   const fetchCache = useRef(new Map<string, AffiliateProduct[]>());
   const lastFetchTime = useRef(0);
+
+  // Emit impressions when product boxes are visible
+  useEffect(() => {
+    if (!isVisible || products.length === 0) return;
+    if (window.parent !== window) {
+      products.forEach((p, idx) => {
+        window.parent.postMessage({
+          type: 'ANALYTICS_EVENT',
+          eventType: 'offer_impression',
+          data: {
+            link_id: p.link_id ?? null,
+            link_url: p.url,
+            link_name: p.title,
+            link_position: idx,
+            total_offers: products.length
+          }
+        }, '*');
+      });
+    }
+  }, [isVisible, products]);
   
   // Clarification state
   const [clarificationData, setClarificationData] = useState<{
@@ -2055,14 +2036,7 @@ export function ChatWidgetCore({
             </div>
             
             {/* Product boxes outside message bubble */}
-            {botContent.type === 'links' && botContent.links && (
-              <LinksContainer
-                links={botContent.links}
-                chatSettings={chatSettings}
-                styles={styles}
-                onLinkClick={handleLinkClick}
-              />
-            )}
+            {/* Deprecated: simple link cards removed in favor of product boxes */}
             
             {/* Product recommendations for AI responses - always render but control visibility */}
             {botContent.type === 'message' && (

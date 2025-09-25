@@ -1,5 +1,5 @@
--- Contextual offers matching built on top of search_offers_stateless
--- Returns UI-ready fields without changing the offers schema
+-- Fix match_offers_contextual: qualify lateral columns to avoid ambiguity,
+-- keep custom button_text (fallback to 'View Product' only when NULL)
 
 BEGIN;
 
@@ -28,7 +28,7 @@ BEGIN
   RETURN QUERY
   WITH base AS (
     SELECT 
-      s.offer_id as id,
+      s.offer_id AS id,
       s.title,
       s.url,
       s.description,
@@ -65,7 +65,7 @@ BEGIN
     (c.base_score * (1 + LEAST(0.15, 0.03 * COALESCE(tm.matches,0))))::double precision AS match_score
   FROM ctx c
   LEFT JOIN LATERAL (
-    SELECT url, image_url, button_text
+    SELECT al.url, al.image_url, al.button_text
     FROM affiliate_links al
     WHERE al.site_id = p_site_id AND al.title = c.title
     ORDER BY al.created_at DESC NULLS LAST
@@ -83,3 +83,4 @@ END;
 $$ LANGUAGE plpgsql STABLE;
 
 COMMIT;
+
