@@ -487,7 +487,7 @@ async function getOffersPerformance(supabase: any, siteId: string, startISO: str
   } catch (e) {
     console.warn('[offers_performance] failed to read affiliate_links', e);
     // If we can’t read offers, just return []
-    return [];
+    return { items: [], lastUpdated: null };
   }
 
   // 2) Try to read MV; if unavailable, proceed with zeros
