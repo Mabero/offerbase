@@ -104,7 +104,9 @@ export async function POST(request: NextRequest) {
     }
 
     const results = (data || []).map((r: any) => ({
-      id: r.id,
+      id: r.link_id ?? r.id, // prefer affiliate_links.id for stable analytics
+      link_id: r.link_id ?? null,
+      offer_id: r.id ?? null,
       title: r.title,
       url: r.url,
       image_url: r.image_url,
@@ -131,4 +133,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: getCORSHeaders(origin, []) });
   }
 }
-

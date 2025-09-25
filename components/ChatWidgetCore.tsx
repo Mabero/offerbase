@@ -10,6 +10,8 @@ import { detectIntent } from '@/lib/ai/intent-detector';
 
 interface AffiliateProduct {
   id: string;
+  link_id?: string | null; // affiliate_links.id when available
+  offer_id?: string | null; // offers.id for debugging
   title: string;
   description: string;
   url: string;
@@ -760,6 +762,7 @@ const ProductRecommendations = React.memo(({ messageContent, streamingContent, m
         <ProductCard
           key={product.id || `product-${index}`}
           id={product.id}
+          analyticsLinkId={product.link_id ?? null}
           href={product.url}
           title={product.title}
           description={product.description}
@@ -775,8 +778,9 @@ const ProductRecommendations = React.memo(({ messageContent, streamingContent, m
 ProductRecommendations.displayName = 'ProductRecommendations';
 
 // ProductCard component for product recommendations
-const ProductCard = ({ id, href, title, description, buttonText, chatSettings, styles }: {
+const ProductCard = ({ id, analyticsLinkId, href, title, description, buttonText, chatSettings, styles }: {
   id?: string;
+  analyticsLinkId?: string | null;
   href: string;
   title: string;
   description: string;
@@ -836,7 +840,7 @@ const ProductCard = ({ id, href, title, description, buttonText, chatSettings, s
               type: 'ANALYTICS_EVENT',
               eventType: 'link_click',
               data: {
-                link_id: id || null,
+                link_id: analyticsLinkId || null,
                 link_url: href,
                 link_name: title,
                 button_text: buttonText || 'Learn more'
