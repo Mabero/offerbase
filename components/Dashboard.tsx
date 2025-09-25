@@ -145,6 +145,10 @@ interface ChatSession {
   user_agent?: string;
   is_active: boolean;
   last_activity_at: string;
+  offers_shown?: number;
+  link_clicks?: number;
+  clicked?: boolean;
+  last_click_at?: string | null;
 }
 
 interface ChatMessage {
@@ -2176,14 +2180,18 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                                   <Badge variant="secondary" className="text-xs">
                                     {session.message_count || 0} messages
                                   </Badge>
-                                  {session.is_active && (
-                                    <Badge variant="default" className="text-xs bg-green-100 text-green-800">
-                                      Active
-                                    </Badge>
-                                  )}
+                                  <Badge variant="outline" className="text-xs">
+                                    {session.offers_shown || 0} offers
+                                  </Badge>
+                                  <Badge variant={session.clicked ? 'default' : 'secondary'} className={`text-xs ${session.clicked ? 'bg-green-100 text-green-800' : ''}`}>
+                                    {session.link_clicks || 0} clicks
+                                  </Badge>
                                 </div>
-                                <div className="text-sm text-gray-600">
-                                  {session.started_at ? new Date(session.started_at).toLocaleString() : 'No date available'}
+                                <div className="text-sm text-gray-600 flex gap-2 flex-wrap">
+                                  <span>{session.started_at ? new Date(session.started_at).toLocaleString() : 'No date available'}</span>
+                                  {session.last_click_at && (
+                                    <span>• Last click {new Date(session.last_click_at).toLocaleString()}</span>
+                                  )}
                                 </div>
                               </div>
                               <div className="flex items-center gap-2">
