@@ -167,6 +167,9 @@ export async function GET(request: NextRequest) {
     // Calculate trend data (daily aggregates)
     const trendData = calculateTrendData(events || [], start, end);
 
+    // Compute offers performance (MV + today's live delta)
+    const perf = await getOffersPerformance(supabase, siteId, start, end);
+
   const metrics = {
     site_id: siteId,
     site_name: site.name,
@@ -185,7 +188,8 @@ export async function GET(request: NextRequest) {
     conversion_funnel: conversionMetrics,
     trends: trendData,
     top_offers: calculateTopOffers(events || []),
-    offers_performance: await getOffersPerformance(supabase, siteId, start, end),
+    offers_performance: perf.items,
+    last_updated: { mv_last_day: perf.lastUpdated, generated_at: new Date().toISOString() },
     top_pages: calculateTopPages(events || []),
     // V2 additions powered by route events
     route_mix: calculateRouteMix(events || []),
@@ -471,7 +475,7 @@ export async function OPTIONS() {
 }
 
 // --- DB helpers ---
-async function getOffersPerformance(supabase: any, siteId: string, startISO: string, endISO: string) {
+async function getOffersPerformance(supabase: any, siteId: string, startISO: string, endISO: string): Promise<{ items: any[]; lastUpdated: string | null }> {
   // 1) Load all offers for the site (best-effort, never throw in dev)
   let offers: any[] = [];
   try {
@@ -488,6 +492,7 @@ async function getOffersPerformance(supabase: any, siteId: string, startISO: str
 
   // 2) Try to read MV; if unavailable, proceed with zeros
   let rows: any[] = [];
+  let lastMVDay: string | null = null;
   try {
     const startDay = new Date(startISO).toISOString().slice(0, 10);
     const endDay = new Date(endISO).toISOString().slice(0, 10);
@@ -498,6 +503,9 @@ async function getOffersPerformance(supabase: any, siteId: string, startISO: str
       .gte('day', startDay)
       .lte('day', endDay);
     rows = mvRows || [];
+    if (rows.length) {
+      lastMVDay = rows.map((r: any) => r.day).sort().slice(-1)[0] || null;
+    }
   } catch (e) {
     console.warn('[offers_performance] MV read failed; returning zeros', e);
     rows = [];
@@ -522,6 +530,42 @@ async function getOffersPerformance(supabase: any, siteId: string, startISO: str
     }
   }
 
+  // 3) Add today's live delta so UI feels instant
+  try {
+    const todayStart = new Date();
+    const yyyy = todayStart.getUTCFullYear();
+    const mm = String(todayStart.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(todayStart.getUTCDate()).padStart(2, '0');
+    const todayISO = `${yyyy}-${mm}-${dd}T00:00:00.000Z`;
+    const { data: live } = await supabase
+      .from('analytics_events')
+      .select('link_id, event_type, event_data, created_at')
+      .eq('site_id', siteId)
+      .gte('created_at', todayISO)
+      .lte('created_at', endISO)
+      .in('event_type', ['offer_impression', 'link_click']);
+    (live || []).forEach((e: any) => {
+      const id = e.link_id as string | null;
+      const url = (e.event_data?.link_url as string) || null;
+      const isImp = (e.event_type || '') === 'offer_impression';
+      const isClk = (e.event_type || '') === 'link_click';
+      const inc = { impressions: isImp ? 1 : 0, clicks: isClk ? 1 : 0, last_seen: e.created_at as string };
+      if (id) {
+        if (!byId[id]) byId[id] = { impressions: 0, clicks: 0, last_seen: null };
+        byId[id].impressions += inc.impressions;
+        byId[id].clicks += inc.clicks;
+        if (!byId[id].last_seen || new Date(inc.last_seen) > new Date(byId[id].last_seen!)) byId[id].last_seen = inc.last_seen;
+      } else if (url) {
+        if (!byUrl[url]) byUrl[url] = { impressions: 0, clicks: 0, last_seen: null };
+        byUrl[url].impressions += inc.impressions;
+        byUrl[url].clicks += inc.clicks;
+        if (!byUrl[url].last_seen || new Date(inc.last_seen) > new Date(byUrl[url].last_seen!)) byUrl[url].last_seen = inc.last_seen;
+      }
+    });
+  } catch (e) {
+    console.warn('[offers_performance] live-delta read failed', e);
+  }
+
   const out = offers.map((o: any) => {
     const agg = (o.id && byId[o.id]) || byUrl[o.url] || { impressions: 0, clicks: 0, last_seen: null };
     const ctr = agg.impressions > 0 ? Math.round((agg.clicks / agg.impressions) * 1000) / 10 : 0;
@@ -537,5 +581,5 @@ async function getOffersPerformance(supabase: any, siteId: string, startISO: str
   });
 
   out.sort((a: any, b: any) => (b.clicks - a.clicks) || (b.impressions - a.impressions));
-  return out;
+  return { items: out, lastUpdated: lastMVDay };
 }
