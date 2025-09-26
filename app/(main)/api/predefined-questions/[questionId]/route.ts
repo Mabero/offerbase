@@ -71,7 +71,7 @@ function createSuccessResponse(data: unknown, message?: string, status: number =
 // GET /api/predefined-questions/[questionId] - Fetch single predefined question
 export async function GET(
   request: NextRequest,
-  { params }: { params: { questionId: string } }
+  context: { params: Promise<{ questionId: string }> }
 ) {
   try {
     // Get authentication
@@ -81,7 +81,7 @@ export async function GET(
     }
 
     // Get and validate parameters
-    const { questionId } = params;
+    const { questionId } = await context.params;
     const paramValidation = questionIdParamSchema.safeParse({ questionId });
     if (!paramValidation.success) {
       return createErrorResponse('Invalid question ID format', 400);
@@ -140,7 +140,7 @@ export async function GET(
 // PUT /api/predefined-questions/[questionId] - Update predefined question
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { questionId: string } }
+  context: { params: Promise<{ questionId: string }> }
 ) {
   try {
     // Get authentication
@@ -150,7 +150,7 @@ export async function PUT(
     }
 
     // Get and validate parameters
-    const { questionId } = params;
+    const { questionId } = await context.params;
     const paramValidation = questionIdParamSchema.safeParse({ questionId });
     if (!paramValidation.success) {
       return createErrorResponse('Invalid question ID format', 400);
@@ -324,7 +324,7 @@ export async function PUT(
 // DELETE /api/predefined-questions/[questionId] - Delete predefined question
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { questionId: string } }
+  context: { params: Promise<{ questionId: string }> }
 ) {
   try {
     // Get authentication
@@ -334,7 +334,7 @@ export async function DELETE(
     }
 
     // Get and validate parameters
-    const { questionId } = params;
+    const { questionId } = await context.params;
     const paramValidation = questionIdParamSchema.safeParse({ questionId });
     if (!paramValidation.success) {
       return createErrorResponse('Invalid question ID format', 400);
