@@ -14,13 +14,9 @@ const updateQuestionSchema = z.object({
     .max(500, "Question too long")
     .trim()
     .optional(),
+  // Optional answer; if empty or omitted, AI will handle it
   answer: z.string()
-    .min(1, "Answer is required")
     .max(2000, "Answer too long")
-    .trim()
-    .optional(),
-  pattern: z.string()
-    .max(200, "Pattern too long")
     .trim()
     .optional(),
   is_active: z.boolean().optional(),
@@ -28,7 +24,15 @@ const updateQuestionSchema = z.object({
   priority: z.number()
     .min(0, "Priority must be non-negative")
     .max(100, "Priority too high")
-    .optional()
+    .optional(),
+  // URL rules updates
+  url_rules: z.array(z.object({
+    id: z.string().uuid().optional(),
+    rule_type: z.enum(['exact','contains','exclude']),
+    pattern: z.string().min(1, 'Pattern is required').max(500, 'Pattern too long'),
+    is_active: z.boolean().optional(),
+    _delete: z.boolean().optional()
+  })).optional()
 });
 
 // Helper function to get Supabase client
@@ -67,7 +71,7 @@ function createSuccessResponse(data: unknown, message?: string, status: number =
 // GET /api/predefined-questions/[questionId] - Fetch single predefined question
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ questionId: string }> }
+  { params }: { params: { questionId: string } }
 ) {
   try {
     // Get authentication
@@ -77,7 +81,7 @@ export async function GET(
     }
 
     // Get and validate parameters
-    const { questionId } = await params;
+    const { questionId } = params;
     const paramValidation = questionIdParamSchema.safeParse({ questionId });
     if (!paramValidation.success) {
       return createErrorResponse('Invalid question ID format', 400);
@@ -93,13 +97,21 @@ export async function GET(
         id,
         question,
         answer,
-        pattern,
         priority,
         is_site_wide,
         is_active,
         created_at,
         updated_at,
         site_id,
+        question_url_rules (
+          id,
+          question_id,
+          rule_type,
+          pattern,
+          is_active,
+          created_at,
+          updated_at
+        ),
         sites!inner (
           id,
           user_id
@@ -128,7 +140,7 @@ export async function GET(
 // PUT /api/predefined-questions/[questionId] - Update predefined question
 export async function PUT(
   request: NextRequest,
-  { params }: { params: Promise<{ questionId: string }> }
+  { params }: { params: { questionId: string } }
 ) {
   try {
     // Get authentication
@@ -138,7 +150,7 @@ export async function PUT(
     }
 
     // Get and validate parameters
-    const { questionId } = await params;
+    const { questionId } = params;
     const paramValidation = questionIdParamSchema.safeParse({ questionId });
     if (!paramValidation.success) {
       return createErrorResponse('Invalid question ID format', 400);
@@ -191,10 +203,7 @@ export async function PUT(
       sanitizedData.question = updateData.question;
     }
     if (updateData.answer !== undefined) {
-      sanitizedData.answer = updateData.answer;
-    }
-    if (updateData.pattern !== undefined) {
-      sanitizedData.pattern = updateData.pattern || null;
+      sanitizedData.answer = (updateData.answer && updateData.answer.trim()) ? updateData.answer : null;
     }
     if (updateData.priority !== undefined) sanitizedData.priority = updateData.priority;
     if (updateData.is_site_wide !== undefined) sanitizedData.is_site_wide = updateData.is_site_wide;
@@ -205,8 +214,7 @@ export async function PUT(
       .from('predefined_questions')
       .update(sanitizedData)
       .eq('id', questionId)
-      .eq('sites.user_id', userId)
-      .select('id, question, answer, pattern, priority, is_site_wide, is_active, created_at, updated_at')
+      .select('id, site_id, question, answer, priority, is_site_wide, is_active, created_at, updated_at')
       .single();
 
     if (updateError) {
@@ -214,18 +222,98 @@ export async function PUT(
       return createErrorResponse('Failed to update predefined question');
     }
 
+    // If URL rules are provided, process inserts/updates/deletes
+    if (updateData.url_rules && updateData.url_rules.length > 0) {
+      const toInsert = updateData.url_rules.filter(r => !r.id && !r._delete).map(r => ({
+        question_id: questionId,
+        rule_type: r.rule_type,
+        pattern: r.pattern,
+        is_active: r.is_active ?? true
+      }));
+      const toUpsert = updateData.url_rules.filter(r => r.id && !r._delete).map(r => ({
+        id: r.id!,
+        question_id: questionId,
+        rule_type: r.rule_type,
+        pattern: r.pattern,
+        is_active: r.is_active ?? true
+      }));
+      const toDelete = updateData.url_rules.filter(r => r.id && r._delete).map(r => r.id!);
+
+      if (toInsert.length > 0) {
+        const { error: insertErr } = await supabase
+          .from('question_url_rules')
+          .insert(toInsert);
+        if (insertErr) {
+          console.error('Failed to insert URL rules:', insertErr);
+          return createErrorResponse('Failed to update URL rules');
+        }
+      }
+
+      if (toUpsert.length > 0) {
+        const { error: upsertErr } = await supabase
+          .from('question_url_rules')
+          .upsert(toUpsert, { onConflict: 'id' });
+        if (upsertErr) {
+          console.error('Failed to upsert URL rules:', upsertErr);
+          return createErrorResponse('Failed to update URL rules');
+        }
+      }
+
+      if (toDelete.length > 0) {
+        const { error: deleteErr } = await supabase
+          .from('question_url_rules')
+          .delete()
+          .in('id', toDelete);
+        if (deleteErr) {
+          console.error('Failed to delete URL rules:', deleteErr);
+          return createErrorResponse('Failed to update URL rules');
+        }
+      }
+    }
+
+    // Fetch updated question with rules
+    const { data: updatedWithRules, error: fetchError } = await supabase
+      .from('predefined_questions')
+      .select(`
+        id,
+        site_id,
+        question,
+        answer,
+        priority,
+        is_site_wide,
+        is_active,
+        created_at,
+        updated_at,
+        question_url_rules (
+          id,
+          question_id,
+          rule_type,
+          pattern,
+          is_active,
+          created_at,
+          updated_at
+        )
+      `)
+      .eq('id', questionId)
+      .single();
+
+    if (fetchError) {
+      console.warn('Updated question fetched without rules due to error:', fetchError);
+    }
+
     // Invalidate cache gracefully (don't fail if cache is unavailable)
     try {
       const { cache, getCacheKey } = await import('@/lib/cache');
       const cacheKey = getCacheKey(existingQuestion.site_id, 'predefined_questions');
       await cache.del(cacheKey);
-      console.log(`🗑️ Cache invalidated for predefined questions: ${existingQuestion.site_id}`);
+      await cache.invalidatePattern?.(`chat:${existingQuestion.site_id}:question_match_*`);
+      console.log(`🗑️ Cache invalidated for predefined questions and matches: ${existingQuestion.site_id}`);
     } catch (cacheError) {
       console.warn(`⚠️ Cache invalidation failed for site ${existingQuestion.site_id}:`, cacheError);
       // Continue execution - cache failure shouldn't break the API
     }
 
-    return createSuccessResponse(updatedQuestion, 'Predefined question updated successfully');
+    return createSuccessResponse(updatedWithRules || updatedQuestion, 'Predefined question updated successfully');
 
   } catch (error) {
     console.error('PUT /api/predefined-questions/[questionId] error:', error);
@@ -236,7 +324,7 @@ export async function PUT(
 // DELETE /api/predefined-questions/[questionId] - Delete predefined question
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ questionId: string }> }
+  { params }: { params: { questionId: string } }
 ) {
   try {
     // Get authentication
@@ -246,7 +334,7 @@ export async function DELETE(
     }
 
     // Get and validate parameters
-    const { questionId } = await params;
+    const { questionId } = params;
     const paramValidation = questionIdParamSchema.safeParse({ questionId });
     if (!paramValidation.success) {
       return createErrorResponse('Invalid question ID format', 400);
@@ -281,7 +369,7 @@ export async function DELETE(
       .from('predefined_questions')
       .delete()
       .eq('id', questionId)
-      .eq('sites.user_id', userId);
+      ;
 
     if (deleteError) {
       console.error(`❌ Predefined question deletion error:`, deleteError);
@@ -295,7 +383,8 @@ export async function DELETE(
       const { cache, getCacheKey } = await import('@/lib/cache');
       const cacheKey = getCacheKey(existingQuestion.site_id, 'predefined_questions');
       await cache.del(cacheKey);
-      console.log(`🗑️ Cache invalidated for predefined questions: ${existingQuestion.site_id}`);
+      await cache.invalidatePattern?.(`chat:${existingQuestion.site_id}:question_match_*`);
+      console.log(`🗑️ Cache invalidated for predefined questions and matches: ${existingQuestion.site_id}`);
     } catch (cacheError) {
       console.warn(`⚠️ Cache invalidation failed for site ${existingQuestion.site_id}:`, cacheError);
       // Continue execution - cache failure shouldn't break the API

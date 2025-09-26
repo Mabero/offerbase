@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createClient } from '@supabase/supabase-js';
 import { scrapeUrl } from '@/lib/scraping';
+import { invalidateSiteDomainTerms } from '@/lib/ai/domain-guard';
+import { summarizeTrainingMaterial } from '@/lib/ai/summarizer';
 
 // GET /api/training-materials - Fetch training materials for a site
 export async function GET(request: NextRequest) {
@@ -220,6 +222,13 @@ async function scrapeContentForMaterial(materialId: string, url: string) {
       updateData.title = scrapeResult.metadata.title;
     }
 
+    // Fetch site_id for invalidation
+    const { data: matForSite } = await supabase
+      .from('training_materials')
+      .select('site_id')
+      .eq('id', materialId)
+      .single();
+
     // Update the training material
     await supabase
       .from('training_materials')
@@ -227,6 +236,65 @@ async function scrapeContentForMaterial(materialId: string, url: string) {
       .eq('id', materialId);
 
     console.log(`🎉 Training material ${materialId} processed successfully`);
+
+    // Summarize with LLM to extract subjects/brands/models using scraped content
+    try {
+      console.log(`🤖 Summarizing training material for subjects: ${materialId}`);
+      const effectiveTitle = (typeof updateData.title === 'string' && updateData.title)
+        ? String(updateData.title)
+        : (scrapeResult.metadata?.title || url);
+      const summaryResult = await summarizeTrainingMaterial(
+        scrapeResult.content || '',
+        effectiveTitle,
+        scrapeResult.metadata || {}
+      );
+
+      // Merge structured data and write results
+      const { data: existing } = await supabase
+        .from('training_materials')
+        .select('structured_data')
+        .eq('id', materialId)
+        .single();
+
+      const structuredDataMerged: any = {
+        ...(existing?.structured_data || {}),
+        ...(summaryResult.structuredData || {}),
+      };
+      if (summaryResult.brandTerms && summaryResult.brandTerms.length) {
+        structuredDataMerged.brand_terms = summaryResult.brandTerms;
+      }
+      if (summaryResult.modelCodes && summaryResult.modelCodes.length) {
+        structuredDataMerged.model_codes = summaryResult.modelCodes;
+      }
+      if (summaryResult.category) {
+        structuredDataMerged.category = summaryResult.category;
+      }
+
+      await supabase
+        .from('training_materials')
+        .update({
+          summary: summaryResult.summary,
+          key_points: summaryResult.keyPoints || [],
+          structured_data: structuredDataMerged,
+          intent_keywords: summaryResult.intentKeywords || [],
+          primary_products: summaryResult.primaryProducts || [],
+          confidence_score: summaryResult.confidenceScore || 0,
+          summarized_at: new Date().toISOString(),
+          metadata: {
+            ...(scrapeResult.metadata || {}),
+            productInfo: summaryResult.productInfo
+          }
+        })
+        .eq('id', materialId);
+      console.log(`✅ Summarization completed: ${materialId}`);
+    } catch (e) {
+      console.warn(`⚠️ Summarization failed for ${materialId}:`, e instanceof Error ? e.message : e);
+    }
+
+    // Invalidate domain guard for this site so new subjects are live
+    if (matForSite?.site_id) {
+      try { await invalidateSiteDomainTerms(matForSite.site_id); } catch {}
+    }
 
     // Automatically generate embeddings after successful scraping
     try {

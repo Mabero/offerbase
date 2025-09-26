@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createClient } from '@supabase/supabase-js';
 import { cache } from '@/lib/cache';
+import { invalidateSiteDomainTerms } from '@/lib/ai/domain-guard';
 
 // PUT /api/affiliate-links/[linkId] - Update affiliate link
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ linkId: string }> }) {
@@ -43,8 +44,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'Link not found or unauthorized' }, { status: 404 });
     }
 
-    // Clear cache for this site when updating affiliate links
+    // Clear cache and invalidate domain terms
     await cache.invalidatePattern(`chat:${link.site_id}:*`);
+    try { await invalidateSiteDomainTerms(link.site_id); } catch {}
 
     // Prepare update data
     const updateData: Record<string, unknown> = {
@@ -117,8 +119,9 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       return NextResponse.json({ error: 'Link not found or unauthorized' }, { status: 404 });
     }
 
-    // Clear cache for this site before deleting
+    // Clear cache and invalidate domain terms
     await cache.invalidatePattern(`chat:${link.site_id}:*`);
+    try { await invalidateSiteDomainTerms(link.site_id); } catch {}
 
     // Delete the link
     const { error } = await supabase

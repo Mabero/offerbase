@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
         site_id: ev.site_id,
         event_type: ev.event_type,
         user_session_id: ev.user_session_id || ev.user_id || (ev.details && ev.details.session_id) || getSessionId(request),
-        session_id: ev.session_id || null,
+        session_id: ev.session_id || (ev.details && ev.details.session_id) || null,
         page_url: ev.page_url || ev.url || null,
         widget_type: ev.widget_type || (ev.details && ev.details.widget_type) || null,
         route_mode: ev.route_mode || null,

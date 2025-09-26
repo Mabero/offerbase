@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { scrapeUrl } from '@/lib/scraping';
 import { summarizeTrainingMaterial } from '@/lib/ai/summarizer';
 import { z } from 'zod';
+import { invalidateSiteDomainTerms } from '@/lib/ai/domain-guard';
 
 // Input validation schema
 const processRequestSchema = z.object({
@@ -242,6 +243,9 @@ export async function POST(request: NextRequest) {
 
       return createResponse({ error: 'Failed to save scraped content' }, 'Database Error', 500);
     }
+
+    // Invalidate domain guard for this site (new terms from summary/keywords)
+    try { await invalidateSiteDomainTerms(material.site_id); } catch {}
 
     const processingDuration = Date.now() - processingStartTime;
     console.log(`🎉 Training material processed successfully in ${processingDuration}ms`);

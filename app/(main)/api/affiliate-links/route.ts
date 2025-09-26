@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateSmartAliases } from '@/lib/alias-generator';
+import { invalidateSiteDomainTerms } from '@/lib/ai/domain-guard';
 
 // GET /api/affiliate-links - Fetch affiliate links for a site
 export async function GET(request: NextRequest) {
@@ -144,6 +145,9 @@ export async function POST(request: NextRequest) {
         console.error('Alias generation error (non-critical):', aliasGenerationError);
       }
     }
+
+    // Invalidate domain guard so affiliate titles can be considered in derived terms
+    try { await invalidateSiteDomainTerms(siteId); } catch {}
 
     return NextResponse.json({ success: true, data }, { status: 201 });
 

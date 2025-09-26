@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { createClient } from '@supabase/supabase-js'
 import { cache } from '@/lib/cache'
+import { invalidateSiteDomainTerms } from '@/lib/ai/domain-guard'
 
 export async function GET(
   request: NextRequest,
@@ -88,6 +89,7 @@ export async function PUT(
     // Clear cache for this site when updating materials
     const siteId = material.site_id
     await cache.invalidatePattern(`chat:${siteId}:*`)
+    try { await invalidateSiteDomainTerms(siteId) } catch {}
     
     // Update the training material
     const updates: Record<string, unknown> = {
@@ -167,6 +169,7 @@ export async function DELETE(
     // Clear cache for this site before deleting
     const siteId = material.site_id
     await cache.invalidatePattern(`chat:${siteId}:*`)
+    try { await invalidateSiteDomainTerms(siteId) } catch {}
     
     // Delete the material
     const { error } = await supabase

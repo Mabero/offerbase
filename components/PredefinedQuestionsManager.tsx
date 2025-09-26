@@ -85,8 +85,9 @@ export function PredefinedQuestionsManager({ siteId }: PredefinedQuestionsManage
         throw new Error(`HTTP ${response.status}`);
       }
       
-      const data = await response.json();
-      setQuestions(data.questions || []);
+      const json = await response.json();
+      const payload = json?.data || json;
+      setQuestions(payload.questions || []);
     } catch (error) {
       console.error('Error loading predefined questions:', error);
       toast({
@@ -129,8 +130,9 @@ export function PredefinedQuestionsManager({ siteId }: PredefinedQuestionsManage
         throw new Error(errorData.error || `HTTP ${response.status}`);
       }
 
-      const data = await response.json();
-      setQuestions(prev => [data.question, ...prev]);
+      const json = await response.json();
+      const created = json?.data || json;
+      setQuestions(prev => [created, ...prev]);
       
       toast({
         title: "Success",
@@ -184,8 +186,9 @@ export function PredefinedQuestionsManager({ siteId }: PredefinedQuestionsManage
         throw new Error(errorData.error || `HTTP ${response.status}`);
       }
 
-      const data = await response.json();
-      setQuestions(prev => prev.map(q => q.id === editingQuestion.id ? data.question : q));
+      const json = await response.json();
+      const updated = json?.data || json;
+      setQuestions(prev => prev.map(q => q.id === editingQuestion.id ? updated : q));
       
       toast({
         title: "Success",

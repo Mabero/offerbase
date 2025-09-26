@@ -1971,7 +1971,9 @@ export function ChatWidgetCore({
             siteId,
             introMessage: chatSettings?.intro_message || introMessage,
             widgetToken: widgetAuth.token || undefined,
-            sessionId: sessionId || undefined
+            sessionId: sessionId || undefined,
+            preferredLanguage: chatSettings?.preferred_language || null,
+            pageContext: parentPageContext || pageContext || undefined
           }
         }
       );
@@ -1988,8 +1990,16 @@ export function ChatWidgetCore({
       const response = await fetch(`${apiUrl}/api/predefined-questions/match?siteId=${siteId}&pageUrl=${encodeURIComponent(url)}&maxResults=4`);
       
       if (response.ok) {
-        const data = await response.json();
-        setPredefinedQuestions(data.questions || []);
+        const json = await response.json();
+        const payload = json?.data || json;
+        const questions = Array.isArray(payload?.questions) ? payload.questions : [];
+        const buttons = questions.map((q: any) => ({
+          id: q.id,
+          question: q.question,
+          answer: q.answer,
+          priority: typeof q.priority === 'number' ? q.priority : 0,
+        }));
+        setPredefinedQuestions(buttons);
       } else {
         console.warn('Failed to load predefined questions:', response.status);
         setPredefinedQuestions([]);
@@ -2006,7 +2016,7 @@ export function ChatWidgetCore({
       // Ensure auth is ready to avoid 401 during predefined question send
       if (!authReady) {
         try { await widgetAuth.refresh(); } catch {}
-        return;
+        // Continue to send regardless to avoid UX drop on first click
       }
       // Use sendMessage for predefined questions with siteId (AI SDK manages loading state)
       await sendMessage(
@@ -2016,7 +2026,9 @@ export function ChatWidgetCore({
             siteId,
             introMessage: chatSettings?.intro_message || introMessage,
             widgetToken: widgetAuth.token || undefined,
-            sessionId: sessionId || undefined
+            sessionId: sessionId || undefined,
+            preferredLanguage: chatSettings?.preferred_language || null,
+            pageContext: parentPageContext || pageContext || undefined
           }
         }
       );
@@ -2033,13 +2045,43 @@ export function ChatWidgetCore({
     // Clear predefined questions immediately when one is clicked
     setPredefinedQuestions([]);
     
-    // AI SDK will handle adding the user message automatically
+    // If there's a predefined answer, show it immediately (no API roundtrip)
     if (question.answer && question.answer.trim()) {
-      // Has predefined answer - but we'll still send through AI for consistency
-      // Let the AI process it rather than showing static answers
-      await sendMessageToAI(question.question);
+      // Ensure a chat session exists so messages can be saved
+      if (!sessionId) {
+        try {
+          const userSessionId = visitorSessionId || `anon_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+          const resp = await fetch(`${apiUrl}/api/chat-sessions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              siteId,
+              userSessionId,
+              userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown',
+              ipAddress: null
+            })
+          });
+          if (resp.ok) {
+            const { session } = await resp.json();
+            setSessionId(session.id);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(`chat_session_uuid_${siteId}`, session.id);
+            }
+          }
+        } catch (e) {
+          console.warn('Could not create session for predefined answer:', e);
+        }
+      }
+      const userId = generateMessageId();
+      const botId = generateMessageId();
+      const newMessages = [
+        ...aiMessages,
+        { id: userId, role: 'user' as const, content: question.question, parts: [{ type: 'text' as const, text: question.question }] },
+        { id: botId, role: 'assistant' as const, content: question.answer, parts: [{ type: 'text' as const, text: question.answer }] },
+      ];
+      setMessages(newMessages);
     } else {
-      // No predefined answer - send to AI
+      // Otherwise, send to AI
       await sendMessageToAI(question.question);
     }
     
@@ -2074,18 +2116,35 @@ export function ChatWidgetCore({
     const getSimplePageContext = () => {
       if (typeof window === 'undefined') return;
       
-      // Simple approach: extract current page context
+      const fallbackUrl = window.location.href;
       const context = {
-        url: window.location.href,
+        url: fallbackUrl,
         title: document.title || '',
         description: document.querySelector('meta[name="description"]')?.getAttribute('content') || ''
       };
       
-      // For embedded widgets, try to get referrer URL
-      if (isEmbedded && window.parent !== window && document.referrer) {
-        context.url = document.referrer;
+      // For embedded widgets, request the parent page URL via postMessage
+      if (isEmbedded && window.parent !== window) {
+        const handleMessage = (event: MessageEvent) => {
+          if (event.data && event.data.type === 'PAGE_URL_RESPONSE' && typeof event.data.url === 'string') {
+            setPageUrl(event.data.url);
+            setPageContext(prev => ({ ...prev, url: event.data.url }));
+          }
+        };
+        window.addEventListener('message', handleMessage);
+        try {
+          window.parent.postMessage({ type: 'GET_PAGE_URL' }, '*');
+        } catch {}
+        // Fallback to referrer while waiting
+        if (document.referrer) {
+          context.url = document.referrer;
+        }
+        setPageUrl(context.url);
+        setPageContext(context);
+        return () => window.removeEventListener('message', handleMessage);
       }
       
+      // Non-embedded or no parent available
       setPageUrl(context.url);
       setPageContext(context);
     };

@@ -69,12 +69,35 @@ export async function GET(
       })
     }
 
+    // Also fetch offer-related analytics events for this session (by session_id)
+    let events: any[] = []
+    try {
+      if (session.id) {
+        const { data: evs, error: eventsError } = await supabase
+          .from('analytics_events')
+          .select('id, event_type, created_at, event_data, link_id')
+          .eq('site_id', session.site_id)
+          .eq('session_id', session.id)
+          .in('event_type', ['offer_impression', 'link_click'])
+          .order('created_at', { ascending: true })
+
+        if (eventsError) {
+          console.error('Error fetching analytics events for session:', eventsError)
+        } else {
+          events = evs || []
+        }
+      }
+    } catch (e) {
+      console.error('Unexpected error while fetching session analytics events:', e)
+    }
+
     return NextResponse.json({ 
       session: {
         ...session,
         sites: undefined // Remove the sites data from response
       },
-      messages: messages || []
+      messages: messages || [],
+      events
     }, {
       headers: {
         'Access-Control-Allow-Origin': '*',

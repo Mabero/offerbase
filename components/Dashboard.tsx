@@ -208,6 +208,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
   const [sessionMessages, setSessionMessages] = useState<ChatMessage[]>([]);
   const [isLoadingSessionDetails, setIsLoadingSessionDetails] = useState(false);
+  const [sessionEvents, setSessionEvents] = useState<Array<{ id: string; event_type: string; created_at: string; event_data?: any; link_id?: string | null }>>([]);
   const [preferredLanguage, setPreferredLanguage] = useState<string | null>(null);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
@@ -1001,6 +1002,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       
       const data = await response.json();
       setSessionMessages(data.messages || []);
+      setSessionEvents(data.events || []);
     } catch (error) {
       console.error('Error fetching session details:', error);
       toast({
@@ -2285,27 +2287,89 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                 </div>
               ) : (
                 <div className="overflow-y-auto max-h-96 space-y-3">
-                  {sessionMessages.length > 0 ? (
-                    sessionMessages.map((message, index) => (
-                      <div key={index} className={`p-3 rounded-lg ${message.role === 'user' ? 'bg-blue-50 ml-8' : 'bg-gray-50 mr-8'}`}>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`text-xs font-medium px-2 py-1 rounded ${message.role === 'user' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
-                            {message.role === 'user' ? 'User' : 'Assistant'}
-                          </span>
-                          <span className="text-xs text-gray-500">
-                            {message.created_at ? new Date(message.created_at).toLocaleTimeString() : ''}
-                          </span>
+                  {(() => {
+                    const msgs = [...(sessionMessages || [])].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+                    const events = [...(sessionEvents || [])].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+                    if (msgs.length === 0 && events.length === 0) {
+                      return (
+                        <div className="text-center py-8 text-gray-500">No messages in this session yet.</div>
+                      );
+                    }
+
+                    // Collect assistant messages for grouping
+                    const assistantMsgs = msgs.filter(m => m.role === 'assistant');
+                    const eventsByAssistant: Record<string, typeof events> = {};
+
+                    // Helper to find the assistant message under which to display an event
+                    const findHostAssistantId = (evTime: number): string | null => {
+                      // Prefer the next assistant msg at/after the event; fallback to the last assistant msg before it
+                      let candidate: ChatMessage | null = null;
+                      for (let i = 0; i < assistantMsgs.length; i++) {
+                        const am = assistantMsgs[i];
+                        const t = new Date(am.created_at).getTime();
+                        if (t >= evTime) { candidate = am; break; }
+                      }
+                      if (!candidate && assistantMsgs.length) candidate = assistantMsgs[assistantMsgs.length - 1];
+                      return candidate ? candidate.id : null;
+                    };
+
+                    events.forEach(ev => {
+                      const hostId = findHostAssistantId(new Date(ev.created_at).getTime());
+                      if (!hostId) return;
+                      (eventsByAssistant[hostId] ||= []).push(ev);
+                    });
+
+                    // Render messages, and for assistant messages, render their events beneath
+                    return msgs.map((m, idx) => {
+                      const bubble = (
+                        <div key={`m-${idx}`} className={`p-3 rounded-lg ${m.role === 'user' ? 'bg-blue-50 ml-8' : 'bg-gray-50 mr-8'}`}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-xs font-medium px-2 py-1 rounded ${m.role === 'user' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
+                              {m.role === 'user' ? 'User' : 'Assistant'}
+                            </span>
+                            <span className="text-xs text-gray-500">{new Date(m.created_at).toLocaleTimeString()}</span>
+                          </div>
+                          <div className="text-sm">{m.content}</div>
                         </div>
-                        <div className="text-sm">
-                          {message.content}
+                      );
+
+                      if (m.role !== 'assistant') return bubble;
+
+                      const evs = eventsByAssistant[m.id] || [];
+                      if (evs.length === 0) return bubble;
+
+                      return (
+                        <div key={`mb-${idx}`} className="space-y-2">
+                          {bubble}
+                          {evs.map((ev, eidx) => {
+                            const title = ev?.event_data?.link_name || ev?.event_data?.link_title || '';
+                            const url = ev?.event_data?.link_url || '';
+                            const isImpression = ev.event_type === 'offer_impression';
+                            const label = isImpression ? 'Offer shown' : 'Link clicked';
+                            return (
+                              <div key={`e-${eidx}`} className="flex items-center justify-center">
+                                <div className="text-[12px] text-gray-600 bg-gray-100 border border-gray-200 rounded px-2 py-1">
+                                  {label}
+                                  {title ? (
+                                    <>
+                                      : <span className="font-medium"> {title} </span>
+                                      {url ? (
+                                        <>
+                                          (<a className="underline" href={url} target="_blank" rel="noreferrer">open</a>)
+                                        </>
+                                      ) : null}
+                                    </>
+                                  ) : null}
+                                  <span className="ml-2 text-gray-400">{new Date(ev.created_at).toLocaleTimeString()}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-8 text-gray-500">
-                      No messages in this session yet.
-                    </div>
-                  )}
+                      );
+                    });
+                  })()}
                 </div>
               )}
             </div>
@@ -2317,7 +2381,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       {selectedSite && (
         <ChatWidget
           session={null}
-          chatSettings={chatSettings}
+          chatSettings={{ ...chatSettings, preferred_language: preferredLanguage || null }}
           siteId={selectedSite.id}
           introMessage={introMessage}
           apiUrl={API_URL}

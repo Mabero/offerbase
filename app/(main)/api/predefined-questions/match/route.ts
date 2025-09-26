@@ -122,53 +122,19 @@ export async function GET(request: NextRequest) {
 
     const questions = allQuestions || [];
 
-    // Filter questions based on URL matching
-    const matchedQuestions = [];
-    
+    // Filter questions based on UrlMatcher semantics
+    const matchedQuestions: any[] = [];
     for (const question of questions) {
-      let isMatch = false;
-      
-      // Check if it's a site-wide question (always matches)
-      if (question.is_site_wide) {
-        isMatch = true;
-      } else {
-        // Check URL rules
-        const activeRules = question.question_url_rules?.filter(rule => rule.is_active) || [];
-        
-        if (activeRules.length === 0) {
-          // No URL rules means it's site-wide by default
-          isMatch = true;
-        } else {
-          // Check each rule
-          for (const rule of activeRules) {
-            try {
-              // Create a mock question object to use the public matchesQuestion method
-              const mockQuestion = {
-                ...question,
-                question_url_rules: [rule]
-              };
-              
-              if (defaultUrlMatcher.matchesQuestion(sanitizedPageUrl, mockQuestion)) {
-                isMatch = true;
-                break;
-              }
-            } catch (error) {
-              console.error(`Error matching URL rule ${rule.id}:`, error);
-              // Continue with other rules
-            }
+      try {
+        if (defaultUrlMatcher.matchesQuestion(sanitizedPageUrl, question as any)) {
+          const { question_url_rules, ...questionData } = question as any;
+          matchedQuestions.push(questionData);
+          if (matchedQuestions.length >= maxResults) {
+            break;
           }
         }
-      }
-      
-      if (isMatch) {
-        // Remove internal fields from response
-        const { question_url_rules, ...questionData } = question;
-        matchedQuestions.push(questionData);
-        
-        // Stop when we have enough results
-        if (matchedQuestions.length >= maxResults) {
-          break;
-        }
+      } catch (err) {
+        console.warn('Error evaluating question match:', err);
       }
     }
 

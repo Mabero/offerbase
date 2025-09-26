@@ -10,12 +10,9 @@ const predefinedQuestionCreateSchema = z.object({
     .min(1, "Question is required")
     .max(500, "Question too long")
     .trim(),
+  // Optional answer; if omitted or empty, AI will handle the question
   answer: z.string()
-    .min(1, "Answer is required")
     .max(2000, "Answer too long")
-    .trim(),
-  pattern: z.string()
-    .max(200, "Pattern too long")
     .trim()
     .optional(),
   is_active: z.boolean().default(true),
@@ -23,7 +20,13 @@ const predefinedQuestionCreateSchema = z.object({
   priority: z.number()
     .min(0, "Priority must be non-negative")
     .max(100, "Priority too high")
-    .default(50)
+    .default(50),
+  // Optional URL rules for creation
+  url_rules: z.array(z.object({
+    rule_type: z.enum(['exact','contains','exclude']),
+    pattern: z.string().min(1, 'Pattern is required').max(500, 'Pattern too long'),
+    is_active: z.boolean().optional().default(true)
+  })).optional().default([])
 });
 
 // Helper function to get Supabase client
@@ -116,7 +119,16 @@ export async function GET(request: NextRequest) {
         is_site_wide,
         is_active,
         created_at,
-        updated_at
+        updated_at,
+        question_url_rules (
+          id,
+          question_id,
+          rule_type,
+          pattern,
+          is_active,
+          created_at,
+          updated_at
+        )
       `)
       .eq('site_id', siteId);
 
@@ -212,13 +224,12 @@ export async function POST(request: NextRequest) {
       .insert([{
         site_id: questionData.siteId,
         question: questionData.question,
-        answer: questionData.answer,
-        pattern: questionData.pattern || null,
+        answer: (questionData.answer && questionData.answer.trim()) ? questionData.answer : null,
         priority: questionData.priority,
         is_site_wide: questionData.is_site_wide,
         is_active: questionData.is_active
       }])
-      .select('id, question, answer, pattern, priority, is_site_wide, is_active, created_at, updated_at')
+      .select('id, site_id, question, answer, priority, is_site_wide, is_active, created_at, updated_at')
       .single();
 
     if (createError) {
@@ -226,18 +237,67 @@ export async function POST(request: NextRequest) {
       return createErrorResponse('Failed to create predefined question');
     }
 
+    // If URL rules are provided, insert them now
+    if (questionData.url_rules && questionData.url_rules.length > 0) {
+      const rulesToInsert = questionData.url_rules.map(rule => ({
+        question_id: newQuestion.id,
+        rule_type: rule.rule_type,
+        pattern: rule.pattern,
+        is_active: rule.is_active ?? true
+      }));
+      const { error: rulesError } = await supabase
+        .from('question_url_rules')
+        .insert(rulesToInsert);
+      if (rulesError) {
+        console.error('Failed to create URL rules for predefined question:', rulesError);
+        return createErrorResponse('Failed to create URL rules');
+      }
+    }
+
+    // Fetch the created question with rules for response
+    const { data: createdWithRules, error: fetchError } = await supabase
+      .from('predefined_questions')
+      .select(`
+        id,
+        site_id,
+        question,
+        answer,
+        priority,
+        is_site_wide,
+        is_active,
+        created_at,
+        updated_at,
+        question_url_rules (
+          id,
+          question_id,
+          rule_type,
+          pattern,
+          is_active,
+          created_at,
+          updated_at
+        )
+      `)
+      .eq('id', newQuestion.id)
+      .single();
+
+    if (fetchError || !createdWithRules) {
+      console.warn('Created question fetched without rules due to error:', fetchError);
+    }
+
     // Invalidate cache gracefully (don't fail if cache is unavailable)
     try {
       const { cache, getCacheKey } = await import('@/lib/cache');
       const cacheKey = getCacheKey(questionData.siteId, 'predefined_questions');
       await cache.del(cacheKey);
-      console.log(`🗑️ Cache invalidated for predefined questions: ${questionData.siteId}`);
+      // Also invalidate match caches for this site
+      await cache.invalidatePattern?.(`chat:${questionData.siteId}:question_match_*`);
+      console.log(`🗑️ Cache invalidated for predefined questions and matches: ${questionData.siteId}`);
     } catch (cacheError) {
       console.warn(`⚠️ Cache invalidation failed for site ${questionData.siteId}:`, cacheError);
       // Continue execution - cache failure shouldn't break the API
     }
 
-    return createSuccessResponse(newQuestion, 'Predefined question created successfully', 201);
+    return createSuccessResponse(createdWithRules || newQuestion, 'Predefined question created successfully', 201);
 
   } catch (error) {
     console.error('POST /api/predefined-questions error:', error);

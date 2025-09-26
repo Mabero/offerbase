@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createSupabaseAdminClient } from '@/lib/supabase-server';
 import { processTrainingMaterialSummary } from '@/lib/ai/summarizer';
+import { invalidateSiteDomainTerms } from '@/lib/ai/domain-guard';
 
 export async function POST(
   request: NextRequest,
@@ -47,6 +48,9 @@ export async function POST(
       .select('*')
       .eq('id', materialId)
       .single();
+
+    // Invalidate domain guard so new intent keywords apply immediately
+    try { await invalidateSiteDomainTerms(material.site_id); } catch {}
 
     return NextResponse.json({ 
       success: true, 

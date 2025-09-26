@@ -143,16 +143,11 @@ function extractSourceInfo(material: TrainingMaterial): ContextItem['sourceInfo'
  */
 function normalizeQuery(query: string): string {
   return query
-    // Fix common typos and variations
-    .replace(/\bwebsite\s*builder\b/gi, 'website builder')
-    .replace(/\bweb\s*builder\b/gi, 'website builder')  
-    .replace(/\bsite\s*builder\b/gi, 'website builder')
-    // Normalize "what is" patterns
+    // Fix common typos and variations (domain-agnostic)
     .replace(/\bwhat\s+is\s+/gi, 'what is ')
     .replace(/\btell\s+me\s+about\s+/gi, 'what is ')
-    // Normalize company name patterns
-    .replace(/\b(\w+)\.com\b/gi, '$1') // Remove .com for company matching
-    .replace(/\b(\w+)\s*website\b/gi, '$1') // "CompanyName website" → "CompanyName"
+    // Normalize company URL patterns (domain-agnostic)
+    .replace(/\b(\w+)\.com\b/gi, '$1')
     // Clean up extra whitespace
     .replace(/\s+/g, ' ')
     .trim();

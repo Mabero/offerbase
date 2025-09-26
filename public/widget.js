@@ -549,15 +549,22 @@
         if (!sessionId) {
             sessionId = 'session_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 9);
         }
-        
+        // Prefer explicit IDs from details (sent by ChatWidgetCore) to match chat_sessions
+        const topSessionId = (details && details.session_id) ? details.session_id : sessionId;
+        const topUserSessionId = (details && details.user_session_id) ? details.user_session_id : sessionId;
+
         const event = {
             event_type: eventType,
             site_id: siteId,
             user_id: null,
+            // Provide stable identifiers at top-level so backend can aggregate per session
+            user_session_id: topUserSessionId,
+            session_id: topSessionId,
             details: {
                 ...details,
                 widget_type: widgetType,
-                session_id: sessionId,
+                session_id: topSessionId,
+                user_session_id: topUserSessionId,
                 page_url: window.location.href,
                 page_title: document.title
             },

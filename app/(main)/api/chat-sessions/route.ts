@@ -100,32 +100,32 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Aggregate offer impressions and clicks per session (by user_session_id)
+    // Aggregate offer impressions and clicks per session (prefer session_id to avoid cross-session mixing)
     let sessionsWithAgg = sessions || [];
     try {
-      const keys = (sessions || []).map((s: any) => s.user_session_id).filter((k: string) => !!k);
-      if (keys.length) {
+      const sessionIds = (sessions || []).map((s: any) => s.id).filter((k: string) => !!k);
+      if (sessionIds.length) {
         const { data: evs } = await supabase
           .from('analytics_events')
-          .select('user_session_id, event_type, created_at')
+          .select('session_id, event_type, created_at')
           .eq('site_id', siteId)
-          .in('user_session_id', keys)
+          .in('session_id', sessionIds)
           .in('event_type', ['offer_impression', 'link_click'])
           .gte('created_at', new Date(Date.now() - 30*24*60*60*1000).toISOString());
-        const agg: Record<string, { offers: number; clicks: number; last_click_at: string | null }> = {};
+        const aggBySession: Record<string, { offers: number; clicks: number; last_click_at: string | null }> = {};
         (evs || []).forEach((e: any) => {
-          const k = e.user_session_id || '';
-          if (!agg[k]) agg[k] = { offers: 0, clicks: 0, last_click_at: null };
-          if (e.event_type === 'offer_impression') agg[k].offers++;
+          const k = e.session_id || '';
+          if (!aggBySession[k]) aggBySession[k] = { offers: 0, clicks: 0, last_click_at: null };
+          if (e.event_type === 'offer_impression') aggBySession[k].offers++;
           if (e.event_type === 'link_click') {
-            agg[k].clicks++;
-            if (!agg[k].last_click_at || new Date(e.created_at) > new Date(agg[k].last_click_at!)) {
-              agg[k].last_click_at = e.created_at;
+            aggBySession[k].clicks++;
+            if (!aggBySession[k].last_click_at || new Date(e.created_at) > new Date(aggBySession[k].last_click_at!)) {
+              aggBySession[k].last_click_at = e.created_at;
             }
           }
         });
         sessionsWithAgg = (sessions || []).map((s: any) => {
-          const a = agg[s.user_session_id] || { offers: 0, clicks: 0, last_click_at: null };
+          const a = aggBySession[s.id] || { offers: 0, clicks: 0, last_click_at: null };
           return {
             ...s,
             offers_shown: a.offers,

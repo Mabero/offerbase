@@ -16,6 +16,12 @@ interface SummarizationResult {
     features?: string[];
     benefits?: string[];
   };
+  // New fields derived by LLM specifically for domain guard
+  subjects?: string[];       // multi-word topics (stored in intent_keywords)
+  brandTerms?: string[];     // single-word brands (stored in structured_data.brand_terms)
+  modelCodes?: string[];     // alphanumeric model codes (stored in structured_data.model_codes)
+  category?: string;         // coarse category (stored in structured_data.category)
+  keywords?: string[];       // single-word domain nouns/brands to supplement subjects
 }
 
 /**
@@ -37,7 +43,7 @@ export async function summarizeTrainingMaterial(
     apiKey: process.env.OPENAI_API_KEY,
   });
 
-  // Create content-type specific system prompt
+  // Create content-type specific system prompt, extended to extract guard subjects
   const systemPrompt = createContentAwareSystemPrompt(contentAnalysis.contentType);
 
   // Include structured data context if available
@@ -49,12 +55,23 @@ export async function summarizeTrainingMaterial(
 
 Content Type: ${contentAnalysis.contentType}
 
-Content to summarize:
-${content.substring(0, 4000)} ${content.length > 4000 ? '...' : ''}
+Content (sampled):
+${content.substring(0, 6000)}${content.length > 6000 ? '...' : ''}
 
 ${structuredDataContext}
 
-${metadata ? `Additional metadata: ${JSON.stringify(metadata)}` : ''}`;
+${metadata ? `Additional metadata: ${JSON.stringify(metadata)}` : ''}
+
+Return JSON with keys:
+- summary: string
+- keyPoints: string[] (3-7)
+- subjects: string[] (3-6 concise multi-word topics; include single-word domain nouns if they are core topics like "nettsidebygger"; no dates, months, years, or generic words like best/beste/price/pris/guide/bruk/review/anmeldelse)
+- brandTerms: string[] (single tokens like brand names; 0-6)
+- modelCodes: string[] (alphanumeric codes like g4/g3, etc; 0-6)
+- primaryProducts: string[] (2-6 multi-word product/service names if present)
+- category: string (one coarse topic)
+- keywords: string[] (up to 15 single-word subject keywords: domains/brands; exclude generic words, dates, months, numbers)
+`;
 
   try {
     const completion = await openai.chat.completions.create({
@@ -74,16 +91,41 @@ ${metadata ? `Additional metadata: ${JSON.stringify(metadata)}` : ''}`;
     }
 
     const parsed = JSON.parse(response);
-    
+
+    // Post-clean terms (language-agnostic minimal filters)
+    const clean = (arr: unknown): string[] => Array.isArray(arr)
+      ? Array.from(new Set(
+          (arr as string[])
+            .map((s) => (typeof s === 'string' ? s.trim() : ''))
+            .filter(Boolean)
+            .map((s) => s.replace(/\s+/g, ' ').trim())
+            .filter((s) => s.length >= 2)
+            .filter((s) => !/^(19|20)\d{2}$/.test(s))
+            .filter((s) => !/^\d+$/.test(s))
+        ))
+      : [];
+
+    const subjects = clean(parsed.subjects);
+    const brandTerms = clean(parsed.brandTerms).filter((t) => !t.includes(' '));
+    const modelCodes = clean(parsed.modelCodes);
+    const primaryProducts = clean(parsed.primaryProducts).filter((t) => t.includes(' '));
+    const category = typeof parsed.category === 'string' ? parsed.category.trim() : '';
+    const keywords = clean(parsed.keywords).filter((t) => !t.includes(' '));
+
     return {
       summary: parsed.summary || '',
       keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints : [],
       contentType: contentAnalysis.contentType,
       structuredData: contentAnalysis.structuredData,
-      intentKeywords: contentAnalysis.intentKeywords,
-      primaryProducts: contentAnalysis.primaryProducts,
+      intentKeywords: Array.from(new Set([...(subjects || []), ...(keywords || [])])).filter(Boolean),
+      primaryProducts: primaryProducts.length ? primaryProducts : contentAnalysis.primaryProducts,
       confidenceScore: contentAnalysis.confidenceScore,
-      productInfo: parsed.productInfo
+      productInfo: parsed.productInfo,
+      subjects,
+      brandTerms,
+      modelCodes,
+      category,
+      keywords
     };
   } catch (error) {
     console.error('Error summarizing content:', error);
@@ -107,7 +149,13 @@ function createContentAwareSystemPrompt(contentType: ContentType): string {
   const basePrompt = `You are an expert at extracting key information from various types of content. 
 IMPORTANT: Extract information in the same language as the source content. If the content is in Norwegian, respond in Norwegian.
 
-Your task is to create concise summaries that preserve the most important context and decision-making information.`;
+Your task is to create concise summaries that preserve the most important context and decision-making information.
+
+CRUCIAL for subjects extraction:
+- Ignore boilerplate (disclaimer, guarantees, cookie banners, privacy, updated dates), navigation, and promotional claims.
+- Ignore generic evaluatives (best/beste/top/topp, review/anmeldelse, price/pris, guide/bruk, ranking/rangering, alternatives/alternativer).
+- Ignore dates, months, years, and pure numbers.
+- Subjects must be concise domain concepts (prefer multi‑word phrases).`;
 
   const typeSpecificPrompts: Record<ContentType, string> = {
     ranking: `
@@ -219,7 +267,7 @@ Create:
 - keyPoints: Key facts, insights, and takeaways`
   };
 
-  return typeSpecificPrompts[contentType] + '\n\nRespond in JSON format with summary and keyPoints fields.';
+  return typeSpecificPrompts[contentType] + '\n\nRespond ONLY as valid JSON with keys: summary, keyPoints, subjects, brandTerms, modelCodes, primaryProducts, category.';
 }
 
 /**
@@ -264,13 +312,27 @@ export async function processTrainingMaterialSummary(materialId: string): Promis
     );
 
     // Update the material with enhanced summary
+    const structuredDataMerged: any = {
+      ...(material.structured_data || {}),
+      ...(summaryResult.structuredData || {}),
+    };
+    if (summaryResult.brandTerms && summaryResult.brandTerms.length) {
+      structuredDataMerged.brand_terms = summaryResult.brandTerms;
+    }
+    if (summaryResult.modelCodes && summaryResult.modelCodes.length) {
+      structuredDataMerged.model_codes = summaryResult.modelCodes;
+    }
+    if (summaryResult.category) {
+      structuredDataMerged.category = summaryResult.category;
+    }
+
     const { error: updateError } = await supabase
       .from('training_materials')
       .update({
         summary: summaryResult.summary,
         key_points: summaryResult.keyPoints,
         content_type: summaryResult.contentType,
-        structured_data: summaryResult.structuredData,
+        structured_data: structuredDataMerged,
         intent_keywords: summaryResult.intentKeywords,
         primary_products: summaryResult.primaryProducts,
         confidence_score: summaryResult.confidenceScore,
