@@ -80,10 +80,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'query parameter is required' }, { status: 400, headers: getCORSHeaders(origin, allowedOrigins) });
     }
 
-    // Build context keywords
+    // Build context keywords (prefer page context when present)
     let finalContextKeywords: string[] = [];
     if (Array.isArray(contextKeywords)) {
       finalContextKeywords = contextKeywords;
+    } else if (pageContext && (pageContext.title || pageContext.description)) {
+      const pseudoChunks: TrainingChunk[] = [{
+        content: String(pageContext.description || ''),
+        materialTitle: String(pageContext.title || '')
+      }];
+      finalContextKeywords = extractContextKeywords(pseudoChunks, query);
     } else if (Array.isArray(trainingChunks) && trainingChunks.length > 0) {
       finalContextKeywords = extractContextKeywords(trainingChunks as TrainingChunk[], query);
     } else {
@@ -94,7 +100,8 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase.rpc('match_offers_contextual', {
       p_site_id: siteId,
       p_query: query.trim(),
-      p_ai_text: aiText || query,
+      // Prefer AI text only when page context exists; otherwise stick to user query
+      p_ai_text: (pageContext && (pageContext.title || pageContext.description)) ? aiText : null,
       p_context_keywords: finalContextKeywords,
       p_limit: Math.min(limit, 20)
     });
@@ -112,19 +119,146 @@ export async function POST(request: NextRequest) {
       image_url: r.image_url,
       button_text: r.button_text || 'Learn more',
       description: r.description || '',
+      brand_norm: r.brand_norm || null,
+      model_norm: r.model_norm || null,
       match_type: r.match_type,
       match_score: r.match_score,
     }));
 
+    // Enforce one-or-ask: never return multiple conflicting products
+    const pageHasContext = !!(pageContext && (pageContext.title || pageContext.description));
+    const AHEAD_DELTA = 0.12;
+
+    // Helper: cluster by normalized brand+model
+    const clusters = new Map<string, { key: string; items: any[]; topScore: number }>();
+    for (const item of results) {
+      const key = `${(item.brand_norm || '').trim()}|${(item.model_norm || '').trim()}`;
+      const c = clusters.get(key) || { key, items: [], topScore: 0 };
+      c.items.push(item);
+      c.topScore = Math.max(c.topScore, item.match_score || 0);
+      clusters.set(key, c);
+    }
+
+    // If no results, return empty
+    if (results.length === 0) {
+      return NextResponse.json({
+        success: true,
+        data: [],
+        query: query.trim(),
+        count: 0,
+        candidatesCount: 0,
+        contextualMatching: {
+          contextKeywords: finalContextKeywords,
+          pageContextUsed: pageHasContext
+        },
+        responseTime: Date.now() - start,
+      }, { headers: { ...getCORSHeaders(origin, allowedOrigins), 'Cache-Control': 'public, max-age=15' } });
+    }
+
+    // Single product: return it
+    if (results.length === 1) {
+      return NextResponse.json({
+        success: true,
+        data: [results[0]],
+        query: query.trim(),
+        count: 1,
+        candidatesCount: 1,
+        contextualMatching: {
+          contextKeywords: finalContextKeywords,
+          pageContextUsed: pageHasContext
+        },
+        responseTime: Date.now() - start,
+      }, { headers: { ...getCORSHeaders(origin, allowedOrigins), 'Cache-Control': 'public, max-age=30' } });
+    }
+
+    // Sort clusters by top score
+    const sortedClusters = Array.from(clusters.values()).sort((a, b) => b.topScore - a.topScore);
+    const top1 = sortedClusters[0];
+    const top2 = sortedClusters[1];
+
+    // If page context exists, pick the overall top result deterministically
+    if (pageHasContext) {
+      const topItem = results[0];
+      return NextResponse.json({
+        success: true,
+        data: [topItem],
+        query: query.trim(),
+        count: 1,
+        candidatesCount: results.length,
+        contextualMatching: {
+          contextKeywords: finalContextKeywords,
+          pageContextUsed: pageHasContext
+        },
+        responseTime: Date.now() - start,
+      }, { headers: { ...getCORSHeaders(origin, allowedOrigins), 'Cache-Control': 'public, max-age=30' } });
+    }
+
+    // Ambiguity detection (no page context): if multiple clusters and top2 is close to top1, ask clarification
+    const ambiguous = sortedClusters.length > 1 && top2 && (top2.topScore >= (top1.topScore - AHEAD_DELTA));
+
+    if (ambiguous) {
+      // Build simple category inference
+      const inferCategory = (t?: string, d?: string): { category: string; displayName: string } => {
+        const text = `${t || ''} ${d || ''}`.toLowerCase();
+        if (/(vacuum|støvsuger|stovsuger|aspiradora|staubsauger)/.test(text)) {
+          return { category: 'vacuum', displayName: 'Vacuum cleaner' };
+        }
+        if (/(ipl|hair removal|hårfjerning|epilator|laser)/.test(text)) {
+          return { category: 'hair-removal', displayName: 'IPL hair removal' };
+        }
+        return { category: 'other', displayName: (t || 'Option') };
+      };
+
+      const topClusters = sortedClusters.slice(0, 2);
+      const options = topClusters.map(c => {
+        const head = c.items[0];
+        const inferred = inferCategory(head?.title, head?.description);
+        return {
+          category: inferred.category,
+          displayName: inferred.displayName,
+          products: c.items.map(p => ({
+            id: p.id,
+            link_id: p.link_id,
+            offer_id: p.offer_id,
+            title: p.title,
+            url: p.url,
+            image_url: p.image_url,
+            button_text: p.button_text,
+            description: p.description
+          }))
+        };
+      });
+
+      return NextResponse.json({
+        success: true,
+        data: [],
+        clarification: {
+          shouldAsk: true,
+          reason: 'ambiguous_short_code',
+          confidence: 'medium',
+          options
+        },
+        query: query.trim(),
+        count: 0,
+        candidatesCount: results.length,
+        contextualMatching: {
+          contextKeywords: finalContextKeywords,
+          pageContextUsed: pageHasContext
+        },
+        responseTime: Date.now() - start,
+      }, { headers: { ...getCORSHeaders(origin, allowedOrigins), 'Cache-Control': 'no-store' } });
+    }
+
+    // Otherwise, return only the single best item (never multiple)
     return NextResponse.json({
       success: true,
-      data: results,
+      data: [results[0]],
       query: query.trim(),
-      count: results.length,
+      count: 1,
       candidatesCount: results.length,
       contextualMatching: {
         contextKeywords: finalContextKeywords,
-        pageContextUsed: !!(pageContext && (pageContext.title || pageContext.description))
+        pageContextUsed: pageHasContext
       },
       responseTime: Date.now() - start,
     }, { headers: { ...getCORSHeaders(origin, allowedOrigins), 'Cache-Control': 'public, max-age=30' } });

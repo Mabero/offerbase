@@ -399,7 +399,7 @@ const Avatar = ({ src, name, style = {} }: { src?: string; name?: string; style?
 // Simple links are deprecated; product boxes are the single path now.
 
 // ProductRecommendations component - uses server-side matching for precision with JWT authentication
-const ProductRecommendations = React.memo(({ messageContent, streamingContent, messageId, userMessage, siteId, apiUrl, chatSettings, styles, isVisible, isLatestMessage, onProductsLoaded, preFetchedProducts, widgetToken, onTokenExpired, pageContext, completedMessageIds }: {
+const ProductRecommendations = React.memo(({ messageContent, streamingContent, messageId, userMessage, siteId, apiUrl, chatSettings, styles, isVisible, isLatestMessage, onProductsLoaded, preFetchedProducts, widgetToken, onTokenExpired, pageContext, completedMessageIds, chatSessionId, userSessionId }: {
   messageContent: string;
   streamingContent?: string;
   messageId: string;
@@ -416,6 +416,8 @@ const ProductRecommendations = React.memo(({ messageContent, streamingContent, m
   onTokenExpired?: () => Promise<void>;
   pageContext?: { title?: string; description?: string; url?: string };
   completedMessageIds?: Set<string>;
+  chatSessionId?: string | null;
+  userSessionId?: string | null;
 }) => {
   const [products, setProducts] = useState<AffiliateProduct[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -426,24 +428,72 @@ const ProductRecommendations = React.memo(({ messageContent, streamingContent, m
   const fetchCache = useRef(new Map<string, AffiliateProduct[]>());
   const lastFetchTime = useRef(0);
 
-  // Emit impressions when product boxes are visible
+  // Emit impressions once when product boxes first become visible for this message
+  const impressionsSentRef = useRef(false);
+  // Lightweight stable string hash for dedup keys
+  const hashString = (s: string) => {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h) ^ s.charCodeAt(i);
+    return (h >>> 0).toString(36);
+  };
+
   useEffect(() => {
+    if (impressionsSentRef.current) return;
     if (!isVisible || products.length === 0) return;
-    if (window.parent !== window) {
-      products.forEach((p, idx) => {
-        window.parent.postMessage({
-          type: 'ANALYTICS_EVENT',
-          eventType: 'offer_impression',
-          data: {
-            link_id: p.link_id ?? null,
-            link_url: p.url,
-            link_name: p.title,
-            link_position: idx,
-            total_offers: products.length
-          }
-        }, '*');
-      });
+    impressionsSentRef.current = true;
+
+    // Persistent de-duplication across widget remounts (keyed per chat session + message + link)
+    const storeKey = chatSessionId
+      ? `offer_impressions_sent_${chatSessionId}`
+      : (userSessionId ? `offer_impressions_sent_user_${userSessionId}` : null);
+    let sentSet: Set<string> = new Set();
+    if (storeKey && typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(storeKey);
+        if (raw) sentSet = new Set(JSON.parse(raw));
+      } catch {}
     }
+    const persist = () => {
+      if (!storeKey || typeof window === 'undefined') return;
+      try { localStorage.setItem(storeKey, JSON.stringify(Array.from(sentSet))); } catch {}
+    };
+
+    const fingerprint = hashString((messageContent || '').trim());
+
+    products.forEach((p, idx) => {
+      const linkKey = p.link_id || p.url;
+      const baseOwner = chatSessionId || `user:${userSessionId || 'anon'}`;
+      // Prefer fingerprint over messageId to persist across reloads
+      const key = `${baseOwner}|${fingerprint}|${linkKey}`;
+      if (sentSet.has(key)) return;
+      const payload = {
+        link_id: p.link_id ?? null,
+        link_url: p.url,
+        link_name: p.title,
+        link_position: idx,
+        total_offers: products.length,
+        session_id: chatSessionId || null,
+        user_session_id: userSessionId || null
+      };
+      if (window.parent !== window) {
+        window.parent.postMessage({ type: 'ANALYTICS_EVENT', eventType: 'offer_impression', data: payload }, '*');
+      } else {
+        // Direct API fallback for embedded/admin usage
+        fetch(`${apiUrl}/api/analytics`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event_type: 'offer_impression',
+            site_id: siteId,
+            user_session_id: userSessionId || undefined,
+            session_id: chatSessionId || undefined,
+            details: payload
+          })
+        }).catch(() => {});
+      }
+      sentSet.add(key);
+      persist();
+    });
   }, [isVisible, products]);
   
   // Clarification state
@@ -526,8 +576,78 @@ const ProductRecommendations = React.memo(({ messageContent, streamingContent, m
     fetchTriggeredRef.current = messageId;
     setIsLoading(true);
     
-    try {
-      
+  try {
+      // --- Subject memory (session-only): derive brand/model/category tokens from recent text ---
+      // Keeps small, deterministic memory to bias short-code queries like "g3"
+      const ensureMemory = () => {
+        if (!(window as any).__offerbaseSubjectMemory__) {
+          (window as any).__offerbaseSubjectMemory__ = { tokens: [] as string[] };
+        }
+        return (window as any).__offerbaseSubjectMemory__ as { tokens: string[] };
+      };
+      const memory = ensureMemory();
+      const MAX_TOKENS = 5;
+      const STOP = new Set(['the','and','for','med','den','det','som','with','til','på','om','about','this','that','these','those']);
+      const CATEGORY_HINTS: Array<{re: RegExp, token: string}> = [
+        { re: /(ipl|hair removal|hårfjerning|epilator|laser)/i, token: 'hair removal' },
+        { re: /(vacuum|støvsuger|stovsuger|staubsauger|aspiradora)/i, token: 'vacuum' }
+      ];
+      const extractSubjectTokens = (text?: string) => {
+        if (!text) return [] as string[];
+        const t = text.toLowerCase();
+        const tokens: string[] = [];
+        // Model-like codes
+        const codeRe = /\b[a-z]{1,6}\d{1,4}[a-z0-9]*\b/gi;
+        const codes = t.match(codeRe) || [];
+        tokens.push(...codes.map(c => c.toLowerCase()));
+        // Nearby brand word (previous token)
+        const words = t.split(/\s+/);
+        for (let i = 0; i < words.length; i++) {
+          if (/^[a-z]{1,6}\d{1,4}[a-z0-9]*$/.test(words[i])) {
+            const prev = words[i - 1];
+            if (prev && /[a-z]{3,}/.test(prev) && !STOP.has(prev)) {
+              tokens.push(prev);
+            }
+          }
+        }
+        // Category cues
+        for (const h of CATEGORY_HINTS) {
+          if (h.re.test(t)) tokens.push(h.token);
+        }
+        // Deduplicate and cap
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const k of tokens) {
+          const key = k.trim();
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          out.push(key);
+          if (out.length >= MAX_TOKENS) break;
+        }
+        return out;
+      };
+      // Update memory with current texts (user + AI)
+      try {
+        const newTokens = [
+          ...extractSubjectTokens(userMessage || ''),
+          ...extractSubjectTokens(contentToMatch || '')
+        ];
+        if (newTokens.length) {
+          const combined = [...(memory.tokens || []), ...newTokens];
+          // Deduplicate and cap
+          const seen = new Set<string>();
+          const out: string[] = [];
+          for (const k of combined) {
+            const key = (k || '').trim();
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            out.push(key);
+            if (out.length >= MAX_TOKENS) break;
+          }
+          memory.tokens = out;
+        }
+      } catch {}
+
       // Fetch products with contextual matching (training chunks will be fetched by the API)
       const response = await authenticatedFetch(
         `${apiUrl}/api/offers/match`,
@@ -537,6 +657,8 @@ const ProductRecommendations = React.memo(({ messageContent, streamingContent, m
             query: userMessage?.trim() || contentToMatch.trim(), // Original user query
             aiText: contentToMatch.trim(), // AI response for exact matching
             pageContext: pageContext && (pageContext.title || pageContext.description) ? pageContext : undefined, // Page title, description, and URL for context
+            // Thread subject memory only when no page context, to avoid overriding on-page signals
+            contextKeywords: !(pageContext && (pageContext.title || pageContext.description)) ? (ensureMemory().tokens || []) : undefined,
             limit: 12
           })
         },
@@ -750,6 +872,10 @@ const ProductRecommendations = React.memo(({ messageContent, streamingContent, m
           buttonText={product.button_text || 'View Product'}
           chatSettings={chatSettings}
           styles={styles}
+          chatSessionId={chatSessionId || null}
+          userSessionId={userSessionId || null}
+          apiUrl={apiUrl}
+          siteId={siteId}
         />
       ))}
     </div>
@@ -759,7 +885,7 @@ const ProductRecommendations = React.memo(({ messageContent, streamingContent, m
 ProductRecommendations.displayName = 'ProductRecommendations';
 
 // ProductCard component for product recommendations
-const ProductCard = ({ id, analyticsLinkId, href, title, description, buttonText, chatSettings, styles }: {
+const ProductCard = ({ id, analyticsLinkId, href, title, description, buttonText, chatSettings, styles, chatSessionId, userSessionId, apiUrl, siteId }: {
   id?: string;
   analyticsLinkId?: string | null;
   href: string;
@@ -768,6 +894,10 @@ const ProductCard = ({ id, analyticsLinkId, href, title, description, buttonText
   buttonText: string;
   chatSettings: ChatSettings;
   styles: Record<string, React.CSSProperties>;
+  chatSessionId?: string | null;
+  userSessionId?: string | null;
+  apiUrl: string;
+  siteId: string;
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isButtonHovered, setIsButtonHovered] = useState(false);
@@ -816,17 +946,29 @@ const ProductCard = ({ id, analyticsLinkId, href, title, description, buttonText
         onMouseEnter={() => setIsButtonHovered(true)}
         onMouseLeave={() => setIsButtonHovered(false)}
         onClick={() => {
+          const payload = {
+            link_id: analyticsLinkId || null,
+            link_url: href,
+            link_name: title,
+            button_text: buttonText || 'Learn more',
+            session_id: chatSessionId || null,
+            user_session_id: userSessionId || null
+          };
           if (window.parent !== window) {
-            window.parent.postMessage({
-              type: 'ANALYTICS_EVENT',
-              eventType: 'link_click',
-              data: {
-                link_id: analyticsLinkId || null,
-                link_url: href,
-                link_name: title,
-                button_text: buttonText || 'Learn more'
-              }
-            }, '*');
+            window.parent.postMessage({ type: 'ANALYTICS_EVENT', eventType: 'link_click', data: payload }, '*');
+          } else {
+            // Direct API fallback for embedded/admin usage
+            fetch(`${apiUrl}/api/analytics`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                event_type: 'link_click',
+                site_id: siteId,
+                user_session_id: userSessionId || undefined,
+                session_id: chatSessionId || undefined,
+                details: payload
+              })
+            }).catch(() => {});
           }
         }}
       >
@@ -1187,6 +1329,18 @@ export function ChatWidgetCore({
       if (existingSessionId) {
         return existingSessionId;
       }
+    }
+    return null;
+  });
+
+  // Track stable visitor session identifier used in analytics_events.user_session_id
+  const [visitorSessionId, setVisitorSessionId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const existing = localStorage.getItem(`chat_user_session_${siteId}`);
+      if (existing) return existing;
+      const generated = `anon_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+      localStorage.setItem(`chat_user_session_${siteId}`, generated);
+      return generated;
     }
     return null;
   });
@@ -1775,8 +1929,8 @@ export function ChatWidgetCore({
     if (!sessionId) {
       try {
         
-        // Generate unique session identifier for anonymous users
-        const userSessionId = `anon_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+        // Generate unique visitor session identifier for anonymous users (used for analytics correlation)
+        const userSessionId = visitorSessionId || `anon_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
         
         const response = await fetch(`${apiUrl}/api/chat-sessions`, {
           method: 'POST',
@@ -1796,6 +1950,9 @@ export function ChatWidgetCore({
           const newSessionId = session.id;
           setSessionId(newSessionId);
           localStorage.setItem(`chat_session_uuid_${siteId}`, newSessionId);
+          // Persist the visitor session id for future analytics correlation
+          setVisitorSessionId(userSessionId);
+          localStorage.setItem(`chat_user_session_${siteId}`, userSessionId);
         } else {
           const errorText = await response.text();
           console.error('Failed to create chat session:', response.statusText, errorText);
@@ -2062,6 +2219,8 @@ export function ChatWidgetCore({
                 onTokenExpired={widgetAuth.refresh}
                 pageContext={pageContext}
                 completedMessageIds={completedMessageIds}
+                chatSessionId={sessionId}
+                userSessionId={visitorSessionId}
               />
             )}
           </div>

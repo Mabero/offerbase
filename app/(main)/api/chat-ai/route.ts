@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createClient } from '@supabase/supabase-js';
 import { getAIInstructions } from '@/lib/instructions';
+import { getSiteDomainTerms, isInDomain } from '@/lib/ai/domain-guard';
 import { buildConversationContext, isFollowUpQuery } from '@/lib/context/conversation';
 import { TermExtractor } from '@/lib/search/term-extractor';
 import { assessSoftInference } from '@/lib/ai/assessor';
@@ -144,18 +145,7 @@ function detectPageIntent(text: string): boolean {
   );
 }
 
-// Detect in-domain intent (simple multilingual allowlist; extendable via DOMAIN_KEYWORDS env)
-function detectDomainIntent(text: string): boolean {
-  const q = (text || '').toLowerCase();
-  if (!q) return false;
-  const defaultTerms = [
-    // Norwegian/English keywords and brands relevant to website building/SEO/hosting
-    'nettside','hjemmeside','wordpress','wix','webflow','squarespace','shopify','netthandel','seo','domene','hosting','webhotell','nettbutikk','website','site builder','page builder','cms','blog','landing page'
-  ];
-  const allowFromEnv = (process.env.DOMAIN_KEYWORDS || '').toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
-  const terms = allowFromEnv.length ? allowFromEnv : defaultTerms;
-  return terms.some(t => q.includes(t));
-}
+// Dynamic domain guard handled via getSiteDomainTerms()/isInDomain
 
 export async function POST(request: NextRequest) {
   try {
@@ -474,42 +464,9 @@ export async function POST(request: NextRequest) {
     if (process.env.DEBUG_CHAT_AI === 'true') console.warn('[FastPath] error', e);
   }
 
-    // Intent guards
+    // Intent guards (dynamic, per-site)
     const PAGE_CONTEXT_INTENT_ONLY = process.env.PAGE_CONTEXT_INTENT_ONLY !== 'false';
-    const ENABLE_DOMAIN_GUARD = process.env.ENABLE_DOMAIN_GUARD !== 'false';
     const pageIntent = detectPageIntent(currentQuery);
-    const domainIntent = detectDomainIntent(currentQuery);
-
-    if (ENABLE_DOMAIN_GUARD && !pageIntent && !domainIntent) {
-      const userMessage = messages[messages.length - 1];
-      const clarifierMessages = [
-        { role: 'system' as const, content: 'Ask exactly one short clarifying question in the user\'s language to bring the conversation to website building, hosting, SEO, or related topics. Do not mention sources.' },
-        { role: 'user' as const, content: typeof userMessage.content === 'string' ? (userMessage.content as string) : (userMessage.parts?.find((p: any) => p.type === 'text')?.text || '') }
-      ];
-      const result = streamText({ model: openai('gpt-4o-mini'), messages: clarifierMessages, temperature: 0, maxOutputTokens: 60 });
-      const response = result.toUIMessageStreamResponse();
-      // Analytics: route clarify (domain guard)
-      try {
-        const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-        await supa.from('analytics_events').insert([{
-          site_id: siteId,
-          event_type: 'route',
-          session_id: sessionId || null,
-          page_url: pageContext?.url || null,
-          route_mode: 'clarify',
-          refusal_reason: null,
-          page_context_used: 'ignored',
-          event_data: { source: 'domain_guard' }
-        }]);
-      } catch {}
-      if (secureMode) {
-        const cors = getCORSHeaders(origin, allowedOriginsForCors);
-        for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
-      }
-      response.headers.set('X-Route-Mode', 'clarify');
-      response.headers.set('X-PageContext', 'ignored');
-      return response;
-    }
     
     // STEP 1: Resolve offer hint (stateless, UI only) - flag-gated until RPC is deployed
     const { filterChunksByOffer, logFilterResult } = await import('@/lib/offers/chunk-filter');
@@ -530,6 +487,121 @@ export async function POST(request: NextRequest) {
         console.error('[ERROR] Offer resolution failed (resolver disabled or RPC missing):', error);
         offerHint = { type: 'none' as const, query_norm: '' };
       }
+    }
+
+    // Derive per-site domain terms
+    const domainTerms = await getSiteDomainTerms(siteId);
+
+    // If site has zero domain terms (no training/offers), politely refuse early
+    if (!domainTerms.length) {
+      try {
+        // Detect language to refuse in user's language
+        let langName = '';
+        try {
+          const tinyld = await import('tinyld');
+          const lastText = (typeof messages[messages.length - 1]?.content === 'string')
+            ? (messages[messages.length - 1]?.content as string)
+            : (messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || '');
+          const code = tinyld.detect(lastText || '');
+          const MAP: Record<string, string> = { en: 'English', no: 'Norwegian', nb: 'Norwegian', nn: 'Norwegian', da: 'Danish', sv: 'Swedish', fi: 'Finnish', de: 'German', fr: 'French', es: 'Spanish', pt: 'Portuguese', it: 'Italian', nl: 'Dutch' };
+          langName = MAP[code as string] || '';
+        } catch {}
+        const system = `Respond briefly in ${langName || "the user's language"}. Say you don't have information to answer this yet for this site.`;
+        const result = streamText({
+          model: openai('gpt-4o-mini'),
+          messages: [
+            { role: 'system' as const, content: system },
+            { role: 'user' as const, content: currentQuery }
+          ],
+          temperature: 0,
+          maxOutputTokens: 40,
+        });
+        const response = result.toUIMessageStreamResponse();
+        try {
+          const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+          await supa.from('analytics_events').insert([{
+            site_id: siteId,
+            event_type: 'route',
+            session_id: sessionId || null,
+            page_url: pageContext?.url || null,
+            route_mode: 'refuse',
+            refusal_reason: 'no-domain-terms',
+            page_context_used: 'ignored',
+          }]);
+        } catch {}
+        if (secureMode) {
+          const cors = getCORSHeaders(origin, allowedOriginsForCors);
+          for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
+        }
+        response.headers.set('X-Route-Mode', 'refuse');
+        response.headers.set('X-Refusal-Reason', 'no-domain-terms');
+        return response;
+      } catch {}
+    }
+
+    // Domain guard (after offer resolution): permit when page intent OR offer detected OR domain-term match
+    // Evaluate across current and recent user turns to avoid dumb loops
+    const checkRecentInDomain = (() => {
+      let seen = 0;
+      for (let i = messages.length - 2; i >= 0 && seen < 3; i--) {
+        const m = messages[i];
+        if (!m) continue;
+        if (m.role === 'user' || m.type === 'user') {
+          const text = typeof m.content === 'string' ? (m.content as string) : (m.parts?.find((p: any) => p.type === 'text')?.text || '');
+          if (text && isInDomain(text, domainTerms)) return true;
+          seen++;
+        }
+      }
+      return false;
+    })();
+
+    const inDomain = pageIntent || offerHint?.type !== 'none' || isInDomain(currentQuery, domainTerms) || checkRecentInDomain;
+    if (!inDomain) {
+      // Refuse succinctly in user's language with a generic, stable hint
+      let langName = '';
+      try {
+        const tinyld = await import('tinyld');
+        const lastText = (typeof messages[messages.length - 1]?.content === 'string')
+          ? (messages[messages.length - 1]?.content as string)
+          : (messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || '');
+        const MAP: Record<string, string> = { en: 'English', no: 'Norwegian', nb: 'Norwegian', nn: 'Norwegian', da: 'Danish', sv: 'Swedish', fi: 'Finnish', de: 'German', fr: 'French', es: 'Spanish', pt: 'Portuguese', it: 'Italian', nl: 'Dutch' };
+        langName = MAP[tinyld.detect(lastText || '') as string] || '';
+      } catch {}
+      const refuseSystem = `Respond briefly in ${langName || "the user's language"}. Politely say you don't have information about that topic. You can help with other subjects mentioned on this website.`;
+      const result = streamText({
+        model: openai('gpt-4o-mini'),
+        messages: [
+          { role: 'system' as const, content: refuseSystem },
+          { role: 'user' as const, content: currentQuery }
+        ],
+        temperature: 0,
+        maxOutputTokens: 60
+      });
+      const response = result.toUIMessageStreamResponse();
+      try {
+        const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+        await supa.from('analytics_events').insert([{
+          site_id: siteId,
+          event_type: 'route',
+          session_id: sessionId || null,
+          page_url: pageContext?.url || null,
+          route_mode: 'refuse',
+          refusal_reason: 'domain_guard',
+          page_context_used: 'ignored',
+          event_data: { terms_count: domainTerms.length }
+        }]);
+      } catch {}
+      if (secureMode) {
+        const cors = getCORSHeaders(origin, allowedOriginsForCors);
+        for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
+      }
+      response.headers.set('X-Route-Mode', 'refuse');
+      response.headers.set('X-Refusal-Reason', 'domain_guard');
+      response.headers.set('X-PageContext', 'ignored');
+      response.headers.set('X-InDomain-Current', String(isInDomain(currentQuery, domainTerms)));
+      response.headers.set('X-InDomain-Recent', String(checkRecentInDomain));
+      response.headers.set('X-OfferHint-Type', offerHint?.type || 'none');
+      return response;
     }
     
     // Build conversation-aware context (optional) and anchor with offer data
@@ -643,7 +715,7 @@ export async function POST(request: NextRequest) {
             vectorWeight: 0.6,
             limit: 10,
             useReranker: false,
-            similarityThreshold: (isShort && (pageIntent || domainIntent))
+            similarityThreshold: (isShort && pageIntent)
               ? Math.min(0.15, Number(process.env.RAG_SIMILARITY_THRESHOLD ?? 0.3))
               : Number(process.env.RAG_SIMILARITY_THRESHOLD ?? 0.3),
           }
