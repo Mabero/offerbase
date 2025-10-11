@@ -136,11 +136,35 @@
 
         await loadChatSettings();
 
+        // Mobile fallback: use floating widget implementation
+        let usingFloatingFallback = false;
+        function activateFloatingWidget() {
+            if (usingFloatingFallback) return;
+            usingFloatingFallback = true;
+            try {
+                // Avoid duplicate widget.js loads
+                const alreadyLoaded = Array.from(document.scripts).some(s => (s.src || '').indexOf('/widget.js') !== -1);
+                if (!alreadyLoaded) {
+                    const s = document.createElement('script');
+                    s.src = `${apiUrl}/widget.js`;
+                    s.async = true;
+                    s.setAttribute('data-site-id', siteId);
+                    document.head.appendChild(s);
+                }
+            } catch {}
+        }
+
         // Prewarm page-context (best-effort)
         try {
             const pageUrl = window.location.href;
             fetch(`${apiUrl}/api/widget/page-context?siteId=${encodeURIComponent(siteId)}&url=${encodeURIComponent(pageUrl)}`, { method: 'GET', mode: 'cors', credentials: 'omit' }).catch(() => {});
         } catch {}
+
+        // If mobile on load → switch to floating and stop here
+        if (window.innerWidth < 768) {
+            activateFloatingWidget();
+            return;
+        }
 
         const { container, iframe } = createSidebarContainer();
         const toggle = createToggleTab();
@@ -174,14 +198,14 @@
                 container.style.transition = 'transform 250ms ease';
                 container.style.transform = isOpen ? 'translateX(0)' : 'translateX(100%)';
                 container.style.pointerEvents = isOpen ? 'auto' : 'none';
-                toggle.style.display = 'flex'; // keep visible to allow closing
+                toggle.style.display = isOpen ? 'none' : 'flex';
                 toggle.style.right = '16px';
                 toggle.style.bottom = '30px';
                 toggle.style.top = '';
                 toggle.style.width = '52px';
                 toggle.style.height = '52px';
                 toggle.style.borderRadius = '50%';
-                toggle.innerHTML = isOpen ? closeIconSVG : chatIconSVG;
+                toggle.innerHTML = chatIconSVG;
                 applyMargins(false, true);
             } else {
                 // Desktop: fixed sidebar
@@ -217,7 +241,18 @@
         // Events
         toggle.addEventListener('click', toggleSidebar);
         document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isOpen) closeSidebar(); });
-        window.addEventListener('resize', updateLayout);
+        window.addEventListener('resize', () => {
+            const nowMobile = window.innerWidth < 768;
+            if (nowMobile && !usingFloatingFallback) {
+                // Switch to floating widget and remove sidebar UI
+                try { applyMargins(false, false); } catch {}
+                if (container && container.parentElement) container.parentElement.removeChild(container);
+                if (toggle && toggle.parentElement) toggle.parentElement.removeChild(toggle);
+                activateFloatingWidget();
+                return;
+            }
+            updateLayout();
+        });
 
         // iframe messages
         window.addEventListener('message', (event) => {

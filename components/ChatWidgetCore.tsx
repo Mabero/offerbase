@@ -1086,6 +1086,15 @@ export function ChatWidgetCore({
   parentPageContext
 }: ChatWidgetCoreProps) {
   
+  // Responsive: detect mobile viewport for certain UI differences (e.g., sidebar close button)
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(typeof window !== 'undefined' && window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
   // Initialize messages with intro message if available
   const getInitialMessages = useCallback((): Message[] => {
     // Always include intro message as the first message if it exists
@@ -2327,7 +2336,7 @@ export function ChatWidgetCore({
             {chatSettings?.chat_name || 'Affi'}
           </p>
         </div>
-        {((isEmbedded && widgetType === 'floating') || (!isEmbedded)) && (
+        {((isEmbedded && (widgetType === 'floating' || (widgetType === 'sidebar' && isMobile))) || (!isEmbedded)) && (
           <button
             onClick={() => {
               if (isEmbedded) {
