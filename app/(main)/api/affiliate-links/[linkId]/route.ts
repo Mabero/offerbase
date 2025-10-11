@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { createClient } from '@supabase/supabase-js';
 import { cache } from '@/lib/cache';
 import { invalidateSiteDomainTerms } from '@/lib/ai/domain-guard';
+import { syncAffiliateToOffer } from '@/lib/offers/sync';
 
 // PUT /api/affiliate-links/[linkId] - Update affiliate link
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ linkId: string }> }) {
@@ -70,6 +71,22 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (error) {
       console.error('Affiliate link update error:', error);
       return NextResponse.json({ error: 'Failed to update affiliate link', details: error }, { status: 500 });
+    }
+
+    // Keep offers in sync (use updated values)
+    try {
+      if (data && data.id) {
+        await syncAffiliateToOffer(supabase, {
+          siteId: link.site_id,
+          title: (data.title || '').trim(),
+          url: (data.url || '').trim(),
+          description: (data.description || '').trim(),
+          // No new manual aliases on update here; aliases UI would manage separately
+          manualAliases: []
+        });
+      }
+    } catch (syncErr) {
+      console.warn('Offer sync (update) warning:', syncErr);
     }
 
     return NextResponse.json({ success: true, data });

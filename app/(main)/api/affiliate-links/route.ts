@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateSmartAliases } from '@/lib/alias-generator';
 import { invalidateSiteDomainTerms } from '@/lib/ai/domain-guard';
+import { syncAffiliateToOffer } from '@/lib/offers/sync';
 
 // GET /api/affiliate-links - Fetch affiliate links for a site
 export async function GET(request: NextRequest) {
@@ -62,8 +63,8 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/affiliate-links - Create new affiliate link
-export async function POST(request: NextRequest) {
+  // POST /api/affiliate-links - Create new affiliate link
+  export async function POST(request: NextRequest) {
   try {
     // Get user authentication
     const { userId } = await auth();
@@ -138,6 +139,19 @@ export async function POST(request: NextRequest) {
             console.warn('Failed to create aliases (non-critical):', aliasError);
           } else {
             console.log(`Successfully created ${aliases.length} aliases for product ${data.id}`);
+          }
+
+          // Keep the stateless offers system in sync so the widget can match immediately
+          try {
+            await syncAffiliateToOffer(supabase, {
+              siteId,
+              title: title.trim(),
+              url: url.trim(),
+              description: (description || '').trim(),
+              manualAliases: aliases
+            });
+          } catch (syncErr) {
+            console.warn('Offer sync (create) warning:', syncErr);
           }
         }
       } catch (aliasGenerationError) {

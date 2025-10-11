@@ -128,38 +128,29 @@ export function isOriginAllowed(origin: string | null, allowedOrigins: string[])
  * Supports both direct API access and iframe-based widget access
  */
 export function isWidgetRequestAllowed(
-  origin: string | null, 
-  parentOrigin: string | null, 
+  origin: string | null,
+  parentOrigin: string | null,
   allowedOrigins: string[]
 ): { allowed: boolean; reason?: string } {
-  // If no origin provided, deny
+  // Must have some origin value
   if (!origin) {
     return { allowed: false, reason: 'No origin header' };
   }
 
-  // Check if request comes from offerbase.co (the iframe or dashboard)
-  const isFromOfferbase = origin.includes('offerbase.co');
-  
-  if (isFromOfferbase) {
-    // For dashboard testing (no parentOrigin), allow offerbase.co directly
-    if (!parentOrigin) {
-      return { allowed: true, reason: 'Dashboard testing mode' };
-    }
-    
-    // For iframe requests, validate the parent origin
+  // Iframe widgets provide both the widget request origin (this server)
+  // and the parent page origin (the embedding site). Validate the parent when provided.
+  if (parentOrigin) {
     if (!isOriginAllowed(parentOrigin, allowedOrigins)) {
       return { allowed: false, reason: `Parent origin ${parentOrigin} not in allowed origins` };
     }
-    
-    return { allowed: true };
-  } else {
-    // For direct API requests, validate the origin normally
-    if (!isOriginAllowed(origin, allowedOrigins)) {
-      return { allowed: false, reason: `Origin ${origin} not in allowed origins` };
-    }
-    
     return { allowed: true };
   }
+
+  // Fallback for direct requests (e.g., dashboard/local testing): validate request origin itself
+  if (!isOriginAllowed(origin, allowedOrigins)) {
+    return { allowed: false, reason: `Origin ${origin} not in allowed origins` };
+  }
+  return { allowed: true };
 }
 
 /**
