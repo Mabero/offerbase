@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { extractContextKeywords, type TrainingChunk } from '@/lib/context-keywords';
+import { getSiteConfig } from '@/lib/site-config';
 import {
   verifySiteToken,
   getRequestOrigin,
@@ -40,14 +41,9 @@ export async function POST(request: NextRequest) {
     }
     const siteId = decoded.siteId;
 
-    // Validate site + allowed origins
-    const { data: site, error: siteErr } = await supabase
-      .from('sites')
-      .select('allowed_origins, widget_rate_limit_per_minute, widget_enabled')
-      .eq('id', siteId)
-      .eq('widget_enabled', true)
-      .single();
-    if (siteErr || !site) {
+    // Validate site + allowed origins (cached)
+    const site = await getSiteConfig(supabase, siteId, false);
+    if (!site || !site.widget_enabled) {
       return NextResponse.json({ error: 'Site not found or widget disabled' }, { status: 404, headers: getCORSHeaders(origin, []) });
     }
     const allowedOrigins: string[] = site.allowed_origins || [];

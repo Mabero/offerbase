@@ -10,6 +10,7 @@ import {
   getRateLimitKey,
   type WidgetConfig 
 } from '@/lib/widget-auth';
+import { getSiteConfig } from '@/lib/site-config';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -67,31 +68,10 @@ export async function GET(request: NextRequest) {
                     request.headers.get('x-real-ip') || 
                     '127.0.0.1';
 
-    // Fetch site configuration and security settings
-    const { data: site, error: siteError } = await supabase
-      .from('sites')
-      .select(`
-        id, 
-        allowed_origins, 
-        widget_enabled,
-        widget_rate_limit_per_minute,
-        chat_settings (
-          chat_name,
-          chat_color,
-          chat_icon_url,
-          chat_name_color,
-          chat_bubble_icon_color,
-          input_placeholder,
-          font_size,
-          intro_message
-        )
-      `)
-      .eq('id', siteId)
-      .eq('widget_enabled', true)
-      .single();
-
-    if (siteError || !site) {
-      console.warn(`Bootstrap failed: site not found or disabled`, { siteId, error: siteError });
+    // Fetch site configuration (cached)
+    const site = await getSiteConfig(supabase, siteId, true);
+    if (!site || !site.widget_enabled) {
+      console.warn(`Bootstrap failed: site not found or disabled`, { siteId });
       return NextResponse.json(
         { error: 'Site not found or widget disabled' }, 
         { 
@@ -103,22 +83,7 @@ export async function GET(request: NextRequest) {
 
     // Validate origin against site's allowed origins
     // Defensive parsing - handles both array and string formats from database
-    let allowedOrigins: string[] = [];
-    
-    if (Array.isArray(site.allowed_origins)) {
-      allowedOrigins = site.allowed_origins;
-    } else if (typeof site.allowed_origins === 'string') {
-      try {
-        const parsed = JSON.parse(site.allowed_origins);
-        allowedOrigins = Array.isArray(parsed) ? parsed : [];
-      } catch (error) {
-        console.error('Failed to parse allowed_origins as JSON:', error);
-        allowedOrigins = [];
-      }
-    } else if (site.allowed_origins) {
-      console.warn('Unexpected allowed_origins format:', typeof site.allowed_origins);
-      allowedOrigins = [];
-    }
+    const allowedOrigins: string[] = site.allowed_origins || [];
     // Validate request using dual-origin validation
     const validationResult = isWidgetRequestAllowed(origin, parentOrigin, allowedOrigins);
     if (!validationResult.allowed) {

@@ -18,6 +18,7 @@ import {
   getRateLimitKey,
   type SiteToken,
 } from '@/lib/widget-auth';
+import { getSiteConfig } from '@/lib/site-config';
 // Import for context handling
 
 // Allow streaming responses up to 30 seconds
@@ -172,7 +173,12 @@ export async function POST(request: NextRequest) {
       );
     }
     
-  const { userId } = await auth();
+  // Only authenticate with Clerk when not in secure widget mode
+  let userId: string | null = null;
+  if (!secureMode) {
+    const a = await auth();
+    userId = a.userId ?? null;
+  }
 
     // SECURITY: Optional JWT/origin enforcement for widget traffic
     if (secureMode) {
@@ -220,32 +226,17 @@ export async function POST(request: NextRequest) {
         process.env.SUPABASE_SERVICE_ROLE_KEY!
       );
 
-      // Validate site and fetch allowed origins
-      const { data: siteRow, error: siteErr } = await supabaseForPolicy
-        .from('sites')
-        .select('id, allowed_origins, widget_enabled')
-        .eq('id', siteId)
-        .eq('widget_enabled', true)
-        .single();
-
-      if (siteErr || !siteRow) {
+      // Validate site and fetch allowed origins (cached)
+      const siteRow = await getSiteConfig(supabaseForPolicy, siteId, false);
+      if (!siteRow || !siteRow.widget_enabled) {
         return new Response(
           JSON.stringify({ error: 'Site not found or widget disabled' }),
           { status: 404, headers: getCORSHeaders(origin, allowedOriginsForCors) }
         );
       }
 
-      // Parse allowed origins defensively
-      if (Array.isArray(siteRow.allowed_origins)) {
-        allowedOriginsForCors = siteRow.allowed_origins as string[];
-      } else if (typeof siteRow.allowed_origins === 'string') {
-        try {
-          const parsed = JSON.parse(siteRow.allowed_origins);
-          allowedOriginsForCors = Array.isArray(parsed) ? parsed : [];
-        } catch {
-          allowedOriginsForCors = [];
-        }
-      }
+      // Use allowed origins from config
+      allowedOriginsForCors = siteRow.allowed_origins || [];
 
       // Validate widget request using parentOrigin contained in token
       const validation = isWidgetRequestAllowed(origin, decoded.parentOrigin || null, allowedOriginsForCors);
@@ -353,7 +344,7 @@ export async function POST(request: NextRequest) {
       // Emit analytics event (route_mode=page-summary)
       try {
         const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-        await supa.from('analytics_events').insert([{
+        void supa.from('analytics_events').insert([{
           site_id: siteId,
           event_type: 'route',
           user_session_id: null,
@@ -365,7 +356,7 @@ export async function POST(request: NextRequest) {
           page_context_used: 'used',
           request_id: null,
           event_data: { title: cachedPage?.title || 'Page' }
-        }]);
+        }]).then(()=>{}).catch(()=>{});
       } catch {}
       if (secureMode) {
         const cors = getCORSHeaders(origin, []);
@@ -437,7 +428,7 @@ export async function POST(request: NextRequest) {
         // Emit analytics event (route_mode=page-qa)
         try {
           const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-          await supa.from('analytics_events').insert([{
+          void supa.from('analytics_events').insert([{
             site_id: siteId,
             event_type: 'route',
             user_session_id: null,
@@ -449,7 +440,7 @@ export async function POST(request: NextRequest) {
             page_context_used: 'used',
             request_id: null,
             event_data: { top_similarity: scored[0]?.sim || 0 }
-          }]);
+          }]).then(()=>{}).catch(()=>{});
         } catch {}
         if (secureMode) {
           const cors = getCORSHeaders(origin, []);
@@ -471,10 +462,18 @@ export async function POST(request: NextRequest) {
     // STEP 1: Resolve offer hint (stateless, UI only) - flag-gated until RPC is deployed
     const { filterChunksByOffer, logFilterResult } = await import('@/lib/offers/chunk-filter');
     let offerHint: any = { type: 'none' as const, query_norm: '' };
+    // Domain terms available for routing and refusal checks
+    let domainTerms: string[] = [];
     if (process.env.OFFER_RESOLVER_ENABLED !== 'false') {
       try {
         const { resolveOfferHint } = await import('@/lib/offers/resolver');
-        offerHint = await resolveOfferHint(currentQuery, siteId);
+        // Parallelize offer resolution and domain terms loading
+        const [resolved, terms] = await Promise.all([
+          resolveOfferHint(currentQuery, siteId),
+          getSiteDomainTerms(siteId)
+        ]);
+        offerHint = resolved;
+        domainTerms = terms; // use concurrently loaded terms
         if (process.env.DEBUG_CHAT_AI === 'true' || process.env.NODE_ENV === 'development') {
           console.log('[DEBUG] Offer resolution:', {
             query: currentQuery.substring(0, 50),
@@ -485,12 +484,14 @@ export async function POST(request: NextRequest) {
         }
       } catch (error) {
         console.error('[ERROR] Offer resolution failed (resolver disabled or RPC missing):', error);
+        // Fallback: load domain terms alone
+        try { domainTerms = await getSiteDomainTerms(siteId); } catch {}
         offerHint = { type: 'none' as const, query_norm: '' };
       }
+    } else {
+      // No offer resolver → load domain terms only
+      try { domainTerms = await getSiteDomainTerms(siteId); } catch {}
     }
-
-    // Derive per-site domain terms
-    const domainTerms = await getSiteDomainTerms(siteId);
 
     // If site has zero domain terms (no training/offers), politely refuse early
     if (!domainTerms.length) {
@@ -519,7 +520,7 @@ export async function POST(request: NextRequest) {
         const response = result.toUIMessageStreamResponse();
         try {
           const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-          await supa.from('analytics_events').insert([{
+          void supa.from('analytics_events').insert([{
             site_id: siteId,
             event_type: 'route',
             session_id: sessionId || null,
@@ -527,7 +528,7 @@ export async function POST(request: NextRequest) {
             route_mode: 'refuse',
             refusal_reason: 'no-domain-terms',
             page_context_used: 'ignored',
-          }]);
+          }]).then(()=>{}).catch(()=>{});
         } catch {}
         if (secureMode) {
           const cors = getCORSHeaders(origin, allowedOriginsForCors);
@@ -580,7 +581,7 @@ export async function POST(request: NextRequest) {
       const response = result.toUIMessageStreamResponse();
       try {
         const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-        await supa.from('analytics_events').insert([{
+        void supa.from('analytics_events').insert([{
           site_id: siteId,
           event_type: 'route',
           session_id: sessionId || null,
@@ -589,7 +590,7 @@ export async function POST(request: NextRequest) {
           refusal_reason: 'domain_guard',
           page_context_used: 'ignored',
           event_data: { terms_count: domainTerms.length }
-        }]);
+        }]).then(()=>{}).catch(()=>{});
       } catch {}
       if (secureMode) {
         const cors = getCORSHeaders(origin, allowedOriginsForCors);
@@ -1020,10 +1021,10 @@ export async function POST(request: NextRequest) {
         ];
         const result = streamText({ model: openai('gpt-4o-mini'), messages: clarifierMessages, temperature: 0, maxOutputTokens: 60 });
         const response = result.toUIMessageStreamResponse();
-        // Analytics: route clarify (comparative)
+        // Analytics: route clarify (comparative) - non-blocking
         try {
           const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-          await supa.from('analytics_events').insert([{
+          void supa.from('analytics_events').insert([{
             site_id: siteId,
             event_type: 'route',
             session_id: sessionId || null,
@@ -1032,7 +1033,7 @@ export async function POST(request: NextRequest) {
             refusal_reason: null,
             page_context_used: pageContext?.url ? 'ignored' : 'miss',
             event_data: { source: 'comparative' }
-          }]);
+          }]).then(()=>{}).catch(()=>{});
         } catch {}
         if (secureMode) {
           const cors = getCORSHeaders(origin, allowedOriginsForCors);
@@ -1158,7 +1159,7 @@ export async function POST(request: NextRequest) {
             // Analytics: route soft-inference (treated as answer)
             try {
               const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-              await supa.from('analytics_events').insert([{
+              void supa.from('analytics_events').insert([{
                 site_id: siteId,
                 event_type: 'route',
                 session_id: sessionId || null,
@@ -1167,7 +1168,7 @@ export async function POST(request: NextRequest) {
                 refusal_reason: null,
                 page_context_used: pageContext?.url ? 'ignored' : 'miss',
                 event_data: { mode: 'soft-inference' }
-              }]);
+              }]).then(()=>{}).catch(()=>{});
             } catch {}
             if (secureMode) {
               const cors = getCORSHeaders(origin, allowedOriginsForCors);
@@ -1229,7 +1230,7 @@ export async function POST(request: NextRequest) {
       // Analytics: route refuse
       try {
         const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-        await supa.from('analytics_events').insert([{
+        void supa.from('analytics_events').insert([{
           site_id: siteId,
           event_type: 'route',
           session_id: sessionId || null,
@@ -1238,7 +1239,7 @@ export async function POST(request: NextRequest) {
           refusal_reason: useCleanRefusal ? 'post-filter-elimination' : 'low-similarity',
           page_context_used: pageContext?.url ? 'ignored' : 'miss',
           event_data: { top_similarity: topSimilarity }
-        }]);
+        }]).then(()=>{}).catch(()=>{});
       } catch {}
       // Add CORS headers if secure mode validated origin
       if (secureMode) {
@@ -1306,7 +1307,7 @@ export async function POST(request: NextRequest) {
     // Analytics: route answer (generic)
     try {
       const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-      await supa.from('analytics_events').insert([{
+      void supa.from('analytics_events').insert([{
         site_id: siteId,
         event_type: 'route',
         session_id: sessionId || null,
@@ -1315,7 +1316,7 @@ export async function POST(request: NextRequest) {
         refusal_reason: null,
         page_context_used: pageContext?.url ? 'ignored' : 'miss',
         event_data: { chunks_included: Math.min(searchResults.length, Number(process.env.RAG_MAX_CHUNKS ?? 6)) }
-      }]);
+      }]).then(()=>{}).catch(()=>{});
     } catch {}
     // Add CORS headers if secure mode validated origin
     if (secureMode) {
