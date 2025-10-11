@@ -168,8 +168,9 @@ interface ChatStats {
   totalLinkClicks?: number;
   conversionRate?: number;
   widgetBreakdown?: {
-    floating: { opens: number; clicks: number; conversion_rate: number };
-    inline: { opens: number; clicks: number; conversion_rate: number };
+    floating?: { opens: number; clicks: number; conversion_rate: number };
+    inline?: { opens: number; clicks: number; conversion_rate: number };
+    sidebar?: { opens: number; clicks: number; conversion_rate: number };
   };
 }
 
