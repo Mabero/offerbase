@@ -1898,6 +1898,36 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                           <p className="text-yellow-700 mt-1 text-[10px]">The widget detects the container and automatically switches to inline mode.</p>
                         </div>
                       </div>
+                      
+                      {/* Sidebar Widget */}
+                      <div className="bg-gray-50 p-4 rounded-lg">
+                        <h4 className="font-semibold text-gray-900 mb-2">Sidebar Widget</h4>
+                        <p className="text-sm text-gray-600 mb-3">
+                          Full-height sidebar that makes room for chat by pushing the page content left. Collapsible, open by default. On mobile it becomes an overlay.
+                        </p>
+                        <Label className="text-sm font-medium">Embed Code</Label>
+                        <div
+                          onClick={() => handleCopyCode(`<script src=\"${API_URL}/widget-sidebar.js\" data-site-id=\"${selectedSite?.id || 'your-site-id'}\" data-sidebar-width=\"360\"></script>`, 'sidebar')}
+                          className="mt-2 bg-white border border-gray-300 rounded-md p-3 font-mono text-xs cursor-pointer hover:bg-gray-50 transition-colors relative group"
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1 pr-8 break-all">
+                              {`<script src="${API_URL}/widget-sidebar.js" data-site-id="${selectedSite?.id || 'your-site-id'}" data-sidebar-width="360"></script>`}
+                            </div>
+                            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {copiedCode === 'sidebar' ? (
+                                <Check className="h-4 w-4 text-green-600" />
+                              ) : (
+                                <Copy className="h-4 w-4 text-gray-400" />
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">Click to copy • Optional: adjust width with data-sidebar-width (280–540)</p>
+                        <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+                          Recommended to use either the floating or the sidebar on a page, not both.
+                        </div>
+                      </div>
                     </div>
                     
                     <div className="mt-4 p-4 bg-blue-50 rounded-lg">

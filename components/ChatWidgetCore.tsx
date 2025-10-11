@@ -99,7 +99,7 @@ export interface ChatWidgetCoreProps {
   introMessage?: string;
   apiUrl?: string;
   isEmbedded?: boolean;
-  widgetType?: 'floating' | 'inline';
+  widgetType?: 'floating' | 'inline' | 'sidebar';
   parentOrigin?: string | null;
   onLinkClick?: (link: Link) => void;
   onMessageSent?: (message: string) => void;
@@ -2327,7 +2327,7 @@ export function ChatWidgetCore({
             {chatSettings?.chat_name || 'Affi'}
           </p>
         </div>
-        {((isEmbedded && widgetType === 'floating') || (!isEmbedded)) && (
+        {((isEmbedded && widgetType !== 'inline') || (!isEmbedded)) && (
           <button
             onClick={() => {
               if (isEmbedded) {

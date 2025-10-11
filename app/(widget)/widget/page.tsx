@@ -96,7 +96,7 @@ function WidgetContent() {
         introMessage={introMessage}
         apiUrl={apiUrl}
         isEmbedded={embedded}
-        widgetType={widgetType as 'floating' | 'inline'}
+        widgetType={widgetType as 'floating' | 'inline' | 'sidebar'}
         parentOrigin={parentOrigin}
         pageContext={{ title: pageTitle, url: parentUrl }}
       />

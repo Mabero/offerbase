@@ -21,7 +21,7 @@ interface ChatWidgetProps {
   introMessage: string;
   apiUrl?: string;
   isEmbedded?: boolean;
-  widgetType?: 'floating' | 'inline';
+  widgetType?: 'floating' | 'inline' | 'sidebar';
   parentOrigin?: string | null;
   pageContext?: { title?: string; url?: string };
 }
