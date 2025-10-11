@@ -56,9 +56,10 @@ export async function getSiteConfig(
     ? `id, allowed_origins, widget_enabled, widget_rate_limit_per_minute, chat_settings (chat_name, chat_color, chat_icon_url, chat_name_color, chat_bubble_icon_color, input_placeholder, font_size, intro_message)`
     : 'id, allowed_origins, widget_enabled, widget_rate_limit_per_minute';
 
+  // Use loose typing on select string to avoid template-literal parser types
   const { data, error } = await client
     .from('sites')
-    .select(select)
+    .select<any>(select as any)
     .eq('id', siteId)
     .single();
 
@@ -66,15 +67,15 @@ export async function getSiteConfig(
     return null;
   }
 
+  const row: any = data as any;
   const cfg: SiteConfig = {
-    id: data.id,
-    allowed_origins: normalizeOrigins((data as any).allowed_origins),
-    widget_enabled: Boolean((data as any).widget_enabled),
-    widget_rate_limit_per_minute: Number((data as any).widget_rate_limit_per_minute || 60),
-    chat_settings: (data as any).chat_settings ?? null,
+    id: row.id,
+    allowed_origins: normalizeOrigins(row.allowed_origins),
+    widget_enabled: Boolean(row.widget_enabled),
+    widget_rate_limit_per_minute: Number(row.widget_rate_limit_per_minute || 60),
+    chat_settings: row.chat_settings ?? null,
   };
 
   await cache.set(key, cfg, ttlSeconds);
   return cfg;
 }
-
