@@ -52,6 +52,7 @@
     let batchTimer = null;
     let isProcessingBatch = false;
     let sessionId = null;
+    let sessionEndSent = false;
 
     function trackEvent(eventType, details = {}) {
         if (!sessionId) sessionId = 'session_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 9);
@@ -267,9 +268,9 @@
             }
         });
 
-        // Start analytics
-        trackEvent('session_start', { initial_page_url: window.location.href, referrer: document.referrer, viewport_width: window.innerWidth, viewport_height: window.innerHeight });
-        trackEvent('sidebar_widget_loaded', { width: sidebarWidth });
+    // Start analytics
+    trackEvent('session_start', { initial_page_url: window.location.href, referrer: document.referrer, viewport_width: window.innerWidth, viewport_height: window.innerHeight });
+    trackEvent('sidebar_widget_loaded', { width: sidebarWidth });
 
         // Initial layout (open by default)
         updateLayout();
@@ -284,4 +285,20 @@
     } else {
         initializeSidebar();
     }
+
+    // Session end reliability
+    function sendSessionEnd() {
+        if (sessionEndSent) return;
+        sessionEndSent = true;
+        if (!sessionId) return;
+        trackEvent('session_end', {
+            session_duration: Date.now() - parseInt(sessionId.split('_')[1], 36),
+            final_page_url: window.location.href
+        });
+    }
+    window.addEventListener('beforeunload', sendSessionEnd);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') sendSessionEnd();
+    });
+    window.addEventListener('pagehide', sendSessionEnd);
 })();

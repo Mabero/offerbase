@@ -2055,7 +2055,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
 
                   {/* Route Mix and Page Context Usage */}
                   {(routeMix || pageContextUsage || refusalRate !== null) && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <Card>
                         <CardHeader>
                           <CardTitle className="text-base">Route Mix</CardTitle>
@@ -2171,6 +2171,25 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                               <div className="flex justify-between">
                                 <span className="text-sm text-gray-600">Conversion Rate</span>
                                 <span className="font-medium">{chatStats.widgetBreakdown.inline?.conversion_rate || 0}%</span>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardContent className="p-6">
+                            <h4 className="text-base font-medium text-gray-900 mb-4">Sidebar Widget</h4>
+                            <div className="space-y-3">
+                              <div className="flex justify-between">
+                                <span className="text-sm text-gray-600">Opens</span>
+                                <span className="font-medium">{chatStats.widgetBreakdown.sidebar?.opens || 0}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-sm text-gray-600">Clicks</span>
+                                <span className="font-medium">{chatStats.widgetBreakdown.sidebar?.clicks || 0}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-sm text-gray-600">Conversion Rate</span>
+                                <span className="font-medium">{chatStats.widgetBreakdown.sidebar?.conversion_rate || 0}%</span>
                               </div>
                             </div>
                           </CardContent>

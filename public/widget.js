@@ -543,6 +543,7 @@
     let isProcessingBatch = false;
     
     let sessionId = null;
+    let sessionEndSent = false;
     
     function trackEvent(eventType, details = {}) {
         // Generate session ID on first event
@@ -715,14 +716,19 @@
     }
     
     // Process any remaining events when page is about to unload
+    function sendSessionEnd() {
+        if (sessionEndSent) return;
+        sessionEndSent = true;
+        if (!sessionId) return;
+        trackEvent('session_end', {
+            session_duration: Date.now() - parseInt(sessionId.split('_')[1], 36),
+            final_page_url: window.location.href
+        });
+    }
+
     window.addEventListener('beforeunload', () => {
         // Track session end
-        if (sessionId) {
-            trackEvent('session_end', {
-                session_duration: Date.now() - parseInt(sessionId.split('_')[1], 36),
-                final_page_url: window.location.href
-            });
-        }
+        sendSessionEnd();
         
         if (analyticsQueue.length > 0) {
             // Use sendBeacon for more reliable delivery on page unload
@@ -734,6 +740,16 @@
                 );
             }
         }
+    });
+
+    // Improve reliability of session_end on mobile
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            sendSessionEnd();
+        }
+    });
+    window.addEventListener('pagehide', () => {
+        sendSessionEnd();
     });
 
     // Auto-popup functionality

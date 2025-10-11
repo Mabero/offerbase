@@ -236,11 +236,14 @@ export async function GET(request: NextRequest) {
     // Widget type breakdown
     const floatingWidgetEvents = events?.filter(e => e.event_data?.widget_type === 'floating') || [];
     const inlineWidgetEvents = events?.filter(e => e.event_data?.widget_type === 'inline') || [];
+    const sidebarWidgetEvents = events?.filter(e => e.event_data?.widget_type === 'sidebar') || [];
     
     const floatingOpens = floatingWidgetEvents.filter(e => e.event_type === 'widget_open').length;
     const inlineOpens = inlineWidgetEvents.filter(e => e.event_type === 'widget_open').length;
+    const sidebarOpens = sidebarWidgetEvents.filter(e => e.event_type === 'widget_open').length;
     const floatingClicks = floatingWidgetEvents.filter(e => e.event_type === 'link_click').length;
     const inlineClicks = inlineWidgetEvents.filter(e => e.event_type === 'link_click').length;
+    const sidebarClicks = sidebarWidgetEvents.filter(e => e.event_type === 'link_click').length;
     
     // Calculate average session duration
     const sessionsWithDuration = sessions?.filter(s => s.ended_at) || [];
@@ -277,6 +280,11 @@ export async function GET(request: NextRequest) {
             opens: inlineOpens,
             clicks: inlineClicks,
             conversion_rate: inlineOpens > 0 ? (inlineClicks / inlineOpens) : 0
+          },
+          sidebar: {
+            opens: sidebarOpens,
+            clicks: sidebarClicks,
+            conversion_rate: sidebarOpens > 0 ? (sidebarClicks / sidebarOpens) : 0
           }
         }
       },

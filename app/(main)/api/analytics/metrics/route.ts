@@ -238,25 +238,46 @@ function calculateSessionMetrics(events: AnalyticsEvent[], sessions: ChatSession
   const totalSessions = sessions.length;
   const totalMessages = sessions.reduce((sum, session) => sum + (session.message_count || 0), 0);
   const uniqueUsers = new Set(events.map(e => e.user_session_id)).size;
-  
-  // Calculate average session duration from session_start/session_end events
+
+  // 1) Prefer explicit durations from session_end events
   const sessionStarts = events.filter(e => e.event_type === 'session_start');
   const sessionEnds = events.filter(e => e.event_type === 'session_end');
-  
-  const durations = sessionEnds
+  const durationsFromEvents = sessionEnds
     .map(endEvent => {
-      const startEvent = sessionStarts.find(s => 
-        s.event_data?.session_id === endEvent.event_data?.session_id
-      );
-      if (startEvent && endEvent.event_data?.session_duration) {
-        return endEvent.event_data.session_duration;
+      const startEvent = sessionStarts.find(s => s.event_data?.session_id === endEvent.event_data?.session_id);
+      if (startEvent && typeof endEvent.event_data?.session_duration === 'number') {
+        return endEvent.event_data.session_duration as number;
       }
       return null;
     })
-    .filter(d => d !== null);
-  
-  const avgSessionDuration = durations.length > 0 
-    ? Math.round(durations.reduce((sum, d) => sum + d, 0) / durations.length / 1000) // Convert to seconds
+    .filter((d): d is number => d !== null);
+
+  // 2) Fallback to DB sessions (started_at/ended_at) if available
+  const durationsFromDB = (sessions || [])
+    .filter(s => !!s.ended_at && !!s.started_at)
+    .map(s => new Date(s.ended_at!).getTime() - new Date(s.started_at).getTime())
+    .filter(ms => ms > 0);
+
+  // 3) If still nothing, approximate by event window per session_id
+  const bySession: Record<string, { first: number; last: number }> = {};
+  for (const e of events) {
+    const sid = e.event_data?.session_id || e.user_session_id;
+    if (!sid) continue;
+    const ts = new Date(e.created_at).getTime();
+    const agg = (bySession[sid] ||= { first: ts, last: ts });
+    if (ts < agg.first) agg.first = ts;
+    if (ts > agg.last) agg.last = ts;
+  }
+  const durationsFromWindow = Object.values(bySession)
+    .map(w => Math.max(0, w.last - w.first))
+    .filter(ms => ms > 0);
+
+  const pool = durationsFromEvents.length > 0
+    ? durationsFromEvents
+    : (durationsFromDB.length > 0 ? durationsFromDB : durationsFromWindow);
+
+  const avgSessionDuration = pool.length > 0
+    ? Math.round(pool.reduce((sum, d) => sum + d, 0) / pool.length / 1000) // seconds
     : 0;
 
   return {
@@ -271,26 +292,36 @@ function calculateSessionMetrics(events: AnalyticsEvent[], sessions: ChatSession
 function calculateWidgetTypeMetrics(events: AnalyticsEvent[]) {
   const floatingEvents = events.filter(e => e.event_data?.widget_type === 'floating');
   const inlineEvents = events.filter(e => e.event_data?.widget_type === 'inline');
-  
+  const sidebarEvents = events.filter(e => e.event_data?.widget_type === 'sidebar');
+
   const floatingOpens = floatingEvents.filter(e => e.event_type === 'widget_open').length;
   const inlineLoads = inlineEvents.filter(e => e.event_type === 'inline_widget_loaded').length;
+  const sidebarOpens = sidebarEvents.filter(e => e.event_type === 'widget_open').length;
+
   const floatingClicks = floatingEvents.filter(e => e.event_type === 'link_click').length;
   const inlineClicks = inlineEvents.filter(e => e.event_type === 'link_click').length;
-  
+  const sidebarClicks = sidebarEvents.filter(e => e.event_type === 'link_click').length;
+
   return {
     floating: {
       opens: floatingOpens,
       clicks: floatingClicks,
-      conversion_rate: floatingOpens > 0 ? Math.round((floatingClicks / floatingOpens) * 1000) / 10 : 0, // Percentage with 1 decimal
+      conversion_rate: floatingOpens > 0 ? Math.round((floatingClicks / floatingOpens) * 1000) / 10 : 0, // % with 1 decimal
       engagement_rate: floatingOpens > 0 ? Math.round((floatingOpens / (floatingOpens + inlineLoads)) * 1000) / 10 : 0
     },
     inline: {
       loads: inlineLoads,
+      opens: inlineLoads, // Back-compat for UI expecting 'opens'
       clicks: inlineClicks,
       conversion_rate: inlineLoads > 0 ? Math.round((inlineClicks / inlineLoads) * 1000) / 10 : 0,
       engagement_rate: inlineLoads > 0 ? Math.round((inlineLoads / (floatingOpens + inlineLoads)) * 1000) / 10 : 0
+    },
+    sidebar: {
+      opens: sidebarOpens,
+      clicks: sidebarClicks,
+      conversion_rate: sidebarOpens > 0 ? Math.round((sidebarClicks / sidebarOpens) * 1000) / 10 : 0
     }
-  };
+  } as any;
 }
 
 function calculateConversionMetrics(events: AnalyticsEvent[], sessions: ChatSession[]) {
