@@ -148,6 +148,30 @@ export function generateSmartAliases(title: string): string[] {
   if (title.length <= 50) {
     aliases.add(title);
   }
+
+  // K. Add single-word tokens (brand/service keywords) including Nordic chars
+  //    This ensures queries like "kokkeløren" match when title is "kokkeløren matkasse"
+  const fillerSingles = new Set([
+    'the','and','or','for','with','by','from','about','new','best','premium','professional','service','product'
+  ]);
+  const nordicFold = (s: string) => (
+    s
+      .replace(/[Ææ]/g, 'ae')
+      .replace(/[Øø]/g, 'oe')
+      .replace(/[Åå]/g, 'aa')
+      // General NFKD diacritic strip (secondary)
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+  );
+  const wordTokens = title.split(/\s+/).map(w => w.trim()).filter(Boolean);
+  for (const tok of wordTokens) {
+    const plain = tok.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+    if (!plain || plain.length < 3) continue;
+    if (fillerSingles.has(plain.toLowerCase())) continue;
+    aliases.add(plain);
+    const folded = nordicFold(plain);
+    if (folded && folded !== plain) aliases.add(folded);
+  }
   
   // Convert Set to Array, filter, and limit
   return Array.from(aliases)
@@ -160,4 +184,3 @@ export function generateSmartAliases(title: string): string[] {
     })
     .slice(0, 10); // Cap at 10 aliases for database performance
 }
-

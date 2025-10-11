@@ -1196,7 +1196,6 @@ export async function POST(request: NextRequest) {
           for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
         }
         response.headers.set('X-Route-Mode', 'clarify');
-        response.headers.set('X-Offer-Title', offerHint.offer.title);
         return response;
       }
 
@@ -1254,7 +1253,6 @@ export async function POST(request: NextRequest) {
       // Add offer hint info to refusal for debugging
       if (useCleanRefusal) {
         response.headers.set('X-Refusal-Reason', 'post-filter-elimination');
-        response.headers.set('X-Offer-Winner', offerHint.offer?.title || '');
       } else {
         response.headers.set('X-Refusal-Reason', 'low-similarity');
       }
@@ -1333,7 +1331,6 @@ export async function POST(request: NextRequest) {
     // Add offer hint headers for UI consumption
     if (offerHint.type === 'single' && offerHint.offer) {
       response.headers.set('X-Offer-Type', offerHint.type);
-      response.headers.set('X-Offer-Title', offerHint.offer.title);
       response.headers.set('X-Offer-URL', offerHint.offer.url);
       if (filterUsed) {
         response.headers.set('X-Post-Filter-Applied', 'true');

@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Site not found or unauthorized' }, { status: 404 });
     }
 
-    // Fetch all products for this site that don't have aliases yet
+    // Fetch a batch of products for this site
     const { data: products, error: productsError } = await supabase
       .from('affiliate_links')
       .select('id, title')
@@ -65,23 +65,12 @@ export async function POST(request: NextRequest) {
 
     for (const product of products) {
       try {
-        // Check if product already has aliases
+        // Load existing aliases for this product (to avoid duplicates)
         const { data: existingAliases } = await supabase
           .from('product_aliases')
-          .select('id')
+          .select('alias')
           .eq('product_id', product.id)
-          .limit(1);
-
-        if (existingAliases && existingAliases.length > 0) {
-          skippedCount++;
-          results.push({
-            productId: product.id,
-            title: product.title,
-            status: 'skipped',
-            reason: 'Already has aliases'
-          });
-          continue;
-        }
+          .limit(200);
 
         // Generate aliases
         const aliases = generateSmartAliases(product.title);
@@ -97,11 +86,22 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        // Insert aliases
-        const aliasInserts = aliases.map(alias => ({
-          product_id: product.id,
-          alias: alias
-        }));
+        // Determine new aliases to add (case-insensitive)
+        const existingSet = new Set((existingAliases || []).map(a => String(a.alias || '').toLowerCase()));
+        const newOnes = aliases.filter(a => !existingSet.has(a.toLowerCase()));
+        if (newOnes.length === 0) {
+          skippedCount++;
+          results.push({
+            productId: product.id,
+            title: product.title,
+            status: 'skipped',
+            reason: 'No new aliases to add'
+          });
+          continue;
+        }
+
+        // Insert new aliases (unique index prevents duplicates)
+        const aliasInserts = newOnes.map(alias => ({ product_id: product.id, alias }));
 
         const { error: insertError } = await supabase
           .from('product_aliases')
@@ -121,8 +121,8 @@ export async function POST(request: NextRequest) {
             productId: product.id,
             title: product.title,
             status: 'success',
-            aliasesGenerated: aliases.length,
-            aliases: aliases
+            aliasesGenerated: newOnes.length,
+            aliases: newOnes
           });
         }
 
