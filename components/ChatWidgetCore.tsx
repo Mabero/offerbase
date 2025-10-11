@@ -1242,6 +1242,7 @@ export function ChatWidgetCore({
       backgroundColor: 'white',
       padding: '2px',
       marginBottom: '12px',
+      maxWidth: '120px'
     },
     linkImageInner: {
       height: '100%',
