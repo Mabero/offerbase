@@ -17,7 +17,7 @@
     }
 
     const apiUrl = script.src.replace('/widget-sidebar.js', '');
-    const rawWidth = parseInt(script.getAttribute('data-sidebar-width') || '360', 10);
+    const rawWidth = parseInt(script.getAttribute('data-sidebar-width') || '440', 10);
     const sidebarWidth = Math.max(280, Math.min(540, isFinite(rawWidth) ? rawWidth : 360));
     const widgetType = 'sidebar';
 
@@ -118,7 +118,7 @@
     function createToggleTab() {
         const tab = document.createElement('button');
         tab.id = 'chat-sidebar-toggle-' + siteId;
-        tab.style.cssText = `position: fixed; top: calc(50% - 40px); right: ${sidebarWidth}px; width: 36px; height: 80px; border: none; border-radius: 8px 0 0 8px; background: ${chatSettings?.chat_color || '#000000'}; color: ${chatSettings?.chat_bubble_icon_color || '#ffffff'}; z-index: 1001; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(0,0,0,0.15);`;
+        tab.style.cssText = `position: fixed; bottom: 30px; right: ${sidebarWidth}px; width: 36px; height: 80px; border: none; border-radius: 8px 0 0 8px; background: ${chatSettings?.chat_color || '#000000'}; color: ${chatSettings?.chat_bubble_icon_color || '#ffffff'}; z-index: 1001; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(0,0,0,0.15);`;
         tab.innerHTML = closeIconSVG;
 
         tab.addEventListener('mouseenter', () => { tab.style.transform = 'translateX(-1px)'; });
@@ -145,7 +145,7 @@
         const { container, iframe } = createSidebarContainer();
         const toggle = createToggleTab();
 
-        let isOpen = true;
+        let isOpen = window.innerWidth >= 768; // Desktop: open by default, Mobile: closed by default
         let isMobile = window.innerWidth < 768;
 
         const initialBodyMarginRight = getComputedStyle(document.body).marginRight;
@@ -170,22 +170,28 @@
             isMobile = window.innerWidth < 768;
             if (isMobile) {
                 // Overlay fullscreen
-                container.style.cssText = `position: fixed; top: 0; right: 0; left: 0; height: 100vh; width: 100%; z-index: 1000; background: white; border-left: none; box-shadow: none; display: ${isOpen ? 'block' : 'none'};`;
-                toggle.style.display = isOpen ? 'none' : 'flex';
+                container.style.cssText = `position: fixed; top: 0; right: 0; left: 0; height: 100vh; width: 100%; z-index: 1000; background: white; border-left: none; box-shadow: none;`;
+                container.style.transition = 'transform 250ms ease';
+                container.style.transform = isOpen ? 'translateX(0)' : 'translateX(100%)';
+                container.style.pointerEvents = isOpen ? 'auto' : 'none';
+                toggle.style.display = 'flex'; // keep visible to allow closing
                 toggle.style.right = '16px';
-                toggle.style.bottom = '16px';
+                toggle.style.bottom = '30px';
                 toggle.style.top = '';
                 toggle.style.width = '52px';
                 toggle.style.height = '52px';
                 toggle.style.borderRadius = '50%';
-                toggle.innerHTML = chatIconSVG;
+                toggle.innerHTML = isOpen ? closeIconSVG : chatIconSVG;
                 applyMargins(false, true);
             } else {
                 // Desktop: fixed sidebar
-                container.style.cssText = `position: fixed; top: 0; right: 0; height: 100vh; width: ${sidebarWidth}px; z-index: 1000; background: white; border-left: 1px solid rgba(0,0,0,0.06); box-shadow: -8px 0 40px rgba(0,0,0,0.10); display: ${isOpen ? 'block' : 'none'};`;
+                container.style.cssText = `position: fixed; top: 0; right: 0; height: 100vh; width: ${sidebarWidth}px; z-index: 1000; background: white; border-left: 1px solid rgba(0,0,0,0.06); box-shadow: -8px 0 40px rgba(0,0,0,0.10);`;
+                container.style.transition = 'transform 250ms ease';
+                container.style.transform = isOpen ? 'translateX(0)' : 'translateX(100%)';
+                container.style.pointerEvents = isOpen ? 'auto' : 'none';
                 toggle.style.display = 'flex';
-                toggle.style.top = 'calc(50% - 40px)';
-                toggle.style.bottom = '';
+                toggle.style.top = '';
+                toggle.style.bottom = '30px';
                 toggle.style.width = '36px';
                 toggle.style.height = '80px';
                 toggle.style.borderRadius = '8px 0 0 8px';

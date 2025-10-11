@@ -2327,7 +2327,7 @@ export function ChatWidgetCore({
             {chatSettings?.chat_name || 'Affi'}
           </p>
         </div>
-        {((isEmbedded && widgetType !== 'inline') || (!isEmbedded)) && (
+        {((isEmbedded && widgetType === 'floating') || (!isEmbedded)) && (
           <button
             onClick={() => {
               if (isEmbedded) {

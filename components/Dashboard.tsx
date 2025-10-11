@@ -1907,12 +1907,12 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         </p>
                         <Label className="text-sm font-medium">Embed Code</Label>
                         <div
-                          onClick={() => handleCopyCode(`<script src=\"${API_URL}/widget-sidebar.js\" data-site-id=\"${selectedSite?.id || 'your-site-id'}\" data-sidebar-width=\"360\"></script>`, 'sidebar')}
+                          onClick={() => handleCopyCode(`<script src=\"${API_URL}/widget-sidebar.js\" data-site-id=\"${selectedSite?.id || 'your-site-id'}\" data-sidebar-width=\"440\"></script>`, 'sidebar')}
                           className="mt-2 bg-white border border-gray-300 rounded-md p-3 font-mono text-xs cursor-pointer hover:bg-gray-50 transition-colors relative group"
                         >
                           <div className="flex justify-between items-start">
                             <div className="flex-1 pr-8 break-all">
-                              {`<script src="${API_URL}/widget-sidebar.js" data-site-id="${selectedSite?.id || 'your-site-id'}" data-sidebar-width="360"></script>`}
+                              {`<script src="${API_URL}/widget-sidebar.js" data-site-id="${selectedSite?.id || 'your-site-id'}" data-sidebar-width="440"></script>`}
                             </div>
                             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                               {copiedCode === 'sidebar' ? (
@@ -1923,7 +1923,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                             </div>
                           </div>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">Click to copy • Optional: adjust width with data-sidebar-width (280–540)</p>
+                        <p className="text-xs text-gray-500 mt-1">Click to copy • Default width 440px. Optional: adjust width with data-sidebar-width (280–540)</p>
                         <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
                           Recommended to use either the floating or the sidebar on a page, not both.
                         </div>
