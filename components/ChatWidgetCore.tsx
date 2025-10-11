@@ -870,6 +870,7 @@ const ProductRecommendations = React.memo(({ messageContent, streamingContent, m
           title={product.title}
           description={product.description}
           buttonText={product.button_text || 'View Product'}
+          imageUrl={product.image_url}
           chatSettings={chatSettings}
           styles={styles}
           chatSessionId={chatSessionId || null}
@@ -885,13 +886,14 @@ const ProductRecommendations = React.memo(({ messageContent, streamingContent, m
 ProductRecommendations.displayName = 'ProductRecommendations';
 
 // ProductCard component for product recommendations
-const ProductCard = ({ id, analyticsLinkId, href, title, description, buttonText, chatSettings, styles, chatSessionId, userSessionId, apiUrl, siteId }: {
+const ProductCard = ({ id, analyticsLinkId, href, title, description, buttonText, imageUrl, chatSettings, styles, chatSessionId, userSessionId, apiUrl, siteId }: {
   id?: string;
   analyticsLinkId?: string | null;
   href: string;
   title: string;
   description: string;
   buttonText: string;
+  imageUrl?: string;
   chatSettings: ChatSettings;
   styles: Record<string, React.CSSProperties>;
   chatSessionId?: string | null;
@@ -911,6 +913,15 @@ const ProductCard = ({ id, analyticsLinkId, href, title, description, buttonText
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
+      {imageUrl && (
+        <div style={styles.linkImage}>
+          <img
+            src={imageUrl}
+            alt={title}
+            style={styles.linkImageInner}
+          />
+        </div>
+      )}
       <h4 
         style={{
           ...styles.linkTitle,
