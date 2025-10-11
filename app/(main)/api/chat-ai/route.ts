@@ -356,7 +356,7 @@ export async function POST(request: NextRequest) {
           page_context_used: 'used',
           request_id: null,
           event_data: { title: cachedPage?.title || 'Page' }
-        }]).then(()=>{}).catch(()=>{});
+        }]).then(() => {}, () => {});
       } catch {}
       if (secureMode) {
         const cors = getCORSHeaders(origin, []);
@@ -440,7 +440,7 @@ export async function POST(request: NextRequest) {
             page_context_used: 'used',
             request_id: null,
             event_data: { top_similarity: scored[0]?.sim || 0 }
-          }]).then(()=>{}).catch(()=>{});
+          }]).then(() => {}, () => {});
         } catch {}
         if (secureMode) {
           const cors = getCORSHeaders(origin, []);
@@ -528,7 +528,7 @@ export async function POST(request: NextRequest) {
             route_mode: 'refuse',
             refusal_reason: 'no-domain-terms',
             page_context_used: 'ignored',
-          }]).then(()=>{}).catch(()=>{});
+          }]).then(() => {}, () => {});
         } catch {}
         if (secureMode) {
           const cors = getCORSHeaders(origin, allowedOriginsForCors);
@@ -590,7 +590,7 @@ export async function POST(request: NextRequest) {
           refusal_reason: 'domain_guard',
           page_context_used: 'ignored',
           event_data: { terms_count: domainTerms.length }
-        }]).then(()=>{}).catch(()=>{});
+        }]).then(() => {}, () => {});
       } catch {}
       if (secureMode) {
         const cors = getCORSHeaders(origin, allowedOriginsForCors);
@@ -1033,7 +1033,7 @@ export async function POST(request: NextRequest) {
             refusal_reason: null,
             page_context_used: pageContext?.url ? 'ignored' : 'miss',
             event_data: { source: 'comparative' }
-          }]).then(()=>{}).catch(()=>{});
+          }]).then(() => {}, () => {});
         } catch {}
         if (secureMode) {
           const cors = getCORSHeaders(origin, allowedOriginsForCors);
@@ -1168,7 +1168,7 @@ export async function POST(request: NextRequest) {
                 refusal_reason: null,
                 page_context_used: pageContext?.url ? 'ignored' : 'miss',
                 event_data: { mode: 'soft-inference' }
-              }]).then(()=>{}).catch(()=>{});
+              }]).then(() => {}, () => {});
             } catch {}
             if (secureMode) {
               const cors = getCORSHeaders(origin, allowedOriginsForCors);
@@ -1239,7 +1239,7 @@ export async function POST(request: NextRequest) {
           refusal_reason: useCleanRefusal ? 'post-filter-elimination' : 'low-similarity',
           page_context_used: pageContext?.url ? 'ignored' : 'miss',
           event_data: { top_similarity: topSimilarity }
-        }]).then(()=>{}).catch(()=>{});
+        }]).then(() => {}, () => {});
       } catch {}
       // Add CORS headers if secure mode validated origin
       if (secureMode) {
@@ -1316,7 +1316,7 @@ export async function POST(request: NextRequest) {
         refusal_reason: null,
         page_context_used: pageContext?.url ? 'ignored' : 'miss',
         event_data: { chunks_included: Math.min(searchResults.length, Number(process.env.RAG_MAX_CHUNKS ?? 6)) }
-      }]).then(()=>{}).catch(()=>{});
+      }]).then(() => {}, () => {});
     } catch {}
     // Add CORS headers if secure mode validated origin
     if (secureMode) {
