@@ -1235,20 +1235,17 @@ export function ChatWidgetCore({
       transform: 'translateY(-2px)'
     },
     linkImage: {
-      width: '80px',
-      height: '80px',
+      width: 'auto',
+      height: '40px',
       borderRadius: '12px',
       overflow: 'hidden',
       backgroundColor: 'white',
       padding: '2px',
       marginBottom: '12px',
-      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)'
     },
     linkImageInner: {
-      width: '100%',
       height: '100%',
       objectFit: 'contain',
-      borderRadius: '8px'
     },
     linkTitle: {
       fontWeight: '700',
