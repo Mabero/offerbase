@@ -45,6 +45,33 @@
         }
     }
 
+    function normalizePatterns(input) {
+        if (!input) return [];
+        if (Array.isArray(input)) return input.filter(Boolean).map(String);
+        if (typeof input === 'string') return input.split(/\r?\n|,/).map(s => s.trim()).filter(Boolean);
+        return [];
+    }
+
+    function matchesPattern(url, pathname, pattern) {
+        if (!pattern) return false;
+        if (pattern.startsWith('re:')) {
+            try {
+                const re = new RegExp(pattern.slice(3));
+                return re.test(url) || re.test(pathname);
+            } catch { return false; }
+        }
+        const globToRegExp = (g) => new RegExp('^' + g.replace(/[.+^${}()|\[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
+        const target = pattern.startsWith('/') ? pathname : url;
+        if (pattern.includes('*') || pattern.includes('?')) {
+            try { return globToRegExp(pattern).test(target); } catch { return false; }
+        }
+        return target.indexOf(pattern) !== -1;
+    }
+
+    function anyMatch(url, pathname, patterns) {
+        return normalizePatterns(patterns).some(p => matchesPattern(url, pathname, p));
+    }
+
     // Analytics batching (copied from widget.js for consistency)
     const analyticsQueue = [];
     const BATCH_SIZE = 5;
@@ -161,6 +188,23 @@
             fetch(`${apiUrl}/api/widget/page-context?siteId=${encodeURIComponent(siteId)}&url=${encodeURIComponent(pageUrl)}`, { method: 'GET', mode: 'cors', credentials: 'omit' }).catch(() => {});
         } catch {}
 
+        // Evaluate sidebar visibility rules before injecting anything
+        const rules = (chatSettings && chatSettings.sidebar_rules) || {};
+        const showByDefault = !!rules.show_by_default;
+        const openByDefault = !!rules.open_by_default;
+        const showPatterns = rules.show_patterns || [];
+        const hidePatterns = rules.hide_patterns || [];
+
+        const fullUrl = window.location.href;
+        const path = window.location.pathname || '/';
+        const isHidden = anyMatch(fullUrl, path, hidePatterns);
+        const explicitlyShown = anyMatch(fullUrl, path, showPatterns);
+        const shouldShow = !isHidden && (showByDefault || explicitlyShown);
+
+        if (!shouldShow) {
+            return; // Do not inject nor fallback
+        }
+
         // If mobile on load → switch to floating and stop here
         if (window.innerWidth < 768) {
             activateFloatingWidget();
@@ -170,7 +214,7 @@
         const { container, iframe } = createSidebarContainer();
         const toggle = createToggleTab();
 
-        let isOpen = window.innerWidth >= 768; // Desktop: open by default, Mobile: closed by default
+        let isOpen = openByDefault; // Respect rules for desktop open-by-default
         let isMobile = window.innerWidth < 768;
 
         const initialBodyMarginRight = getComputedStyle(document.body).marginRight;

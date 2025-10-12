@@ -53,7 +53,14 @@ export async function GET(request: NextRequest) {
         chat_bubble_icon_color: '#FFFFFF',
         input_placeholder: 'Type your message...',
         font_size: '14px',
-        intro_message: 'Hello! How can I help you today?'
+        intro_message: 'Hello! How can I help you today?',
+        // Default sidebar rules: hidden by default, no patterns
+        sidebar_rules: {
+          show_by_default: false,
+          open_by_default: false,
+          show_patterns: [],
+          hide_patterns: []
+        }
       }, {
         headers: {
           'Access-Control-Allow-Origin': '*',
@@ -66,7 +73,17 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    return NextResponse.json(chatSettings, {
+    // Ensure sidebar_rules is always present with sensible defaults
+    const result = {
+      ...chatSettings,
+      sidebar_rules: chatSettings.sidebar_rules || {
+        show_by_default: false,
+        open_by_default: false,
+        show_patterns: [],
+        hide_patterns: []
+      }
+    };
+    return NextResponse.json(result, {
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, OPTIONS',

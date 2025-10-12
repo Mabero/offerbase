@@ -213,6 +213,11 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
   const [preferredLanguage, setPreferredLanguage] = useState<string | null>(null);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  // Sidebar rules UI state
+  const [sidebarShowByDefault, setSidebarShowByDefault] = useState(false);
+  const [sidebarOpenByDefault, setSidebarOpenByDefault] = useState(false);
+  const [sidebarShowPatterns, setSidebarShowPatterns] = useState('');
+  const [sidebarHidePatterns, setSidebarHidePatterns] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
   const [chatStats, setChatStats] = useState<ChatStats>({
@@ -874,7 +879,19 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
           siteId: selectedSite.id,
           ...chatSettings,
           intro_message: introMessage,
-          preferred_language: preferredLanguage
+          preferred_language: preferredLanguage,
+          sidebar_rules: {
+            show_by_default: sidebarShowByDefault,
+            open_by_default: sidebarOpenByDefault,
+            show_patterns: sidebarShowPatterns
+              .split(/\r?\n|,/)
+              .map(s => s.trim())
+              .filter(Boolean),
+            hide_patterns: sidebarHidePatterns
+              .split(/\r?\n|,/)
+              .map(s => s.trim())
+              .filter(Boolean)
+          }
         })
       });
 
@@ -1133,6 +1150,11 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         });
         setIntroMessage(data.data.intro_message || 'Hello! How can I help you today?');
         setPreferredLanguage(data.data.preferred_language || null);
+        const rules = data.data.sidebar_rules || { show_by_default: false, open_by_default: false, show_patterns: [], hide_patterns: [] };
+        setSidebarShowByDefault(!!rules.show_by_default);
+        setSidebarOpenByDefault(!!rules.open_by_default);
+        setSidebarShowPatterns(Array.isArray(rules.show_patterns) ? rules.show_patterns.join('\n') : (rules.show_patterns || ''));
+        setSidebarHidePatterns(Array.isArray(rules.hide_patterns) ? rules.hide_patterns.join('\n') : (rules.hide_patterns || ''));
       }
     } catch (error) {
       console.error('Error fetching chat settings:', error);
@@ -1904,8 +1926,38 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                       <div className="bg-gray-50 p-4 rounded-lg">
                         <h4 className="font-semibold text-gray-900 mb-2">Sidebar Widget</h4>
                         <p className="text-sm text-gray-600 mb-3">
-                          Full-height sidebar that makes room for chat by pushing the page content left. Collapsible, open by default. On mobile it becomes an overlay.
+                          Full-height sidebar that makes room for chat by pushing the page content left. Configure where it shows and whether it opens by default. On mobile it behaves like the floating chat.
                         </p>
+                        <div className="space-y-3 mb-4">
+                          <div className="flex items-center gap-2">
+                            <input id="sb-show-default" type="checkbox" className="h-4 w-4" checked={sidebarShowByDefault} onChange={(e) => setSidebarShowByDefault(e.target.checked)} />
+                            <label htmlFor="sb-show-default" className="text-sm text-gray-700">Show on entire site by default (desktop)</label>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input id="sb-open-default" type="checkbox" className="h-4 w-4" checked={sidebarOpenByDefault} onChange={(e) => setSidebarOpenByDefault(e.target.checked)} />
+                            <label htmlFor="sb-open-default" className="text-sm text-gray-700">Open by default on allowed pages (desktop)</label>
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium">Show on URLs (one per line)</Label>
+                            <textarea
+                              value={sidebarShowPatterns}
+                              onChange={(e) => setSidebarShowPatterns(e.target.value)}
+                              placeholder={"/blog/\n/products/*\nre:^/docs/\\w+$"}
+                              className="mt-1 w-full text-sm p-2 border border-gray-300 rounded-md bg-white/80 focus:outline-none focus:ring-1 focus:ring-gray-400 min-h-[80px]"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">Supports path prefixes (e.g., /blog/), wildcards (*), and regex (prefix with re:).</p>
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium">Hide on URLs (one per line)</Label>
+                            <textarea
+                              value={sidebarHidePatterns}
+                              onChange={(e) => setSidebarHidePatterns(e.target.value)}
+                              placeholder={"/\nre:^/landing$"}
+                              className="mt-1 w-full text-sm p-2 border border-gray-300 rounded-md bg-white/80 focus:outline-none focus:ring-1 focus:ring-gray-400 min-h-[80px]"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">Hide takes priority over show. Leave both empty to keep sidebar hidden unless shown by default.</p>
+                          </div>
+                        </div>
                         <Label className="text-sm font-medium">Embed Code</Label>
                         <div
                           onClick={() => handleCopyCode(`<script src=\"${API_URL}/widget-sidebar.js\" data-site-id=\"${selectedSite?.id || 'your-site-id'}\" data-sidebar-width=\"440\"></script>`, 'sidebar')}
