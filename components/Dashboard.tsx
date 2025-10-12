@@ -31,8 +31,11 @@ import { useToast } from "@/hooks/use-toast";
 import ColorPicker from "@/components/ColorPicker";
 import { 
   ExternalLink, 
-  FileText, 
-  Settings as SettingsIcon, 
+  File, 
+  Link2,
+  Settings as SettingsIcon,
+  MessageCircleQuestion,
+  LayoutPanelLeft,
   Info, 
   Code, 
   BarChart3, 
@@ -77,10 +80,10 @@ import { PredefinedQuestionsManager } from './PredefinedQuestionsManager';
 const drawerWidth = 240;
 
 const navItems = [
-  { label: 'Offer Links', icon: ExternalLink },
-  { label: 'Training Materials', icon: FileText },
-  { label: 'Predefined Questions', icon: HelpCircle },
-  { label: 'Widgets', icon: SettingsIcon },
+  { label: 'Offers', icon: Link2 },
+  { label: 'Sources', icon: File },
+  { label: 'Predefined Questions', icon: MessageCircleQuestion },
+  { label: 'Widgets', icon: LayoutPanelLeft },
   { label: 'Analytics', icon: BarChart3 },
   { label: 'Chat Logs', icon: MessageCircle },
 ];
@@ -368,10 +371,10 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         setTrainingMaterials(newMaterials);
         previousMaterialsRef.current = newMaterials;
       } else {
-        console.error('Failed to load training materials:', data.error);
+        console.error('Failed to load sources:', data.error);
       }
     } catch (error) {
-      console.error('Error loading training materials:', error);
+      console.error('Error loading sources:', error);
       setTrainingMaterials([]); // Ensure it stays as an array
     }
   }, [isSupabaseConfiguredState, toast]);
@@ -435,7 +438,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         if (response.ok) {
           setAffiliateLinks(prev => [...prev, data.data]);
         } else {
-          throw new Error(data.error || 'Failed to add offer link');
+          throw new Error(data.error || 'Failed to add offer');
         }
       }
       
@@ -443,12 +446,12 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       
       toast({
         title: "Success",
-        description: "Offer link added successfully"
+        description: "Offer added successfully"
       });
     } catch (error) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to add offer link",
+        description: error instanceof Error ? error.message : "Failed to add offer",
         variant: "destructive"
       });
     } finally {
@@ -522,7 +525,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
             )
           );
         } else {
-          throw new Error(data.error || 'Failed to update offer link');
+          throw new Error(data.error || 'Failed to update offer');
         }
       }
       
@@ -531,12 +534,12 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       
       toast({
         title: "Success",
-        description: "Offer link updated successfully"
+        description: "Offer updated successfully"
       });
     } catch (error) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update offer link",
+        description: error instanceof Error ? error.message : "Failed to update offer",
         variant: "destructive"
       });
     } finally {
@@ -550,7 +553,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       setAffiliateLinks(prev => prev.filter(l => l.id !== link.id));
       toast({
         title: "Success",
-        description: "Offer link deleted successfully"
+        description: "Offer deleted successfully"
       });
       return;
     }
@@ -565,16 +568,16 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         setAffiliateLinks(prev => prev.filter(l => l.id !== link.id));
         toast({
           title: "Success",
-          description: "Offer link deleted successfully"
+          description: "Offer deleted successfully"
         });
       } else {
         const data = await response.json();
-        throw new Error(data.error || 'Failed to delete offer link');
+        throw new Error(data.error || 'Failed to delete offer');
       }
     } catch (error) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete offer link",
+        description: error instanceof Error ? error.message : "Failed to delete offer",
         variant: "destructive"
       });
     }
@@ -638,7 +641,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         if (response.ok) {
           setTrainingMaterials(prev => [...prev, responseData.data]);
         } else {
-          throw new Error(responseData.error || 'Failed to add training material');
+          throw new Error(responseData.error || 'Failed to add source');
         }
       }
       
@@ -646,12 +649,12 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       
       toast({
         title: "Success",
-        description: "Training material added successfully"
+        description: "Source added successfully"
       });
     } catch (error) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to add training material",
+        description: error instanceof Error ? error.message : "Failed to add source",
         variant: "destructive"
       });
     } finally {
@@ -665,7 +668,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       setTrainingMaterials(prev => prev.filter(m => m.id !== material.id));
       toast({
         title: "Success",
-        description: "Training material deleted successfully"
+        description: "Source deleted successfully"
       });
       return;
     }
@@ -680,16 +683,16 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
         setTrainingMaterials(prev => prev.filter(m => m.id !== material.id));
         toast({
           title: "Success",
-          description: "Training material deleted successfully"
+          description: "Source deleted successfully"
         });
       } else {
         const data = await response.json();
-        throw new Error(data.error || 'Failed to delete training material');
+        throw new Error(data.error || 'Failed to delete source');
       }
     } catch (error) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete training material",
+        description: error instanceof Error ? error.message : "Failed to delete source",
         variant: "destructive"
       });
     }
@@ -766,7 +769,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
               setTrainingMaterials(newMaterials);
               previousMaterialsRef.current = [...newMaterials];
             } else {
-              console.error('Failed to load training materials:', data.error);
+              console.error('Failed to load sources:', data.error);
             }
           } catch (error) {
             console.error('Polling error:', error);
@@ -1445,7 +1448,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
               {/* Offer Links Tab */}
               {selectedTab === 0 && (
                 <div className="space-y-6">
-                  <h2 className="text-xl font-semibold text-gray-900 mb-6">Add New Offer Link</h2>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-6">Add New Offer</h2>
                   <div className="space-y-4">
                     <div>
                       <Label htmlFor="url">URL</Label>
@@ -1483,7 +1486,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         placeholder="https://example.com/image.jpg"
                         className="bg-white/80 border-gray-300 focus:border-gray-500"
                       />
-                      <p className="text-sm text-gray-600 mt-1">
+                      <p className="text-xs text-gray-400 mt-1">
                         Add an image URL to display a product image in the chat. Leave empty if no image is needed.
                       </p>
                     </div>
@@ -1496,7 +1499,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         placeholder="View Product"
                         className="bg-white/80 border-gray-300 focus:border-gray-500"
                       />
-                      <p className="text-sm text-gray-600 mt-1">
+                      <p className="text-xs text-gray-400 mt-1">
                         Customize the call-to-action button text. Leave empty to use default &quot;View Product&quot;.
                       </p>
                     </div>
@@ -1519,7 +1522,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                   </div>
                   
                   <div className="pt-8">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Your Offer Links</h3>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Your Offers</h3>
                     <div className="space-y-4">
                       {affiliateLinks.filter(link => link && link.id).map((link) => (
                         <Card key={link.id} className="bg-white border border-gray-200">
@@ -1560,7 +1563,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                       ))}
                       {affiliateLinks.length === 0 && (
                         <div className="text-center py-8 text-gray-500">
-                          No offer links yet. Add one above to get started.
+                          No offers yet. Add one above to get started.
                         </div>
                       )}
                     </div>
@@ -1571,7 +1574,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
               {/* Training Materials Tab */}
               {selectedTab === 1 && (
                 <div className="space-y-6">
-                  <h2 className="text-xl font-semibold text-gray-900 mb-6">Add New Training Material</h2>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-6">Add New Source</h2>
                   <div className="space-y-4">
                     <div>
                       <Label htmlFor="training-url">Website URL</Label>
@@ -1583,8 +1586,8 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         className="bg-white/80 border-gray-300 focus:border-gray-500"
                       />
                     </div>
-                    <p className="text-sm text-gray-600">
-                      Enter a URL to scrape and add to your AI assistant&apos;s training data.
+                    <p className="text-xs text-gray-400">
+                      Enter a URL to scrape and add to your AI assistant&apos;s data.
                     </p>
                     <Button
                       onClick={() => handleAddTrainingMaterial({ url: newTrainingUrl })}
@@ -1599,7 +1602,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                       ) : (
                         <>
                           
-                          Add Training Material
+                          Add Source
                         </>
                       )}
                     </Button>
@@ -1607,7 +1610,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                   
                   <div className="pt-8">
                     <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-gray-900">Your Training Materials</h3>
+                      <h3 className="text-lg font-semibold text-gray-900">Your Sources</h3>
                       {isPolling && (
                         <div className="flex items-center text-sm text-blue-600">
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -1624,24 +1627,24 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                                 <div className="flex items-center gap-2 mb-1">
                                   <h4 className="font-medium text-gray-900">{material.title}</h4>
                                   {material.scrape_status === 'pending' && (
-                                    <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
+                                    <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">
                                       <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                                       Pending
                                     </Badge>
                                   )}
                                   {material.scrape_status === 'processing' && (
-                                    <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+                                    <Badge variant="secondary" className="bg-blue-100 text-blue-800 hover:bg-blue-100">
                                       <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                                       Processing
                                     </Badge>
                                   )}
                                   {material.scrape_status === 'success' && (
-                                    <Badge variant="default" className="bg-green-100 text-green-800">
+                                    <Badge variant="default" className="bg-green-100 text-green-800 hover:bg-green-100">
                                       Success
                                     </Badge>
                                   )}
                                   {material.scrape_status === 'failed' && (
-                                    <Badge variant="destructive" className="bg-red-100 text-red-800">
+                                    <Badge variant="destructive" className="bg-red-100 text-red-800 hover:bg-red-100">
                                       Failed
                                     </Badge>
                                   )}
@@ -1667,23 +1670,27 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                               </div>
                             </div>
                             
-                            {/* Content info */}
-                            {material.scrape_status === 'success' && material.content && (
+                            {/* Content meta + URL (no content preview) */}
+                            {material.scrape_status === 'success' && (
                               <div className="mt-3 p-3 bg-gray-50 rounded-lg">
                                 <div className="flex items-center justify-between mb-2">
                                   <span className="text-sm font-medium text-gray-700">
-                                    Content ({material.content.length.toLocaleString()} characters)
+                                    Content ({(material.content?.length || 0).toLocaleString()} characters)
                                   </span>
                                   {material.content_type && (
-                                    <Badge variant="outline" className="text-xs">
+                                    <Badge variant="outline" className="text-xs hover:bg-transparent">
                                       {material.content_type}
                                     </Badge>
                                   )}
                                 </div>
-                                <div className="text-sm text-gray-600 line-clamp-3">
-                                  {material.content.substring(0, 200)}
-                                  {material.content.length > 200 && '...'}
-                                </div>
+                                <a
+                                  href={material.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm text-blue-600 hover:underline break-all"
+                                >
+                                  {material.url}
+                                </a>
                                 {material.last_scraped_at && (
                                   <div className="text-xs text-gray-500 mt-2">
                                     Last updated: {new Date(material.last_scraped_at).toLocaleDateString()}
@@ -1716,7 +1723,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                       ))}
                       {trainingMaterials.length === 0 && (
                         <div className="text-center py-8 text-gray-500">
-                          No training materials yet. Add one above to get started.
+                          No sources yet. Add one above to get started.
                         </div>
                       )}
                     </div>
@@ -1798,7 +1805,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                           ))}
                         </SelectContent>
                       </Select>
-                      <p className="text-sm text-gray-600 mt-1">
+                      <p className="text-xs text-gray-400 mt-1">
                         Used as fallback when language detection is uncertain. Leave as &quot;Auto-detect&quot; to rely purely on automatic detection.
                       </p>
                     </div>
@@ -1827,19 +1834,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                     </p>
                     
                     {/* AI SDK Toggle */}
-                    <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h4 className="font-medium text-green-900">Enhanced Chat Widget</h4>
-                          <p className="text-sm text-green-700 mt-1">
-                            AI-powered chat with improved streaming, smart responses, and tool integration.
-                          </p>
-                        </div>
-                        <div className="text-green-600 font-semibold">
-                          ✓ Active
-                        </div>
-                      </div>
-                    </div>
+                  
                     
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       {/* Floating Chat Widget */}
@@ -1866,7 +1861,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                             </div>
                           </div>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">Click to copy</p>
+                        <p className="text-xs text-gray-400 mt-1">Click to copy</p>
                       </div>
                       
                       {/* Inline Article Widget */}
@@ -1893,7 +1888,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                             </div>
                           </div>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">Click to copy</p>
+                        <p className="text-xs text-gray-400 mt-1">Click to copy</p>
                         
                         {/* WordPress Help */}
                         <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
@@ -1945,7 +1940,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                               placeholder={"/blog/\n/products/*\nre:^/docs/\\w+$"}
                               className="mt-1 w-full text-sm p-2 border border-gray-300 rounded-md bg-white/80 focus:outline-none focus:ring-1 focus:ring-gray-400 min-h-[80px]"
                             />
-                            <p className="text-xs text-gray-500 mt-1">Supports path prefixes (e.g., /blog/), wildcards (*), and regex (prefix with re:).</p>
+                            <p className="text-xs text-gray-400 mt-1">Supports path prefixes (e.g., /blog/), wildcards (*), and regex (prefix with re:).</p>
                           </div>
                           <div>
                             <Label className="text-sm font-medium">Hide on URLs (one per line)</Label>
@@ -1955,7 +1950,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                               placeholder={"/\nre:^/landing$"}
                               className="mt-1 w-full text-sm p-2 border border-gray-300 rounded-md bg-white/80 focus:outline-none focus:ring-1 focus:ring-gray-400 min-h-[80px]"
                             />
-                            <p className="text-xs text-gray-500 mt-1">Hide takes priority over show. Leave both empty to keep sidebar hidden unless shown by default.</p>
+                            <p className="text-xs text-gray-400 mt-1">Hide takes priority over show. Leave both empty to keep sidebar hidden unless shown by default.</p>
                           </div>
                         </div>
                         <Label className="text-sm font-medium">Embed Code</Label>
@@ -1976,25 +1971,14 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                             </div>
                           </div>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">Click to copy • Default width 440px. Optional: adjust width with data-sidebar-width (280–540)</p>
+                        <p className="text-xs text-gray-400 mt-1">Click to copy • Default width 440px. Optional: adjust width with data-sidebar-width (280–540)</p>
                         <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
                           Recommended to use either the floating or the sidebar on a page, not both.
                         </div>
                       </div>
                     </div>
                     
-                    <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                      <div className="flex">
-                        <Info className="h-5 w-5 text-blue-400 mt-0.5 mr-2" />
-                        <div>
-                          <h5 className="text-sm font-medium text-blue-900">Pro Tip</h5>
-                          <p className="text-sm text-blue-700 mt-1">
-                            You can use both widget types on the same website! The floating widget provides general support, 
-                            while inline widgets offer contextual help within your content.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+                   
                   </div>
                 </div>
               )}
@@ -2503,9 +2487,9 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Edit Offer Link</DialogTitle>
+            <DialogTitle>Edit Offer</DialogTitle>
             <DialogDescription>
-              Update the details for this offer link.
+              Update the details for this offer.
             </DialogDescription>
           </DialogHeader>
           {editingLink && (
@@ -2546,7 +2530,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                   placeholder="https://example.com/image.jpg"
                   className="bg-white/80 border-gray-300 focus:border-gray-500"
                 />
-                <p className="text-sm text-gray-600 mt-1">
+                <p className="text-xs text-gray-400 mt-1">
                   Add an image URL to display a product image in the chat. Leave empty if no image is needed.
                 </p>
               </div>
@@ -2559,7 +2543,7 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                   placeholder="View Product"
                   className="bg-white/80 border-gray-300 focus:border-gray-500"
                 />
-                <p className="text-sm text-gray-600 mt-1">
+                <p className="text-xs text-gray-400 mt-1">
                   Customize the call-to-action button text. Leave empty to use default &quot;View Product&quot;.
                 </p>
               </div>
