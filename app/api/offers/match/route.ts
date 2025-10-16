@@ -107,7 +107,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to match offers' }, { status: 500, headers: getCORSHeaders(origin, allowedOrigins) });
     }
 
-    const results = (data || []).map((r: any) => ({
+    type OfferItem = {
+      id: string;
+      link_id: string | null;
+      offer_id: string | null;
+      title: string;
+      url: string;
+      image_url?: string | null;
+      button_text: string;
+      description: string;
+      brand_norm: string | null;
+      model_norm: string | null;
+      match_type?: string;
+      match_score: number;
+      effectiveScore?: number;
+    };
+
+    const results: OfferItem[] = (data || []).map((r: any): OfferItem => ({
       id: r.link_id ?? r.id, // prefer affiliate_links.id for stable analytics
       link_id: r.link_id ?? null,
       offer_id: r.id ?? null,
@@ -116,8 +132,8 @@ export async function POST(request: NextRequest) {
       image_url: r.image_url,
       button_text: r.button_text || 'Learn more',
       description: r.description || '',
-      brand_norm: r.brand_norm || null,
-      model_norm: r.model_norm || null,
+      brand_norm: (r.brand_norm ?? null),
+      model_norm: (r.model_norm ?? null),
       match_type: r.match_type,
       match_score: typeof r.match_score === 'number' ? r.match_score : 0,
     }));
@@ -142,7 +158,7 @@ export async function POST(request: NextRequest) {
     } catch {}
 
     // Compute effective score with small deterministic boost if AI text explicitly recommends an item
-    const scoredResults = results.map((item) => {
+    const scoredResults: OfferItem[] = results.map((item: OfferItem) => {
       const titleNorm = norm(item.title);
       const bmNorm = norm(`${item.brand_norm || ''} ${item.model_norm || ''}`);
       const keys = [titleNorm, bmNorm];
@@ -157,7 +173,7 @@ export async function POST(request: NextRequest) {
     const AHEAD_DELTA = 0.12;
 
     // Helper: cluster by normalized brand+model
-    const clusters = new Map<string, { key: string; items: any[]; topScore: number }>();
+    const clusters = new Map<string, { key: string; items: OfferItem[]; topScore: number }>();
     for (const item of scoredResults) {
       const bn = (item.brand_norm || '').trim();
       const mn = (item.model_norm || '').trim();
