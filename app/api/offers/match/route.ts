@@ -172,14 +172,23 @@ export async function POST(request: NextRequest) {
     const top1 = sortedClusters[0];
     const top2 = sortedClusters[1];
 
-    // If page context exists, pick the overall top result deterministically
+    // Helper: pick one best item per cluster and cap to max 3 (or provided limit if lower)
+    const maxReturn = Math.min(3, Math.max(1, Number(limit || 3)));
+    const pickTopItems = () => {
+      const items = sortedClusters
+        .map(c => c.items.sort((a: any, b: any) => (b.match_score || 0) - (a.match_score || 0))[0])
+        .slice(0, maxReturn);
+      return items;
+    };
+
+    // If page context exists, return top up to 3 deterministically
     if (pageHasContext) {
-      const topItem = results[0];
+      const topItems = pickTopItems();
       return NextResponse.json({
         success: true,
-        data: [topItem],
+        data: topItems,
         query: query.trim(),
-        count: 1,
+        count: topItems.length,
         candidatesCount: results.length,
         contextualMatching: {
           contextKeywords: finalContextKeywords,
@@ -245,12 +254,13 @@ export async function POST(request: NextRequest) {
       }, { headers: { ...getCORSHeaders(origin, allowedOrigins), 'Cache-Control': 'no-store' } });
     }
 
-    // Otherwise, return only the single best item (never multiple)
+    // Otherwise, return up to top 3 distinct best items (by cluster)
+    const topItems = pickTopItems();
     return NextResponse.json({
       success: true,
-      data: [results[0]],
+      data: topItems,
       query: query.trim(),
-      count: 1,
+      count: topItems.length,
       candidatesCount: results.length,
       contextualMatching: {
         contextKeywords: finalContextKeywords,
