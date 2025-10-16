@@ -1034,7 +1034,10 @@ export async function POST(request: NextRequest) {
         const ENTITY_ENABLED = process.env.ENABLE_ENTITY_FALLBACK !== 'false';
         const entityMin = Number(process.env.ENTITY_VECTOR_MIN ?? 0.25);
         const entityFallbackMin = Number(process.env.ENTITY_VECTOR_FALLBACK_MIN ?? 0.2);
-        const tokens = (currentQuery || '').toLowerCase().split(/\s+/).filter(Boolean);
+        const tokens: string[] = (currentQuery || '')
+          .toLowerCase()
+          .split(/\s+/)
+          .filter((s: string) => !!s);
         const isShortEntity = tokens.length > 0 && tokens.length <= 3;
         let entityChunks: any[] = [];
         let entitySource: 'page' | 'vector' | null = null;
@@ -1049,7 +1052,7 @@ export async function POST(request: NextRequest) {
               if (cached?.chunks?.length) {
                 const hits = cached.chunks.filter((c: any) => {
                   const lc = String(c.content || '').toLowerCase();
-                  return tokens.every(t => t.length >= 2 && lc.includes(t));
+                  return tokens.every((t: string) => t.length >= 2 && lc.includes(t));
                 }).slice(0, 2).map((pc: any) => ({
                   content: pc.content,
                   materialTitle: cached.title || 'Page',
