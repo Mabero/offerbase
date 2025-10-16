@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { extractContextKeywords, type TrainingChunk } from '@/lib/context-keywords';
+import { analyzeContentIntelligence } from '@/lib/ai/content-intelligence';
 import { getSiteConfig } from '@/lib/site-config';
 import {
   verifySiteToken,
@@ -118,8 +119,38 @@ export async function POST(request: NextRequest) {
       brand_norm: r.brand_norm || null,
       model_norm: r.model_norm || null,
       match_type: r.match_type,
-      match_score: r.match_score,
+      match_score: typeof r.match_score === 'number' ? r.match_score : 0,
     }));
+
+    // Winner anchoring: lightly boost the item named as best in the AI reply
+    const WINNER_BOOST = Number(process.env.OFFER_WINNER_BOOST ?? 0.08);
+    const RANK1_BOOST = Number(process.env.OFFER_RANK1_BOOST ?? 0.04);
+    const norm = (s: string) => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    let winnerNorm: string | null = null;
+    let rank1Norm: string | null = null;
+    try {
+      if (typeof aiText === 'string' && aiText.trim().length > 0) {
+        const analysis = analyzeContentIntelligence('', aiText);
+        if (analysis?.structuredData?.winner?.product) {
+          winnerNorm = norm(analysis.structuredData.winner.product);
+        }
+        if (analysis?.structuredData?.rankings && analysis.structuredData.rankings.length > 0) {
+          const top = analysis.structuredData.rankings[0];
+          if (top?.product) rank1Norm = norm(top.product);
+        }
+      }
+    } catch {}
+
+    // Compute effective score with small deterministic boost if AI text explicitly recommends an item
+    const scoredResults = results.map((item) => {
+      const titleNorm = norm(item.title);
+      const bmNorm = norm(`${item.brand_norm || ''} ${item.model_norm || ''}`);
+      const keys = [titleNorm, bmNorm];
+      const isWinner = !!(winnerNorm && keys.some(k => k && (k.includes(winnerNorm!) || winnerNorm!.includes(k))));
+      const isRank1 = !!(rank1Norm && keys.some(k => k && (k.includes(rank1Norm!) || rank1Norm!.includes(k))));
+      const effectiveScore = item.match_score + (isWinner ? WINNER_BOOST : 0) + (isRank1 ? RANK1_BOOST : 0);
+      return { ...item, effectiveScore };
+    });
 
     // Enforce one-or-ask: never return multiple conflicting products
     const pageHasContext = !!(pageContext && (pageContext.title || pageContext.description));
@@ -127,16 +158,20 @@ export async function POST(request: NextRequest) {
 
     // Helper: cluster by normalized brand+model
     const clusters = new Map<string, { key: string; items: any[]; topScore: number }>();
-    for (const item of results) {
-      const key = `${(item.brand_norm || '').trim()}|${(item.model_norm || '').trim()}`;
+    for (const item of scoredResults) {
+      const bn = (item.brand_norm || '').trim();
+      const mn = (item.model_norm || '').trim();
+      // Fallback: if both norms missing, avoid empty-key collapse by using a stable identifier
+      const fallbackKey = item.link_id || item.offer_id || item.id || item.url || item.title;
+      const key = (bn || mn) ? `${bn}|${mn}` : String(fallbackKey);
       const c = clusters.get(key) || { key, items: [], topScore: 0 };
       c.items.push(item);
-      c.topScore = Math.max(c.topScore, item.match_score || 0);
+      c.topScore = Math.max(c.topScore, item.effectiveScore || item.match_score || 0);
       clusters.set(key, c);
     }
 
     // If no results, return empty
-    if (results.length === 0) {
+    if (scoredResults.length === 0) {
       return NextResponse.json({
         success: true,
         data: [],
@@ -152,10 +187,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Single product: return it
-    if (results.length === 1) {
+    if (scoredResults.length === 1) {
       return NextResponse.json({
         success: true,
-        data: [results[0]],
+        data: [scoredResults[0]],
         query: query.trim(),
         count: 1,
         candidatesCount: 1,
@@ -168,15 +203,31 @@ export async function POST(request: NextRequest) {
     }
 
     // Sort clusters by top score
-    const sortedClusters = Array.from(clusters.values()).sort((a, b) => b.topScore - a.topScore);
+    const sortedClusters = Array.from(clusters.values()).sort((a, b) => {
+      const d = (b.topScore || 0) - (a.topScore || 0);
+      if (d !== 0) return d;
+      return String(a.key).localeCompare(String(b.key));
+    });
     const top1 = sortedClusters[0];
     const top2 = sortedClusters[1];
 
     // Helper: pick one best item per cluster and cap to max 3 (or provided limit if lower)
     const maxReturn = Math.min(3, Math.max(1, Number(limit || 3)));
+    const safeCmp = (a: any, b: any) => String(a || '').localeCompare(String(b || ''));
     const pickTopItems = () => {
       const items = sortedClusters
-        .map(c => c.items.sort((a: any, b: any) => (b.match_score || 0) - (a.match_score || 0))[0])
+        .map(c => c.items
+          .slice()
+          .sort((a: any, b: any) => {
+            const d = (b.effectiveScore || b.match_score || 0) - (a.effectiveScore || a.match_score || 0);
+            if (d !== 0) return d;
+            // Deterministic tie-breakers
+            const t = safeCmp(a.title, b.title); if (t !== 0) return t;
+            const u = safeCmp(a.url, b.url); if (u !== 0) return u;
+            const i = safeCmp(a.id, b.id); if (i !== 0) return i;
+            return 0;
+          })[0]
+        )
         .slice(0, maxReturn);
       return items;
     };
@@ -189,7 +240,7 @@ export async function POST(request: NextRequest) {
         data: topItems,
         query: query.trim(),
         count: topItems.length,
-        candidatesCount: results.length,
+        candidatesCount: scoredResults.length,
         contextualMatching: {
           contextKeywords: finalContextKeywords,
           pageContextUsed: pageHasContext
@@ -245,7 +296,7 @@ export async function POST(request: NextRequest) {
         },
         query: query.trim(),
         count: 0,
-        candidatesCount: results.length,
+        candidatesCount: scoredResults.length,
         contextualMatching: {
           contextKeywords: finalContextKeywords,
           pageContextUsed: pageHasContext
@@ -261,7 +312,7 @@ export async function POST(request: NextRequest) {
       data: topItems,
       query: query.trim(),
       count: topItems.length,
-      candidatesCount: results.length,
+      candidatesCount: scoredResults.length,
       contextualMatching: {
         contextKeywords: finalContextKeywords,
         pageContextUsed: pageHasContext
