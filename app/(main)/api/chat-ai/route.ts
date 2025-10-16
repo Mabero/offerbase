@@ -1029,6 +1029,94 @@ export async function POST(request: NextRequest) {
     const chunksToUse = searchResults.length > 0 ? searchResults : vectorResults;
     
     if (!hasRelevantMaterials) {
+      // ENTITY FALLBACK: handle short noun/name queries with strict grounding
+      try {
+        const ENTITY_ENABLED = process.env.ENABLE_ENTITY_FALLBACK !== 'false';
+        const entityMin = Number(process.env.ENTITY_VECTOR_MIN ?? 0.25);
+        const entityFallbackMin = Number(process.env.ENTITY_VECTOR_FALLBACK_MIN ?? 0.2);
+        const tokens = (currentQuery || '').toLowerCase().split(/\s+/).filter(Boolean);
+        const isShortEntity = tokens.length > 0 && tokens.length <= 3;
+        let entityChunks: any[] = [];
+        let entitySource: 'page' | 'vector' | null = null;
+        
+        if (ENTITY_ENABLED && isShortEntity) {
+          // 1) Page-context lexical match (all tokens must appear)
+          if (process.env.ENABLE_PAGE_CONTEXT !== 'false' && pageContext?.url) {
+            try {
+              const h = (await import('crypto')).createHash('sha1').update(pageContext.url).digest('hex').slice(0, 16);
+              const ck = `pagectx:${siteId}:${h}`;
+              const cached = await (await import('@/lib/cache')).cache.get<any>(ck);
+              if (cached?.chunks?.length) {
+                const hits = cached.chunks.filter((c: any) => {
+                  const lc = String(c.content || '').toLowerCase();
+                  return tokens.every(t => t.length >= 2 && lc.includes(t));
+                }).slice(0, 2).map((pc: any) => ({
+                  content: pc.content,
+                  materialTitle: cached.title || 'Page',
+                  similarity: 1.0,
+                  metadata: { source: 'page' }
+                }));
+                if (hits.length) {
+                  entityChunks = hits;
+                  entitySource = 'page';
+                }
+              }
+            } catch {}
+          }
+
+          // 2) Vector fallback with minimal floor
+          if (!entityChunks.length) {
+            if (vectorResults.length > 0 && (topVectorScore >= entityMin || topVectorScore >= entityFallbackMin)) {
+              entityChunks = vectorResults.slice(0, 2);
+              entitySource = 'vector';
+            }
+          }
+
+          if (entityChunks.length) {
+            const entityLanguageInstruction = pickLanguageInstruction({
+              preferredLanguage,
+              acceptLanguage: request.headers.get('accept-language') || undefined,
+              lastUserText: currentQuery
+            });
+            const system = `Answer with one or two concise sentences using only the provided text.${entityLanguageInstruction} If the text doesn't contain the answer, say you can't find it.`;
+            const contextText = entityChunks.map((c: any, i: number) => `Excerpt ${i + 1}${c.materialTitle ? ` ("${c.materialTitle}")` : ''}:\n${c.content}`).join('\n\n');
+            const result = streamText({
+              model: openai('gpt-4o-mini'),
+              messages: [
+                { role: 'system' as const, content: system },
+                { role: 'user' as const, content: currentQuery },
+                { role: 'user' as const, content: contextText }
+              ],
+              temperature: 0.1,
+              maxOutputTokens: 180,
+            });
+            const response = result.toUIMessageStreamResponse();
+            try {
+              const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+              void supa.from('analytics_events').insert([{
+                site_id: siteId,
+                event_type: 'route',
+                session_id: sessionId || null,
+                page_url: pageContext?.url || null,
+                route_mode: 'entity',
+                refusal_reason: null,
+                page_context_used: entitySource === 'page' ? 'used' : (pageContext?.url ? 'ignored' : 'miss'),
+                event_data: { source: entitySource, token_count: tokens.length }
+              }]).then(() => {}, () => {});
+            } catch {}
+            if (secureMode) {
+              const cors = getCORSHeaders(origin, allowedOriginsForCors);
+              for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
+            }
+            response.headers.set('X-Route-Mode', 'entity');
+            response.headers.set('X-Entity-Source', entitySource || 'unknown');
+            return response;
+          }
+        }
+      } catch (e) {
+        if (DEBUG) console.warn('[EntityFallback] error', e);
+      }
+
       // REFUSE MODE: Ultra-constrained generation
       if (DEBUG) console.log('[Chat AI] Refuse mode - constrained generation', {
         query: currentQuery.substring(0, 50),
