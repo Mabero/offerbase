@@ -1975,6 +1975,22 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                         <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
                           Recommended to use either the floating or the sidebar on a page, not both.
                         </div>
+                        <div className="mt-4">
+                          <Button
+                            onClick={handleSaveChatSettings}
+                            disabled={isSaving}
+                            className="bg-gray-900 hover:bg-gray-800 text-white"
+                          >
+                            {isSaving ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Saving...
+                              </>
+                            ) : (
+                              'Save Settings'
+                            )}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                     

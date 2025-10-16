@@ -127,7 +127,7 @@ export async function getSiteDomainTerms(siteId: string): Promise<string[]> {
     try {
       const { data: offers } = await supabase
         .from('offers')
-        .select('brand_norm, model_norm')
+        .select('brand_norm, model_norm, title_norm')
         .eq('site_id', siteId)
         .limit(500);
       (offers || []).forEach((o: any) => {
@@ -135,6 +135,15 @@ export async function getSiteDomainTerms(siteId: string): Promise<string[]> {
         const m = norm(o.model_norm || '');
         if (b && !isNoiseTerm(b)) { terms.add(b); brandSingles.add(b); }
         if (m && !isNoiseTerm(m)) terms.add(m);
+        // Tokenize title_norm and add safe tokens (>=3 chars, stopword-filtered)
+        const t = norm(o.title_norm || '');
+        if (t) {
+          const toks = tokenize(t);
+          for (const tok of toks) {
+            if (!tok) continue;
+            if (!isNoiseTerm(tok)) terms.add(tok);
+          }
+        }
       });
     } catch {}
 

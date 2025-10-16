@@ -5,6 +5,7 @@ import { auth } from '@clerk/nextjs/server';
 import { createClient } from '@supabase/supabase-js';
 import { getAIInstructions } from '@/lib/instructions';
 import { getSiteDomainTerms, isInDomain } from '@/lib/ai/domain-guard';
+import { pickLanguageInstruction } from '@/lib/language';
 import { buildConversationContext, isFollowUpQuery } from '@/lib/context/conversation';
 import { TermExtractor } from '@/lib/search/term-extractor';
 import { assessSoftInference } from '@/lib/ai/assessor';
@@ -294,39 +295,12 @@ export async function POST(request: NextRequest) {
     if (enableSummaryFP && detectSummaryIntent(currentQuery) && cachedPage?.chunks?.length) {
       const maxChunks = Number(process.env.PAGE_SUMMARY_MAX_CHUNKS ?? 2);
       const chunks = cachedPage.chunks.slice(0, Math.max(1, maxChunks));
-
-      // Detect language with preference/TLD override
-      let langName = '';
-      try {
-        const tinyld = await import('tinyld');
-        const code = tinyld.detect(currentQuery || introMessage || '');
-        const MAP: Record<string, string> = { en: 'English', no: 'Norwegian', nb: 'Norwegian', nn: 'Norwegian', da: 'Danish', sv: 'Swedish', fi: 'Finnish', de: 'German', fr: 'French', es: 'Spanish', pt: 'Portuguese', it: 'Italian', nl: 'Dutch' };
-        const detected = MAP[code as string] || '';
-        const inferFromUrl = (u?: string | null): string | undefined => {
-          if (!u) return undefined;
-          try {
-            const host = new URL(u).hostname.toLowerCase();
-            if (host.endsWith('.no')) return 'Norwegian';
-            if (host.endsWith('.se')) return 'Swedish';
-            if (host.endsWith('.dk')) return 'Danish';
-            if (host.endsWith('.fi')) return 'Finnish';
-            if (host.endsWith('.de')) return 'German';
-            if (host.endsWith('.nl')) return 'Dutch';
-            if (host.endsWith('.fr')) return 'French';
-            if (host.endsWith('.es')) return 'Spanish';
-            if (host.endsWith('.pt')) return 'Portuguese';
-            if (host.endsWith('.it')) return 'Italian';
-            return undefined;
-          } catch { return undefined; }
-        };
-        const siteLang = inferFromUrl((pageContext && pageContext.url) ? pageContext.url : undefined);
-        const preferred = typeof (body?.preferredLanguage) === 'string' && body.preferredLanguage.trim()
-          ? body.preferredLanguage.trim()
-          : undefined;
-        langName = preferred || siteLang || detected || '';
-      } catch {}
-
-      const system = `Summarize the following page content in ${langName || 'the user\'s language'}. Be concise, accurate, and avoid adding information not present in the text. Provide a short paragraph and, if appropriate, a short bullet list of key points. Do not mention that you are summarizing.`;
+      const languageInstruction = pickLanguageInstruction({
+        preferredLanguage: body?.preferredLanguage,
+        acceptLanguage: request.headers.get('accept-language') || undefined,
+        lastUserText: currentQuery || introMessage || ''
+      });
+      const system = `Summarize the following page content.${languageInstruction} Be concise, accurate, and avoid adding information not present in the text. Provide a short paragraph and, if appropriate, a short bullet list of key points. Do not mention that you are summarizing.`;
       const contextText = chunks.map((c: any, i: number) => `Section ${i + 1} ("${cachedPage.title || 'Page'}"):\n${c.content}`).join('\n\n');
       const userMsg = 'Gi en kort oppsummering.';
 
@@ -381,38 +355,12 @@ export async function POST(request: NextRequest) {
       const strongOverlap = scored[0]?.sim >= minSim;
 
       if ((detectPageQAIntent(currentQuery) || strongOverlap) && qaChunks.length > 0) {
-        // Detect language with preference/TLD override
-        let langName = '';
-        try {
-          const tinyld = await import('tinyld');
-          const code = tinyld.detect(currentQuery || introMessage || '');
-          const MAP: Record<string, string> = { en: 'English', no: 'Norwegian', nb: 'Norwegian', nn: 'Norwegian', da: 'Danish', sv: 'Swedish', fi: 'Finnish', de: 'German', fr: 'French', es: 'Spanish', pt: 'Portuguese', it: 'Italian', nl: 'Dutch' };
-          const detected = MAP[code as string] || '';
-          const inferFromUrl = (u?: string | null): string | undefined => {
-            if (!u) return undefined;
-            try {
-              const host = new URL(u).hostname.toLowerCase();
-              if (host.endsWith('.no')) return 'Norwegian';
-              if (host.endsWith('.se')) return 'Swedish';
-              if (host.endsWith('.dk')) return 'Danish';
-              if (host.endsWith('.fi')) return 'Finnish';
-              if (host.endsWith('.de')) return 'German';
-              if (host.endsWith('.nl')) return 'Dutch';
-              if (host.endsWith('.fr')) return 'French';
-              if (host.endsWith('.es')) return 'Spanish';
-              if (host.endsWith('.pt')) return 'Portuguese';
-              if (host.endsWith('.it')) return 'Italian';
-              return undefined;
-            } catch { return undefined; }
-          };
-          const siteLang = inferFromUrl((pageContext && pageContext.url) ? pageContext.url : undefined);
-          const preferred = typeof (body?.preferredLanguage) === 'string' && body.preferredLanguage.trim()
-            ? body.preferredLanguage.trim()
-            : undefined;
-          langName = preferred || siteLang || detected || '';
-        } catch {}
-
-        const system = `Answer strictly based on the page content provided below, in ${langName || 'the user\'s language'}. Do not add external knowledge. If the answer is not present, say you cannot find it on this page.`;
+        const languageInstruction = pickLanguageInstruction({
+          preferredLanguage: body?.preferredLanguage,
+          acceptLanguage: request.headers.get('accept-language') || undefined,
+          lastUserText: currentQuery || introMessage || ''
+        });
+        const system = `Answer strictly based on the page content provided below.${languageInstruction} Do not add external knowledge. If the answer is not present, say you cannot find it on this page.`;
         const contextText = qaChunks.map((c: any, i: number) => `Excerpt ${i + 1} ("${c.title}") [similarity ${c.sim.toFixed(2)}]:\n${c.content}`).join('\n\n');
         const result = streamText({
           model: openai('gpt-4o-mini'),
@@ -497,17 +445,14 @@ export async function POST(request: NextRequest) {
     if (!domainTerms.length) {
       try {
         // Detect language to refuse in user's language
-        let langName = '';
-        try {
-          const tinyld = await import('tinyld');
-          const lastText = (typeof messages[messages.length - 1]?.content === 'string')
+        const languageInstruction = pickLanguageInstruction({
+          preferredLanguage: body?.preferredLanguage,
+          acceptLanguage: request.headers.get('accept-language') || undefined,
+          lastUserText: (typeof messages[messages.length - 1]?.content === 'string')
             ? (messages[messages.length - 1]?.content as string)
-            : (messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || '');
-          const code = tinyld.detect(lastText || '');
-          const MAP: Record<string, string> = { en: 'English', no: 'Norwegian', nb: 'Norwegian', nn: 'Norwegian', da: 'Danish', sv: 'Swedish', fi: 'Finnish', de: 'German', fr: 'French', es: 'Spanish', pt: 'Portuguese', it: 'Italian', nl: 'Dutch' };
-          langName = MAP[code as string] || '';
-        } catch {}
-        const system = `Respond briefly in ${langName || "the user's language"}. Say you don't have information to answer this yet for this site.`;
+            : (messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || '')
+        });
+        const system = `Respond briefly.${languageInstruction} Say you don't have information to answer this yet for this site.`;
         const result = streamText({
           model: openai('gpt-4o-mini'),
           messages: [
@@ -556,19 +501,32 @@ export async function POST(request: NextRequest) {
       return false;
     })();
 
-    const inDomain = pageIntent || offerHint?.type !== 'none' || isInDomain(currentQuery, domainTerms) || checkRecentInDomain;
+    let inDomain = pageIntent || offerHint?.type !== 'none' || isInDomain(currentQuery, domainTerms) || checkRecentInDomain;
+    // Soft fallback: if not in domain but query has meaningful tokens and site has offers, allow retrieval
     if (!inDomain) {
-      // Refuse succinctly in user's language with a generic, stable hint
-      let langName = '';
       try {
-        const tinyld = await import('tinyld');
-        const lastText = (typeof messages[messages.length - 1]?.content === 'string')
-          ? (messages[messages.length - 1]?.content as string)
-          : (messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || '');
-        const MAP: Record<string, string> = { en: 'English', no: 'Norwegian', nb: 'Norwegian', nn: 'Norwegian', da: 'Danish', sv: 'Swedish', fi: 'Finnish', de: 'German', fr: 'French', es: 'Spanish', pt: 'Portuguese', it: 'Italian', nl: 'Dutch' };
-        langName = MAP[tinyld.detect(lastText || '') as string] || '';
+        const extractor = new TermExtractor();
+        const extracted = extractor.extractTerms(currentQuery || '', 3);
+        const hasTokens = !!(extracted && extracted.combined && extracted.combined.length > 0);
+        if (hasTokens) {
+          const { count } = await supabase
+            .from('offers')
+            .select('id', { count: 'exact', head: true })
+            .eq('site_id', siteId);
+          if ((count || 0) > 0) inDomain = true;
+        }
       } catch {}
-      const refuseSystem = `Respond briefly in ${langName || "the user's language"}. Politely say you don't have information about that topic. You can help with other subjects mentioned on this website.`;
+    }
+    if (!inDomain) {
+      // Refuse succinctly with robust language instruction
+      const languageInstruction = pickLanguageInstruction({
+        preferredLanguage: body?.preferredLanguage,
+        acceptLanguage: request.headers.get('accept-language') || undefined,
+        lastUserText: (typeof messages[messages.length - 1]?.content === 'string')
+          ? (messages[messages.length - 1]?.content as string)
+          : (messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || '')
+      });
+      const refuseSystem = `Respond briefly.${languageInstruction} Politely say you don't have information about that topic. You can help with other subjects mentioned on this website.`;
       const result = streamText({
         model: openai('gpt-4o-mini'),
         messages: [
@@ -1054,48 +1012,13 @@ export async function POST(request: NextRequest) {
     
     // Get AI instructions from centralized location
     const baseInstructions = getAIInstructions();
-    // Detect user's language to enforce reply language (best-effort), with preference/TLD override
-    let languageInstruction = '';
-    try {
-      const tinyld = await import('tinyld');
-      const lastText = (typeof messages[messages.length - 1]?.content === 'string')
+    const languageInstruction = pickLanguageInstruction({
+      preferredLanguage,
+      acceptLanguage: request.headers.get('accept-language') || undefined,
+      lastUserText: (typeof messages[messages.length - 1]?.content === 'string')
         ? (messages[messages.length - 1]?.content as string)
-        : (messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || '');
-      const code = tinyld.detect(lastText || '');
-      const LANG_NAME: Record<string, string> = {
-        en: 'English',
-        no: 'Norwegian', nb: 'Norwegian', nn: 'Norwegian',
-        da: 'Danish', sv: 'Swedish', fi: 'Finnish',
-        de: 'German', fr: 'French', es: 'Spanish', pt: 'Portuguese', it: 'Italian', nl: 'Dutch'
-      };
-      const name = LANG_NAME[code as string];
-      // Site-based fallback via TLD heuristics
-      const inferFromUrl = (u?: string | null): string | undefined => {
-        if (!u) return undefined;
-        try {
-          const host = new URL(u).hostname.toLowerCase();
-          if (host.endsWith('.no')) return 'Norwegian';
-          if (host.endsWith('.se')) return 'Swedish';
-          if (host.endsWith('.dk')) return 'Danish';
-          if (host.endsWith('.fi')) return 'Finnish';
-          if (host.endsWith('.de')) return 'German';
-          if (host.endsWith('.nl')) return 'Dutch';
-          if (host.endsWith('.fr')) return 'French';
-          if (host.endsWith('.es')) return 'Spanish';
-          if (host.endsWith('.pt')) return 'Portuguese';
-          if (host.endsWith('.it')) return 'Italian';
-          return undefined;
-        } catch { return undefined; }
-      };
-      // Prefer pageContext URL if available; otherwise rely on request origin (iframe) which is app domain
-      const siteLang = inferFromUrl((pageContext && pageContext.url) ? pageContext.url : undefined);
-      // Priority: dashboard preferredLanguage > site TLD > detector
-      const preferred = typeof preferredLanguage === 'string' && preferredLanguage.trim()
-        ? preferredLanguage.trim()
-        : undefined;
-      const finalName = preferred || siteLang || name;
-      if (finalName) languageInstruction = `\n\nIMPORTANT: Respond in ${finalName}.`;
-    } catch {}
+        : (messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || '')
+    });
     
     // Add intro message context if provided - use strong instruction language
     const introContext = introMessage 
