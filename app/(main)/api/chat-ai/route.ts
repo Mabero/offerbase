@@ -632,33 +632,10 @@ export async function POST(request: NextRequest) {
     const followUp = isFollowUpQuery(currentQuery);
     try {
       const startTime = Date.now();
-      
-      // Debug: Generate and log the query embedding with normalization info
+      // Generate a single query embedding for all downstream consumers
       const { EmbeddingProviderFactory } = await import('@/lib/embeddings/factory');
       const embeddingProvider = EmbeddingProviderFactory.fromEnvironment();
-      
-      // Get normalization debug info
-      const debugInfo = embeddingProvider.getDebugInfo ? 
-        embeddingProvider.getDebugInfo(currentQuery) : 
-        { 
-          original: currentQuery, 
-          normalized: currentQuery, 
-          hash: 'no-hash', 
-          changed: false 
-        };
-      
       queryEmbeddingDebug = await embeddingProvider.generateEmbedding(currentQuery);
-      if (DEBUG) {
-        console.log('[DEBUG] Query embedding generated:', {
-          originalQuery: debugInfo.original,
-          normalizedQuery: debugInfo.normalized,
-          textHash: debugInfo.hash,
-          wasNormalized: debugInfo.changed,
-          embeddingLength: queryEmbeddingDebug.length,
-          firstFewValues: queryEmbeddingDebug.slice(0, 5).map(v => v.toFixed(6)),
-          embeddingSum: queryEmbeddingDebug.reduce((a, b) => a + b, 0).toFixed(6)
-        });
-      }
       
       // Check if corpus-aware search is enabled
       const corpusAwareEnabled = process.env.CORPUS_AWARE_SEARCH === 'true';
@@ -677,7 +654,8 @@ export async function POST(request: NextRequest) {
             similarityThreshold: (isShort && pageIntent)
               ? Math.min(0.15, Number(process.env.RAG_SIMILARITY_THRESHOLD ?? 0.3))
               : Number(process.env.RAG_SIMILARITY_THRESHOLD ?? 0.3),
-          }
+          },
+          queryEmbeddingDebug
         );
         searchResults = smart as any[];
         // Use boosted score when available (final_score), else fallback to similarity
@@ -688,10 +666,7 @@ export async function POST(request: NextRequest) {
             : (top.similarity ?? 0);
         }
         // Compute vector for routing
-        const { EmbeddingProviderFactory } = await import('@/lib/embeddings/factory');
-        const embeddingProvider2 = EmbeddingProviderFactory.fromEnvironment();
-        const emb = await embeddingProvider2.generateEmbedding(currentQuery);
-        vectorResults = await searchService.vectorSearch(emb, siteId, 10);
+        vectorResults = await searchService.vectorSearch(queryEmbeddingDebug, siteId, 10);
         topVectorScore = vectorResults[0]?.similarity ?? 0;
         // Merge ephemeral page-context chunks only when intent indicates page-related request
         if (process.env.ENABLE_PAGE_CONTEXT !== 'false' && pageContext?.url && (!PAGE_CONTEXT_INTENT_ONLY || pageIntent)) {
@@ -708,7 +683,7 @@ export async function POST(request: NextRequest) {
                   chunkId: `ephemeral:${h}:${idx}`,
                   content: pc.content,
                   materialTitle: cached.title || 'Page',
-                  similarity: cosineSimilarity(emb, pc.embedding) || 0,
+                  similarity: cosineSimilarity(queryEmbeddingDebug, pc.embedding) || 0,
                   metadata: { source: 'page' }
                 }))
                 .filter((c: any) => (c.similarity ?? 0) >= minSim)
@@ -738,7 +713,8 @@ export async function POST(request: NextRequest) {
             limit: 10,
             useReranker: false,
             similarityThreshold: Number(process.env.RAG_SIMILARITY_THRESHOLD ?? 0.3),
-          }
+          },
+          queryEmbeddingDebug
         );
         
         searchResults = enhancedResult.results;
@@ -751,11 +727,8 @@ export async function POST(request: NextRequest) {
             ? top.final_score
             : (top.similarity ?? 0);
         }
-        // Compute vector score separately for routing
-        const { EmbeddingProviderFactory } = await import('@/lib/embeddings/factory');
-        const embeddingProvider2 = EmbeddingProviderFactory.fromEnvironment();
-        const emb = await embeddingProvider2.generateEmbedding(currentQuery);
-        vectorResults = await searchService.vectorSearch(emb, siteId, 10);
+        // Compute vector score separately for routing (reuse embedding)
+        vectorResults = await searchService.vectorSearch(queryEmbeddingDebug, siteId, 10);
         topVectorScore = vectorResults[0]?.similarity ?? 0;
         
         if (DEBUG) console.log('[DEBUG] Enhanced Search Telemetry:', searchTelemetry);
@@ -775,7 +748,8 @@ export async function POST(request: NextRequest) {
               limit: 10,
               useReranker: false,
               similarityThreshold: Number(process.env.RAG_SIMILARITY_THRESHOLD ?? 0.3),
-            }
+            },
+            queryEmbeddingDebug
           )
         ]);
         
@@ -858,9 +832,7 @@ export async function POST(request: NextRequest) {
       }
       
       if (DEBUG) console.log('[DEBUG] Hybrid search completed:', {
-        originalQuery: debugInfo.original.substring(0, 50),
-        normalizedQuery: debugInfo.normalized.substring(0, 50),
-        textHash: debugInfo.hash,
+        query: (currentQuery || '').substring(0, 50),
         searchTimeMs: searchTime,
         vectorResults: vectorResults.length,
         hybridResults: searchResults.length,

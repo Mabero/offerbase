@@ -60,7 +60,8 @@ export class VectorSearchService {
   async hybridSearch(
     query: string,
     siteId: string,
-    options: HybridSearchOptions = {}
+    options: HybridSearchOptions = {},
+    precomputedEmbedding?: number[]
   ): Promise<SearchResult[]> {
     const {
       vectorWeight = 0.7,
@@ -71,8 +72,10 @@ export class VectorSearchService {
     } = options;
     
     try {
-      // Generate query embedding
-      const queryEmbedding = await this.embeddingProvider.generateEmbedding(query);
+      // Generate query embedding (or reuse precomputed)
+      const queryEmbedding = (precomputedEmbedding && Array.isArray(precomputedEmbedding))
+        ? precomputedEmbedding
+        : await this.embeddingProvider.generateEmbedding(query);
       
       // Perform parallel searches
       const [vectorResults, keywordResults] = await Promise.all([
@@ -382,7 +385,8 @@ export class VectorSearchService {
       terms: string[];
       categoryHint?: string;
     },
-    options: HybridSearchOptions = {}
+    options: HybridSearchOptions = {},
+    precomputedEmbedding?: number[]
   ): Promise<(SearchResult & {
     base_score: number;
     final_score: number;
@@ -397,7 +401,7 @@ export class VectorSearchService {
       let rawResults = await this.hybridSearch(query, siteId, {
         ...options,
         limit: (options.limit || 10) * 2 // Get more candidates for boosting
-      });
+      }, precomputedEmbedding);
 
       // If no results and CJK/Thai detected, try trigram fallback
       const needsTrigram = this.detectMultilingualNeeds(query);
@@ -552,7 +556,8 @@ export class VectorSearchService {
   async hybridSearchWithTermExtraction(
     query: string,
     siteId: string,
-    options: HybridSearchOptions = {}
+    options: HybridSearchOptions = {},
+    precomputedEmbedding?: number[]
   ): Promise<{ results: SearchResult[]; telemetry: SearchTelemetry }> {
     const telemetry: SearchTelemetry = {
       extraction_method: null,
@@ -654,8 +659,10 @@ export class VectorSearchService {
         }
       }
 
-      // 4. Always run vector search with original query
-      const queryEmbedding = await this.embeddingProvider.generateEmbedding(query);
+      // 4. Always run vector search with original query (reuse when provided)
+      const queryEmbedding = (precomputedEmbedding && Array.isArray(precomputedEmbedding))
+        ? precomputedEmbedding
+        : await this.embeddingProvider.generateEmbedding(query);
       const vectorResults = await this.vectorSearch(queryEmbedding, siteId, limit * 2);
 
       // 5. Merge results
