@@ -20,6 +20,7 @@ import {
   type SiteToken,
 } from '@/lib/widget-auth';
 import { getSiteConfig } from '@/lib/site-config';
+import { normalizeText as normalizeOfferText } from '@/lib/offers/normalization';
 // Import for context handling
 
 // Allow streaming responses up to 30 seconds
@@ -924,6 +925,112 @@ export async function POST(request: NextRequest) {
 
     // Comparative clarifier: if comparative intent but evidence for both sides is weak, ask one concise clarifier
     const subjectTermsForComp = (conversationContext || []).filter(t => /\d/.test(t));
+
+    // Audience/Benefit/Attribute gates: language-agnostic, evidence-first
+    const GATES_ENABLED = {
+      audience: process.env.ENABLE_AUDIENCE_GATE !== 'false',
+      attribute: process.env.ENABLE_ATTRIBUTE_GATE !== 'false',
+      benefit: process.env.ENABLE_BENEFIT_GATE !== 'false',
+    } as const;
+
+    // Helpers to extract grounded snippets from existing chunks
+    const extractBulletsForWinner = (maxItems: number = 4): string[] => {
+      if (offerHint.type !== 'single' || !offerHint.offer) return [];
+      const normTitle = normalizeOfferText(offerHint.offer.title || '');
+      const normBrand = (offerHint.offer.brand_norm || '').trim();
+      const out: string[] = [];
+      for (const r of searchResults) {
+        if (!r || !r.content) continue;
+        const content = String(r.content);
+        const norm = normalizeOfferText(content);
+        if (normBrand && !norm.includes(normBrand) && normTitle && !norm.includes(normTitle)) continue;
+        const lines = content.split(/\r?\n/);
+        for (const raw of lines) {
+          const m = raw.match(/^\s*[•\-*]\s*(.{8,200})$/);
+          if (m) {
+            const text = m[1].trim();
+            if (text && !out.includes(text)) {
+              out.push(text);
+              if (out.length >= maxItems) return out;
+            }
+          }
+        }
+      }
+      return out;
+    };
+
+    const extractAttributeSnippets = (maxItems: number = 3): string[] => {
+      if (offerHint.type !== 'single' || !offerHint.offer) return [];
+      const normTitle = normalizeOfferText(offerHint.offer.title || '');
+      const normBrand = (offerHint.offer.brand_norm || '').trim();
+      const out: string[] = [];
+      const numberish = /(\p{Sc}|%|\d)/u; // currency symbol or percent or any digit
+      for (const r of searchResults) {
+        if (!r || !r.content) continue;
+        const content = String(r.content);
+        const norm = normalizeOfferText(content);
+        if (normBrand && !norm.includes(normBrand) && normTitle && !norm.includes(normTitle)) continue;
+        const lines = content.split(/\r?\n/);
+        for (const raw of lines) {
+          const text = raw.trim();
+          if (text.length >= 6 && text.length <= 200 && numberish.test(text)) {
+            if (!out.includes(text)) {
+              out.push(text);
+              if (out.length >= maxItems) return out;
+            }
+          }
+        }
+      }
+      return out;
+    };
+
+    const answerWithBullets = (mode: string, items: string[]) => {
+      const languageInstruction = pickLanguageInstruction({
+        preferredLanguage,
+        acceptLanguage: request.headers.get('accept-language') || undefined,
+        lastUserText: (typeof messages[messages.length - 1]?.content === 'string')
+          ? (messages[messages.length - 1]?.content as string)
+          : (messages[messages.length - 1]?.parts?.find((p: any) => p.type === 'text')?.text || '')
+      });
+      const system = `Answer${languageInstruction} Provide 2–4 very short bullet points using only the provided excerpts. If the excerpts do not contain the answer, say you can't find it.`;
+      const ctx = items.map((t, i) => `• ${t}`).join('\n');
+      const result = streamText({
+        model: openai('gpt-4o-mini'),
+        messages: [
+          { role: 'system' as const, content: system },
+          { role: 'user' as const, content: (currentQuery || '').trim() },
+          { role: 'user' as const, content: `Excerpts:\n${ctx}` },
+        ],
+        temperature: 0.2,
+        maxOutputTokens: 160,
+      });
+      const response = result.toUIMessageStreamResponse();
+      if (secureMode) {
+        const cors = getCORSHeaders(origin, allowedOriginsForCors);
+        for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
+      }
+      response.headers.set('X-Route-Mode', mode);
+      return response;
+    };
+
+    // Run gates only when we would otherwise clarify/refuse
+    const candidateForGate = !hasRelevantMaterials || useCleanRefusal;
+    if (candidateForGate && offerHint.type === 'single' && offerHint.offer && !isComparativeQueryGeneric(currentQuery, subjectTermsForComp)) {
+      // Audience/benefit via bullet extraction
+      if (GATES_ENABLED.audience || GATES_ENABLED.benefit) {
+        const bullets = extractBulletsForWinner(4);
+        if (bullets.length >= 1) {
+          return answerWithBullets(GATES_ENABLED.audience ? 'audience' : 'benefit', bullets);
+        }
+      }
+      // Attribute snippets (numbers/currency/time)
+      if (GATES_ENABLED.attribute) {
+        const attribs = extractAttributeSnippets(3);
+        if (attribs.length >= 1) {
+          return answerWithBullets('attribute', attribs);
+        }
+      }
+    }
     const comparativeWanted = isComparativeQueryGeneric(currentQuery, subjectTermsForComp);
     if (comparativeWanted) {
       const codesQ = extractCodeLikeTokens(currentQuery);
