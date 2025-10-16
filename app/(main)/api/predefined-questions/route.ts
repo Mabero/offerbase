@@ -291,6 +291,8 @@ export async function POST(request: NextRequest) {
       await cache.del(cacheKey);
       // Also invalidate match caches for this site
       await cache.invalidatePattern?.(`chat:${questionData.siteId}:question_match_*`);
+      // Bump site cache version so all readers get fresh keys
+      await cache.bumpSiteVersion(questionData.siteId);
       console.log(`🗑️ Cache invalidated for predefined questions and matches: ${questionData.siteId}`);
     } catch (cacheError) {
       console.warn(`⚠️ Cache invalidation failed for site ${questionData.siteId}:`, cacheError);

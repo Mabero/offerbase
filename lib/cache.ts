@@ -159,6 +159,34 @@ class CacheClient {
       client: this.client ? 'redis' : 'none'
     };
   }
+
+  // Site cache version helpers (for invalidation without KEYS/SCAN)
+  async getSiteVersion(siteId: string): Promise<number> {
+    if (!this.isConnected || !this.client) return 1;
+    const key = `chat:${siteId}:cache_version`;
+    try {
+      const raw = await this.client.get(key as any);
+      if (!raw) return 1;
+      const n = typeof raw === 'string' ? parseInt(raw, 10) : Number(raw);
+      return Number.isFinite(n) && n > 0 ? n : 1;
+    } catch (error) {
+      console.warn(`Cache getSiteVersion error for site ${siteId}:`, error);
+      return 1;
+    }
+  }
+
+  async bumpSiteVersion(siteId: string): Promise<number> {
+    if (!this.isConnected || !this.client) return 1;
+    const key = `chat:${siteId}:cache_version`;
+    try {
+      // @ts-ignore - both clients support INCR
+      const v = await (this.client as any).incr(key);
+      return typeof v === 'number' ? v : parseInt(String(v), 10) || 1;
+    } catch (error) {
+      console.warn(`Cache bumpSiteVersion error for site ${siteId}:`, error);
+      return 1;
+    }
+  }
 }
 
 // Export singleton instance

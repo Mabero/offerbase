@@ -70,8 +70,15 @@ export async function GET(request: NextRequest) {
     // Sanitize the page URL
     const sanitizedPageUrl = sanitizeUrl(pageUrl);
     
-    // Build cache key based on site and page URL
-    const cacheKey = getCacheKey(siteId, `question_match_${Buffer.from(sanitizedPageUrl).toString('base64')}_${maxResults}`);
+    // Build cache key based on site, page URL, and site cache version
+    let siteVersion = 1;
+    try {
+      siteVersion = await cache.getSiteVersion(siteId);
+    } catch {}
+    const cacheKey = getCacheKey(
+      siteId,
+      `v${siteVersion}:question_match_${Buffer.from(sanitizedPageUrl).toString('base64')}_${maxResults}`
+    );
     
     // Try to get from cache first
     try {

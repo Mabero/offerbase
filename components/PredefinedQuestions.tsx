@@ -90,9 +90,7 @@ export function PredefinedQuestions({
         }
 
         @media (max-width: 480px) {
-          .predefined-questions-container {
-            padding: 8px 12px 0 12px;
-          }
+          
           
           .questions-wrapper {
             gap: 6px;

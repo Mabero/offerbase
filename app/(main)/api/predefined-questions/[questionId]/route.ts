@@ -307,6 +307,7 @@ export async function PUT(
       const cacheKey = getCacheKey(existingQuestion.site_id, 'predefined_questions');
       await cache.del(cacheKey);
       await cache.invalidatePattern?.(`chat:${existingQuestion.site_id}:question_match_*`);
+      await cache.bumpSiteVersion(existingQuestion.site_id);
       console.log(`🗑️ Cache invalidated for predefined questions and matches: ${existingQuestion.site_id}`);
     } catch (cacheError) {
       console.warn(`⚠️ Cache invalidation failed for site ${existingQuestion.site_id}:`, cacheError);
@@ -384,6 +385,7 @@ export async function DELETE(
       const cacheKey = getCacheKey(existingQuestion.site_id, 'predefined_questions');
       await cache.del(cacheKey);
       await cache.invalidatePattern?.(`chat:${existingQuestion.site_id}:question_match_*`);
+      await cache.bumpSiteVersion(existingQuestion.site_id);
       console.log(`🗑️ Cache invalidated for predefined questions and matches: ${existingQuestion.site_id}`);
     } catch (cacheError) {
       console.warn(`⚠️ Cache invalidation failed for site ${existingQuestion.site_id}:`, cacheError);

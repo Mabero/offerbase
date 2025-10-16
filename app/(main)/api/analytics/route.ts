@@ -47,13 +47,16 @@ export async function POST(request: NextRequest) {
     );
     
     
+    const isUuid = (v?: string | null) => !!(v && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v));
+
     const { data: event, error } = await supabase
       .from('analytics_events')
       .insert([{
         site_id: site_id,
         event_type,
         user_session_id: user_session_id || user_id || getSessionId(request),
-        session_id: session_id || null,
+        // Only set session_id when it is a valid UUID; otherwise keep it in user_session_id/event_data
+        session_id: isUuid(session_id) ? session_id : null,
         page_url: page_url || url || null,
         widget_type: widget_type || (details?.widget_type ?? null),
         route_mode: route_mode || null,
