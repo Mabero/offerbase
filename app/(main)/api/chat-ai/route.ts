@@ -282,6 +282,7 @@ export async function POST(request: NextRequest) {
   try {
     const enableSummaryFP = process.env.ENABLE_PAGE_SUMMARY_FASTPATH !== 'false';
     const enablePageQAFP = process.env.ENABLE_PAGE_QA_FASTPATH !== 'false';
+    const enableLexicalFP = process.env.ENABLE_PAGE_QA_LEXICAL_FASTPATH !== 'false';
     const hasPageUrl = Boolean(pageContext?.url);
 
     // Attempt to load cached page context once if needed
@@ -342,7 +343,84 @@ export async function POST(request: NextRequest) {
       return response;
     }
 
-    // Page-QA fast-path
+    // Page-QA Lexical fast-path (no embeddings)
+    if (enableLexicalFP && cachedPage?.chunks?.length && currentQuery && currentQuery.trim().length > 0) {
+      const minOverlap = Number(process.env.LEXICAL_MIN_OVERLAP ?? 2);
+      const maxChunks = Math.max(1, Number(process.env.LEXICAL_MAX_CHUNKS ?? 2));
+      const minQueryTokens = Math.max(1, Number(process.env.LEXICAL_MIN_QUERY_TOKENS ?? 3));
+      const maxTokens = Math.max(120, Number(process.env.PAGE_QA_LEXICAL_MAX_TOKENS ?? 240));
+      const tokenize = (s: string): string[] => (s || '')
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .split(/\s+/)
+        .filter(t => t.length >= 2);
+      const qTokens = tokenize(currentQuery);
+      if (qTokens.length >= minQueryTokens) {
+        const qSet = new Set(qTokens);
+        type Scored = { idx: number; overlap: number; content: string };
+        const scored: Scored[] = (cachedPage.chunks as any[]).map((c: any, idx: number) => {
+          const cTokens = tokenize(c.content || '');
+          let overlap = 0;
+          for (const t of cTokens) if (qSet.has(t)) overlap++;
+          // Lightly reward title token overlap when page title exists
+          if (cachedPage.title) {
+            const tTokens = tokenize(cachedPage.title);
+            for (const t of tTokens) if (qSet.has(t)) overlap += 0.2;
+          }
+          return { idx, overlap, content: c.content };
+        }).filter(s => s.overlap >= minOverlap)
+          .sort((a, b) => b.overlap - a.overlap)
+          .slice(0, maxChunks);
+
+        if (scored.length > 0) {
+          const languageInstruction = pickLanguageInstruction({
+            preferredLanguage: body?.preferredLanguage,
+            acceptLanguage: request.headers.get('accept-language') || undefined,
+            lastUserText: currentQuery || introMessage || ''
+          });
+          const system = `Answer strictly and only from the provided page content.${languageInstruction} If the answer is not present, say you don't know. Be concise.`;
+          const contextText = scored.map((s, i) => `Section ${i + 1} ("${cachedPage.title || 'Page'}"):\n${s.content}`).join('\n\n');
+
+          const result = streamText({
+            model: openai('gpt-4o-mini'),
+            messages: [
+              { role: 'system' as const, content: system },
+              { role: 'user' as const, content: currentQuery },
+              { role: 'user' as const, content: contextText },
+            ],
+            temperature: 0.2,
+            maxOutputTokens: maxTokens,
+          });
+          const response = result.toUIMessageStreamResponse();
+          // Analytics
+          try {
+            const supa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+            void supa.from('analytics_events').insert([{
+              site_id: siteId,
+              event_type: 'route',
+              user_session_id: null,
+              session_id: sessionId || null,
+              page_url: pageContext?.url || null,
+              widget_type: null,
+              route_mode: 'page-qa-lexical',
+              refusal_reason: null,
+              page_context_used: 'used',
+              request_id: null,
+              event_data: { overlap: scored[0]?.overlap || 0, chunks: scored.length }
+            }]).then(() => {}, () => {});
+          } catch {}
+          if (secureMode) {
+            const cors = getCORSHeaders(origin, []);
+            for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
+          }
+          response.headers.set('X-Route-Mode', 'page-qa-lexical');
+          response.headers.set('X-PageContext', 'used');
+          return response;
+        }
+      }
+    }
+
+    // Page-QA fast-path (embeddings)
     if (enablePageQAFP && cachedPage?.chunks?.length) {
       // Compute query embedding and page-chunk similarities
       const { EmbeddingProviderFactory } = await import('@/lib/embeddings/factory');
