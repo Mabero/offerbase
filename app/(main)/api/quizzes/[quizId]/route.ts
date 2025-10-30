@@ -9,12 +9,15 @@ const supabase = createClient(
 );
 
 // PATCH /api/quizzes/[quizId]
-export async function PATCH(request: NextRequest, { params }: { params: { quizId: string } }) {
+export async function PATCH(
+  request: NextRequest,
+  context: { params: Promise<{ quizId: string }> }
+) {
   try {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
 
-    const quizId = params.quizId;
+    const { quizId } = await context.params;
     const body = await request.json();
     const { name, status, priority, targeting, definition } = body || {};
 
@@ -66,12 +69,15 @@ export async function PATCH(request: NextRequest, { params }: { params: { quizId
 }
 
 // DELETE /api/quizzes/[quizId]
-export async function DELETE(_request: NextRequest, { params }: { params: { quizId: string } }) {
+export async function DELETE(
+  _request: NextRequest,
+  context: { params: Promise<{ quizId: string }> }
+) {
   try {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
 
-    const quizId = params.quizId;
+    const { quizId } = await context.params;
     const { data: quiz, error: qErr } = await supabase
       .from('quizzes')
       .select('id, site_id')
@@ -101,4 +107,3 @@ export async function DELETE(_request: NextRequest, { params }: { params: { quiz
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
-
