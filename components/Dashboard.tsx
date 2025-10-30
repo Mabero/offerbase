@@ -59,6 +59,7 @@ import AreaTimeline from './analytics/AreaTimeline';
 import TopPagesTable from './analytics/TopPagesTable';
 import OffersTable from './analytics/OffersTable';
 // ChatWidgetAI removed - using enhanced ChatWidgetCore instead
+import QuizBuilder from './quiz/QuizBuilder';
 
 // Simple language options for the dashboard (AI will handle detection naturally)
 const PREFERRED_LANGUAGE_OPTIONS = [
@@ -86,6 +87,7 @@ const navItems = [
   { label: 'Widgets', icon: LayoutPanelLeft },
   { label: 'Analytics', icon: BarChart3 },
   { label: 'Chat Logs', icon: MessageCircle },
+  { label: 'Quiz Builder', icon: MessageCircleQuestion },
 ];
 
 // Types
@@ -1997,6 +1999,11 @@ function Dashboard({ shouldOpenChat, widgetSiteId: _widgetSiteId, isEmbedded }: 
                    
                   </div>
                 </div>
+              )}
+
+              {/* Quiz Builder Tab */}
+              {selectedTab === 6 && selectedSite && (
+                <QuizBuilder siteId={selectedSite.id} />
               )}
 
 

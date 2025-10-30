@@ -7,6 +7,8 @@ import { PredefinedQuestionButton } from '@/types/predefined-questions';
 import ReactMarkdown from 'react-markdown';
 import { useWidgetAuth, authenticatedFetch } from '@/lib/use-widget-auth';
 import { detectIntent } from '@/lib/ai/intent-detector';
+import QuizRunner from '@/components/quiz/QuizRunner';
+import { QuizRecord } from '@/lib/quiz/types';
 
 interface AffiliateProduct {
   id: string;
@@ -1317,6 +1319,10 @@ export function ChatWidgetCore({
   // Gate user input until a valid token is available to avoid 401s
   const authReady = !!(widgetAuth.token && widgetAuth.isAuthenticated);
   
+  // Quiz state
+  const [activeQuiz, setActiveQuiz] = useState<QuizRecord | null>(null);
+  const [quizLoaded, setQuizLoaded] = useState(false);
+  
   // Local state for input (AI SDK manages loading state)
   const [input, setInput] = useState('');
   
@@ -2178,6 +2184,36 @@ export function ChatWidgetCore({
     }
   }, [pageUrl, siteId, loadPredefinedQuestions]);
 
+  // Load published quiz for this page (feature-flagged)
+  useEffect(() => {
+    const enabled = process.env.NEXT_PUBLIC_ENABLE_QUIZ_BUILDER === 'true';
+    if (!enabled) return;
+    if (!authReady || !widgetAuth.token) return;
+    if (!pageUrl) return;
+    let cancelled = false;
+    const fetchQuiz = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/api/quiz/published?url=${encodeURIComponent(pageUrl)}`, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${widgetAuth.token}` }
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        if (data?.enabled && data?.quiz) {
+          setActiveQuiz(data.quiz as QuizRecord);
+        } else {
+          setActiveQuiz(null);
+        }
+      } catch {
+        if (!cancelled) setActiveQuiz(null);
+      } finally {
+        if (!cancelled) setQuizLoaded(true);
+      }
+    };
+    fetchQuiz();
+    return () => { cancelled = true; };
+  }, [authReady, widgetAuth.token, apiUrl, pageUrl]);
+
 
   const renderMessage = (message: Message, isLatestBotMessage = false) => {
     if (message.type === 'user') {
@@ -2376,6 +2412,31 @@ export function ChatWidgetCore({
 
       {/* Messages Area */}
       <div ref={messagesContainerRef} style={styles.messagesContainer}>
+        {/* Quiz first question (auto-shown) */}
+        {process.env.NEXT_PUBLIC_ENABLE_QUIZ_BUILDER === 'true' && activeQuiz && activeQuiz.definition && (
+          <div style={{ animation: 'fadeInUp 200ms ease-out' }}>
+            <div style={styles.messageRow}>
+              <Avatar src={chatSettings?.chat_icon_url} name={chatSettings?.chat_name} style={styles.avatarSpacing} />
+              <div style={{ maxWidth: '80%' }}>
+                <div style={{ ...styles.messageBubbleBot, fontSize: chatSettings?.font_size || '14px' }}>
+                  <QuizRunner
+                    definition={activeQuiz.definition as any}
+                    locale={undefined}
+                    apiUrl={apiUrl}
+                    siteId={siteId}
+                    widgetToken={widgetAuth.token}
+                    chatColor={chatSettings?.chat_color}
+                    pageUrl={pageUrl || undefined}
+                    onComplete={() => {
+                      // hide quiz once done
+                      setActiveQuiz(null);
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {isLoadingHistory && (
           <div style={{
             display: 'flex',

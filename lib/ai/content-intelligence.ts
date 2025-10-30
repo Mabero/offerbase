@@ -190,6 +190,23 @@ function extractStructuredData(content: string, contentType: ContentType): Struc
       break;
   }
 
+  // Fallback: when no explicit winner is detected but rankings exist,
+  // treat the top-ranked product as the winner. This keeps behaviour
+  // language-agnostic because the numeric list already encodes order.
+  if (
+    !structuredData.winner &&
+    Array.isArray(structuredData.rankings) &&
+    structuredData.rankings.length > 0
+  ) {
+    const top = structuredData.rankings[0];
+    if (top?.product) {
+      structuredData.winner = {
+        product: top.product,
+        reason: top.reason || ''
+      };
+    }
+  }
+
   return structuredData;
 }
 

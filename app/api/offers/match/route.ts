@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { extractContextKeywords, type TrainingChunk } from '@/lib/context-keywords';
 import { analyzeContentIntelligence } from '@/lib/ai/content-intelligence';
 import { getSiteConfig } from '@/lib/site-config';
+import { normalizeText } from '@/lib/offers/normalization';
 import {
   verifySiteToken,
   getRequestOrigin,
@@ -141,29 +142,65 @@ export async function POST(request: NextRequest) {
     // Winner anchoring: lightly boost the item named as best in the AI reply
     const WINNER_BOOST = Number(process.env.OFFER_WINNER_BOOST ?? 0.08);
     const RANK1_BOOST = Number(process.env.OFFER_RANK1_BOOST ?? 0.04);
-    const norm = (s: string) => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-    let winnerNorm: string | null = null;
-    let rank1Norm: string | null = null;
+    const normalizeForMatch = (value: string | null | undefined) => normalizeText(value || '');
+    const collapseWhitespace = (value: string) => value.replace(/\s+/g, '');
+    const buildKeySet = (...values: (string | null | undefined)[]): Set<string> => {
+      const keys = new Set<string>();
+      for (const raw of values) {
+        const normalized = normalizeForMatch(raw);
+        if (!normalized) continue;
+        keys.add(normalized);
+        keys.add(collapseWhitespace(normalized));
+      }
+      return keys;
+    };
+    const setsIntersect = (a: Set<string>, b: Set<string>): boolean => {
+      if (!a.size || !b.size) return false;
+      for (const ak of a) {
+        for (const bk of b) {
+          if (ak === bk || ak.includes(bk) || bk.includes(ak)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    let winnerProduct: string | null = null;
+    let rank1Product: string | null = null;
     try {
       if (typeof aiText === 'string' && aiText.trim().length > 0) {
         const analysis = analyzeContentIntelligence('', aiText);
+        const rankings = analysis?.structuredData?.rankings;
+        const firstRanking =
+          rankings?.find(r => r?.rank === 1) ??
+          (Array.isArray(rankings) && rankings.length > 0 ? rankings[0] : null);
+
         if (analysis?.structuredData?.winner?.product) {
-          winnerNorm = norm(analysis.structuredData.winner.product);
+          winnerProduct = analysis.structuredData.winner.product;
         }
-        if (analysis?.structuredData?.rankings && analysis.structuredData.rankings.length > 0) {
-          const top = analysis.structuredData.rankings[0];
-          if (top?.product) rank1Norm = norm(top.product);
+        if (firstRanking?.product) {
+          rank1Product = firstRanking.product;
+          if (!winnerProduct) {
+            winnerProduct = firstRanking.product;
+          }
         }
       }
     } catch {}
 
+    const winnerKeys = buildKeySet(winnerProduct);
+    const rank1Keys = buildKeySet(rank1Product);
+
     // Compute effective score with small deterministic boost if AI text explicitly recommends an item
     const scoredResults: OfferItem[] = results.map((item: OfferItem) => {
-      const titleNorm = norm(item.title);
-      const bmNorm = norm(`${item.brand_norm || ''} ${item.model_norm || ''}`);
-      const keys = [titleNorm, bmNorm];
-      const isWinner = !!(winnerNorm && keys.some(k => k && (k.includes(winnerNorm!) || winnerNorm!.includes(k))));
-      const isRank1 = !!(rank1Norm && keys.some(k => k && (k.includes(rank1Norm!) || rank1Norm!.includes(k))));
+      const candidateKeys = buildKeySet(
+        item.title,
+        item.brand_norm,
+        item.model_norm,
+        item.brand_norm && item.model_norm ? `${item.brand_norm} ${item.model_norm}` : undefined
+      );
+      const isWinner = setsIntersect(candidateKeys, winnerKeys);
+      const isRank1 = setsIntersect(candidateKeys, rank1Keys);
       const effectiveScore = item.match_score + (isWinner ? WINNER_BOOST : 0) + (isRank1 ? RANK1_BOOST : 0);
       return { ...item, effectiveScore };
     });
